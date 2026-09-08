@@ -210,19 +210,22 @@ https://<APP_HOST>
 
 ## この環境の実測結果
 
-直前のremote実測asset `1.4.5`をGitHubの`main/app`から新規Appへ配置し、App状態、health、resource binding、既存Index Variant一覧、実RAGチャット、MLflow Trace、PDFリンク引用まで確認しました。現行source asset `1.4.8`はPython 337件とUI 38件、合計375件の自動テストに合格していますが、remote実測は`PENDING`です。登録済み評価質問の選択runと孤児Chat run回復付きPDF単体削除はasset `1.4.4`の検証履歴です。旧asset `1.4.1`で実行した非車両G01のChat／評価も履歴として下表に残します。
+現行source asset `1.4.8`はPython 337件とUI 38件、合計375件の自動テストに合格しています。2026-09-09にGitHubの`main/app`から配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.8`／`databricks_ready=true`、resource binding 7件を確認しました。asset `1.4.7`で実行済みだったPhase 1・1問・1回runは、asset `1.4.8`のstatus／results APIで再表示できました。評価実行と再表示のassetを区別します。asset `1.4.5`の既存Index／Chat／Trace／PDF引用、asset `1.4.4`の評価質問選択／PDF削除、asset `1.4.1`の非車両G01は過去の検証履歴です。
 
 | 項目 | 実測 |
 |---|---|
 | App | `<APP_NAME>`、汎用RAGの説明文 |
-| Deployment | `<DEPLOYMENT_ID>`、`SUCCEEDED` |
+| Deployment | GitHub `main/app`のasset `1.4.8`、`SUCCEEDED`。実IDは非掲載 |
 | App／compute | `RUNNING`／`ACTIVE` |
-| Health | HTTP 200、asset `1.4.5` |
+| Health | version `1.4.8`、`databricks_ready=true` |
 | Resources／scope | binding 7件、`iam.access-control:read`、`iam.current-user:read`、`model-serving` |
 | ログインユーザー | `/api/me` HTTP 200、`<DATABRICKS_USER_EMAIL>` |
 | App SP権限 | grant 30文成功。`toyota_index_variants`の`MODIFY`はStatement `<STATEMENT_ID>`、`SELECT`＋`MODIFY`の確認は`<STATEMENT_ID>` |
 | Source test | asset `1.4.8`、Python 337件、UI 38件、合計375件、差分check成功 |
 | App起動 | deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`。旧deploymentのnpm失敗履歴は現行Appと分けて記録 |
+| 評価status／results | asset `1.4.7`で実行済みのPhase 1・1問・1回runをasset `1.4.8`のremote APIで取得。`SUCCEEDED`、1／1、774秒、指標1件、改善提案1件 |
+| 評価結果 | Recall／Correctness／Groundedness／Citation各1.0、error rate 0、p50 5,479 ms。Lakeflow run total 777.125秒 |
+| 評価画面 | `elapsed_seconds=774`を「12分54秒」と表示し、3秒後も固定。Phase横並びと結果画面はローカルSSO代替画面で目視確認 |
 | PDF概要 | 20件snapshotで空欄0件、20〜30字違反0件。`AI_GENERATED=10`、`AI_GENERATED_NORMALIZED=9`、`USER=1`。最新registry 22件全体の監査値ではない |
 | PDF content API | 通常取得200、byte Range 206、ETag再検証304、`private, max-age=300` |
 | App SP | client `<APP_SERVICE_PRINCIPAL_ID>`、numeric `<APP_SERVICE_PRINCIPAL_NUMERIC_ID>` |

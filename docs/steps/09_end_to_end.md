@@ -157,7 +157,9 @@ app/.venv/bin/python scripts/smoke_test_last_document_deletion.py \
 確認済み項目は`SUCCESS`です。
 
 - 現行source asset `1.4.8`はPython 337件とUI 38件、合計375件が成功し、差分checkも成功しました。ローカル画面でPhase横並び、評価開始直後のspinner、進捗、完了、停止、結果取得中のspinnerを確認しました。既存のChat実測ではEnter 5連打時の質問1件、思考中spinner、停止直後の入力復帰、会話履歴の往復277／284 ms、下書き保持、390 px表示、console error 0件を確認しています。
-- 直前のremote実測asset `1.4.5`はGitHubの`main/app`から新規Appへ配置済みです。`SUCCEEDED`／`RUNNING`／`ACTIVE`、health HTTP 200、resource binding 7件、既存Index Variant一覧1件を確認しました。実RAGチャットはAI Search 10件、回答、Trace、PDFリンク引用、`run.completed`まで成功しています。asset `1.4.8`のremote実測は`PENDING`です。
+- 現行asset `1.4.8`はGitHubの`main/app`から配置済みです。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.8`／`databricks_ready=true`、resource binding 7件を確認しました。実ID、メール、App URL、Workspace IDは公開記録へ含めていません。
+- asset `1.4.7`で実行済みだったPhase 1・1問・1回runを、asset `1.4.8`のremote status／results APIで取得しました。状態は`SUCCEEDED`、1／1試行、`elapsed_seconds=774`、Lakeflow run totalは777.125秒、指標1件、改善提案1件、Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msです。asset `1.4.8`で新しい評価runを起動した証跡ではありません。
+- Phase横並び、結果画面、経過時間「12分54秒」が3秒後も固定されることは、ローカルSSO代替画面で目視確認しました。asset `1.4.5`の既存Index、実RAGチャット、Trace、PDFリンク引用は過去のremote履歴として保持します。
 - baseline Projectの使用中Variantを`baseline-standard-512-v1`へ復元し、UPDATE Statement `<STATEMENT_ID>`と検証SELECT `<STATEMENT_ID>`で確認しました。
 - 非車両Project `<RESOURCE_ID>`へPDFを登録し、タイトル自動補完、汎用metadata、旧車両値NULL、3ページの`FILE`型解析を確認しました。documentは`<RESOURCE_ID>`、parse runは`<RESOURCE_ID>`です。
 - 「RAG検索データを作成」はprep run `<RESOURCE_ID>`、Job run `<DATABRICKS_RESOURCE_ID>`、Semantic／512 Variant `<RESOURCE_ID>`で`SUCCEEDED`です。sourceとIndexは各6行、別Project行0、Indexは`READY`です。
@@ -181,7 +183,7 @@ app/.venv/bin/python scripts/smoke_test_last_document_deletion.py \
 
 次の3領域は`PENDING`のままです。
 
-- Microsoft Entra IDへサインイン済みのブラウザによる、デプロイ画面4ページの手操作。remote API E2EとローカルBrowser UIは成功していますが、これを代替証拠にはしません。
+- Microsoft Entra IDへサインイン済みのremoteブラウザによる、デプロイ画面4ページの手操作。認証付きremote read APIとローカルSSO代替画面は成功していますが、これを代替証拠にはしません。
 - ストリーミング性能runによるserver／client TTFT。非ストリーミング品質runのE2Eから推測しません。
 - 全9 profileのうち未実施の7種類。実WorkspaceではStandard／256とSemantic／512をsmoke済みです。
 

@@ -7,7 +7,7 @@
 対象Workspaceは`field-eng-east`（ID `<WORKSPACE_ID>`）です。Databricksへサインインし、このAppの利用権限を持つアカウントで開いてください。
 
 > [!NOTE]
-> 現行sourceはasset version `1.4.8`です。Python 337件とUI 38件、合計375件の自動テストに合格し、ローカル画面でPhase横並び、進捗、完了、停止、結果取得中の表示を確認しました。直前のremote実測はasset `1.4.5`で、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health HTTP 200、resource binding 7件、既存Index Variant一覧、AI Search 10件取得、LLM回答、MLflow Trace、PDFリンク引用まで確認済みです。asset `1.4.8`のremote実測は`PENDING`であり、デプロイ後に結果を記録します。
+> 現行sourceはasset version `1.4.8`です。Python 337件とUI 38件、合計375件の自動テストに合格しています。GitHubの`main/app`から配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.8`／`databricks_ready=true`、resource binding 7件を確認済みです。asset `1.4.7`で実行済みだったPhase 1・1問・1回runは、asset `1.4.8`で状態と結果を再表示できました。SSO済みremoteブラウザの手操作、TTFT、残り7 profileは`PENDING`です。
 
 > [!CAUTION]
 > 付属のトヨタ車種関連PDFはすべて架空の評価データです。内容を実車の操作、整備、救助、購入判断に使わないでください。これらは同梱シナリオであり、アプリは車両以外のPDFにも使えます。
@@ -413,6 +413,9 @@ advisorにはRecall／Precision／nDCGだけでなく、Answer Correctness、Gro
 - 旧asset `1.4.1`のトヨタ互換回帰でも期待回答`60`と一致し、Trace `<TRACE_ID>`、引用2件を確認済みです。
 - baseline Projectの使用中検索データは`baseline-standard-512-v1`へ復元済みです。
 - 旧asset `1.4.1`のremote回帰では、同一requestの保存がuser／assistant各1件であること、停止要求が`run.cancelled`／永続状態`CANCELLED`になることを確認済みです。評価履歴再表示、`ERROR` PDF再解析、PDFリンクだけを返すlive citationは現行sourceでも回帰済みです。
+- 現行asset `1.4.8`はGitHubの`main/app`から配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.8`／`databricks_ready=true`、resource binding 7件を確認しました。
+- asset `1.4.7`で実行済みだったPhase 1・1問・1回runをasset `1.4.8`のremote status／results APIで取得し、`SUCCEEDED`、1／1試行、`elapsed_seconds=774`を確認しました。Lakeflow run totalは777.125秒、指標1件、改善提案1件、Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msです。これはasset `1.4.8`で新規評価を実行した証跡ではありません。
+- Phase横並び、結果画面、経過時間「12分54秒」が3秒後も固定されることは、ローカルSSO代替画面で目視確認済みです。SSO済みremoteブラウザによる手操作、TTFT、残り7 profileは未確認です。
 - 現行deployment `<DEPLOYMENT_ID>`では、Project `<RESOURCE_ID>`に残っていた30分超の孤児Chat run 2件とassistant messageを`ERROR`へ整合した後、document `<RESOURCE_ID>`の削除がHTTP 202で完了しました。影響旧Variant 4件から後継Variant 2件を作り、両方を`READY`まで確認しました。source／AI Searchは削除PDF 0件で、保持document `<RESOURCE_ID>`だけを返します。
 - 選択評価run `<RESOURCE_ID>`はcase `figure-001`だけを評価し、Job `<DATABRICKS_RESOURCE_ID>`が`TERMINATED`／`SUCCESS`、結果1行、選択外0行、error 0で完了しました。
 - 以前のdeploymentでは、freshな使い捨てProject `<RESOURCE_ID>`のPDFを2件から1件へ削除し、削除PDF 0行／検索hit 0、保持PDF 6行／検索hit 1の後継Indexが`READY`になるまでhelperを完走しました。別の検証Project `<RESOURCE_ID>`では最後のPDF削除後に`EMPTY`、利用可能Variant 0、prep run 4→4となり、原本、解析結果、過去引用を保持することを確認しました。

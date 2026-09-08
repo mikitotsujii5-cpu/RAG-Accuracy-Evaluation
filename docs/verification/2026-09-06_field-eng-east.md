@@ -15,7 +15,7 @@
 
 ## 結果サマリー
 
-2026-09-06〜08の検証では、次の項目を確認しました。具体的なIDは公開用記録から除外しています。
+2026-09-06〜09の検証では、次の項目を確認しました。具体的なID、メール、App URL、Workspace IDは公開用記録から除外しています。
 
 | 区分 | 状態 | 匿名化した結果 |
 |---|---|---|
@@ -29,15 +29,32 @@
 | AI Search | `SUCCESS` | Endpoint、既存Index、ANN、HYBRID、metadata filter、Rerankingを確認 |
 | Lakeflow Jobs | `SUCCESS` | データ準備、評価、Index同期の各Jobが正常終了することを確認 |
 | MLflow | `SUCCESS` | `AGENT`配下に`RETRIEVER`、`CHAT_MODEL`、`EVALUATOR`のTrace階層を確認 |
-| Databricks App | `SUCCESS` | 直前のremote asset `1.4.5`でDeployment、`RUNNING`、compute `ACTIVE`、health HTTP 200、resource binding 7件を確認 |
-| 現行App remote | `PENDING` | asset `1.4.8`のGitHub同期、Databricks Appsデプロイ、remote E2Eは未実施 |
-| App UI | `SUCCESS` | asset `1.4.8`のローカル確認でPhase横並び、評価spinner・進捗、同一key再送、`UNKNOWN`再確認、初回status GETの25秒timeout・最大3回再接続、停止回復、terminal検知時の停止POST中止・結果保持、結果取得中spinner・45秒timeout・最大3回再試行・履歴からの再取得、Enter多重送信防止、履歴切替、モバイル幅、console error 0を確認 |
+| Databricks App | `SUCCESS` | asset `1.4.8`をGitHub `main/app`から配置。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.8`／`databricks_ready=true`、resource binding 7件 |
+| 現行App remote read | `SUCCESS` | asset `1.4.7`で実行済みのPhase 1・1問・1回runをasset `1.4.8`のremote status／results APIで取得。評価実行と互換性確認のassetを区別 |
+| App UI | `SUCCESS` | asset `1.4.8`のローカルSSO代替画面でPhase横並び、結果画面、評価spinner・進捗、同一key再送、`UNKNOWN`再確認、初回status GETの25秒timeout・最大3回再接続、停止回復、terminal検知時の停止POST中止・結果保持、結果取得中spinner・45秒timeout・最大3回再試行・履歴からの再取得を確認 |
 | 評価質問の選択 | `SUCCESS` | 個別・一括選択、0件開始防止、正解情報表示、選択IDだけの評価を確認 |
 | PDF viewer | `SUCCESS` | PDF 200、Range 206、ETag再検証、Project切替時の破棄を確認 |
 | PDF単体の論理削除 | `SUCCESS` | 影響Variantを残存PDFだけで再構築し、削除PDFの検索hitが0になることを確認 |
 | 最後のPDF削除 | `SUCCESS` | Projectが`EMPTY`となり、空Indexを作らず、過去の引用と監査履歴を保持 |
 | 未ラベル評価 | `SUCCESS` | Answer Correctnessを`NULL`として集計対象外にし、改善提案を生成 |
-| TTFT／未実施profile | `PENDING` | 未実測項目を推測で成功扱いにしない |
+| SSO済みremote UI／TTFT／未実施profile | `PENDING` | SSO済みremoteブラウザ手操作、TTFT、残り7 profileを、代替証拠や推測で成功扱いにしない |
+
+### asset 1.4.8のremote再表示smoke
+
+asset `1.4.7`で実行済みだったPhase 1・1問・1回runを、asset `1.4.8`のremote status／results APIで取得しました。したがって、次の値はasset `1.4.8`による新規評価実行の結果ではなく、APIと経過時間表示の互換性を確認した値です。
+
+| 項目 | 匿名化した実測 |
+|---|---:|
+| 状態／試行 | `SUCCEEDED`、1／1 |
+| status API | `elapsed_seconds=774` |
+| 画面の経過時間 | 12分54秒。3秒後も同じ値で固定 |
+| Lakeflow run total | 777.125秒 |
+| 指標／改善提案 | 1件／1件 |
+| Recall／Correctness／Groundedness／Citation | 1.0／1.0／1.0／1.0 |
+| Error rate | 0 |
+| E2E p50 | 5,479 ms |
+
+Phase横並び、結果画面、経過時間12分54秒の固定表示はローカルSSO代替画面で目視確認しました。SSO済みremoteブラウザによる手操作は未実施です。
 
 ## 性能確認の匿名化概要
 

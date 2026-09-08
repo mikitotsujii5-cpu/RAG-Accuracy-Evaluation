@@ -47,7 +47,7 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 
 ## 現在の構築状態
 
-2026-09-08にasset `1.4.5`を新規Databricks AppへGitHubの`main/app`からデプロイし、Deployment、health、既存Index Variant一覧、実RAGチャット、MLflow Trace、PDFリンク引用を確認しました。現行sourceは評価UIと評価開始・停止・結果取得の回復処理を改善したasset `1.4.8`です。Python 337件とUI 38件、合計375件の自動テストに合格していますが、asset `1.4.8`のremote実測前は`PENDING`として扱います。既存Index専用モードでは、管理者の許可リストに一致するVariantだけを画面へ表示し、過去に作成された許可外Variantは一覧から除外します。実検索時の許可リスト検証はfail-closedのままです。公開用Markdownには実測IDを含めません。
+2026-09-09にasset `1.4.8`をGitHubの`main/app`からDatabricks Appへ配置しました。Deploymentは`SUCCEEDED`、Appは`RUNNING`、computeは`ACTIVE`、healthはversion `1.4.8`／`databricks_ready=true`、resource bindingは7件です。asset `1.4.7`で実行済みだったPhase 1・1問・1回の評価runを、asset `1.4.8`のstatus／results APIで再表示し、`SUCCEEDED`、1／1試行、指標1件、改善提案1件を確認しました。これはasset `1.4.8`で新しい評価runを起動した証跡ではありません。現行sourceはPython 337件とUI 38件、合計375件の自動テストにも合格しています。既存Index専用モードでは、管理者の許可リストに一致するVariantだけを画面へ表示し、過去に作成された許可外Variantは一覧から除外します。実検索時の許可リスト検証はfail-closedのままです。公開用Markdownには実測ID、メール、App URL、Workspace IDを含めません。
 
 | 項目 | 状態 | 実測 |
 |---|---|---|
@@ -60,12 +60,13 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 | Phase 1〜5 Evaluation Job | `SUCCESS` | Job `<EVALUATION_JOB_ID>`、run `<DATABRICKS_RESOURCE_ID>`、60結果、エラー0、Trace 60、LLM改善提案5 |
 | 未ラベルstarter評価 | `SUCCESS` | eval `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`。Phase 1×3 trial、error 0、Answer Correctness `NULL`、提案1件 |
 | MLflow Trace | `SUCCESS` | 全60 Traceで`AGENT`配下の`RETRIEVER`／`CHAT_MODEL`／`EVALUATOR`を確認 |
-| Databricks App | `SUCCESS` | deployment `<DEPLOYMENT_ID>`、`SUCCEEDED`／`RUNNING`／`ACTIVE`、resource binding 7件 |
+| Databricks App | `SUCCESS` | GitHub `main/app`のasset `1.4.8`。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件 |
 | App live read APIs | `SUCCESS` | health HTTP 200、`/api/me`でログインメールを取得、Project別PDF／Variant／評価データ／評価履歴を取得 |
-| デプロイ済みasset | `SUCCESS` | GitHub `main/app`、health HTTP 200、asset version `1.4.5` |
+| デプロイ済みasset | `SUCCESS` | GitHub `main/app`、health version `1.4.8`／`databricks_ready=true` |
+| Phase 1評価の再表示 | `SUCCESS` | asset `1.4.7`で実行済みの1問×1回runをasset `1.4.8`のremote APIで取得。`SUCCEEDED`、1／1、`elapsed_seconds=774`、指標1件、改善提案1件 |
 | PDF概要監査（直近snapshot） | `SUCCESS` | 20件時点で空欄0件、20〜30字違反0件。`AI_GENERATED=10`、`AI_GENERATED_NORMALIZED=9`、`USER=1`。その後追加された削除E2E用2件へは外挿しない |
 | App SP権限 | `SUCCESS` | 既存権限checkに加え、`toyota_index_variants`の`SELECT`／`MODIFY`を確認 |
-| Local Browser UI | `SUCCESS` | Enter 5連打で質問1件、思考中表示、停止直後の入力復帰、履歴往復277／284 ms、下書き保持、390 px表示、console error 0 |
+| Local Browser UI | `SUCCESS` | Enter 5連打で質問1件、思考中表示、停止直後の入力復帰、履歴往復277／284 ms、下書き保持、390 px表示、console error 0。SSO代替画面でPhase横並びと結果画面も目視確認 |
 | Baselineの使用中Variant | `SUCCESS` | `baseline-standard-512-v1`へ復元し、UPDATE／検証SELECTで確認 |
 | 非車両PDFのRemote Chat E2E | `SUCCESS` | 旧asset `1.4.1`の履歴。期待回答`30分`と一致、PDF引用1件、Trace `<TRACE_ID>`、PDF／Trace link成功 |
 | 非車両ProjectのPhase 1〜5評価 | `SUCCESS` | 旧asset `1.4.1`の履歴。Dataset `security-policy-v1`、5結果、エラー0、Correctness／Groundedness／Citation各5、Trace 5、改善提案5 |
@@ -79,7 +80,7 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 | PDF単体の論理削除 | `SUCCESS` | asset `1.4.4`でProject `<RESOURCE_ID>`のPDF `<RESOURCE_ID>`をDELETE 202。孤児Chat run 2件とassistant messageを`ERROR`へ整合後、影響旧Variant 4件から後継Variant 2件をREADY化。両Indexで削除PDF hit 0、保持PDFだけを検索 |
 | Data Preparation Serverless本番移行 | `SUCCESS` | Job `<DATA_PREPARATION_JOB_ID>`をPerformance optimized／Environment v5へ移行。production run `<DATABRICKS_RESOURCE_ID>`でStandard／512／Qwen3、3 chunks、Index READY。Classic同入力比でSetup 98.95%、Job実処理8.88%、合計71.18%短縮 |
 | Data Preparation Classic増強履歴 | `SUCCESS_AFTER_REMEDIATION` | D16 Driver／D8 Worker×2のJob `<DATABRICKS_RESOURCE_ID>`が成功、Standard／512／Qwen3、3 chunks、Index READY。増強前比でJob実処理18.75%、合計6.5%短縮したが、Setup 382秒は変わらなかった |
-| TTFT／残り7 chunk profile／SSO済みブラウザE2E | `PENDING` | 品質runからTTFTを推測しない。Standard／256とSemantic／512以外、デプロイ画面の手操作は未確認 |
+| TTFT／残り7 chunk profile／SSO済みremoteブラウザE2E | `PENDING` | 品質runからTTFTを推測しない。Standard／256とSemantic／512以外、およびSSO済みremote画面の手操作は未確認 |
 
 ### RAG検索データ作成の監視と自己回復
 
@@ -432,7 +433,7 @@ Appの説明やuser scopeを更新するときも、7件のresourceを含むfull
 - JavaScript構文2ファイル、Python compile 51ファイル、JSON 19ファイル: pass
 - 4画面とPhase 1〜5のUI確認: browser console error 0
 
-直前のremote実測asset `1.4.5`はGitHubの`main/app`から新規Appへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health HTTP 200、binding 7件を確認しました。許可済み既存Index Variant 1件だけが一覧に表示され、AI Search 10件取得、回答、Trace、PDFリンク引用、`run.completed`まで成功しています。現行source asset `1.4.8`はローカル検証済みで、remote実測は`PENDING`です。評価質問選択とPDF削除の詳細はasset `1.4.4`の検証履歴として保持します。
+現行remote asset `1.4.8`はGitHubの`main/app`から配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.8`／`databricks_ready=true`、binding 7件を確認しました。asset `1.4.7`で実行済みだったPhase 1・1問・1回runをasset `1.4.8`のremote status／results APIで取得し、`SUCCEEDED`、1／1試行、`elapsed_seconds=774`、Lakeflow run total 777.125秒、指標1件、改善提案1件を確認しました。Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msです。ローカルSSO代替画面では、Phase横並び、結果画面、経過時間「12分54秒」が3秒後も固定されることを目視確認しました。評価実行はasset `1.4.7`、status／resultsの互換性確認はasset `1.4.8`であり、同じ証跡として混同しません。SSO済みremoteブラウザ手操作、TTFT、残り7 profileは`PENDING`です。asset `1.4.5`の既存Index、実RAGチャット、Trace、PDFリンク引用と、asset `1.4.4`の評価質問選択／PDF削除は過去の検証履歴として保持します。
 
 ## デプロイ記録
 
@@ -445,7 +446,8 @@ Appの説明やuser scopeを更新するときも、7件のresourceを含むfull
 | Data preparation Classic増強履歴 | run `<DATABRICKS_RESOURCE_ID>` | 2026-09-08 | D16 Driver／D8 Worker×2、Standard／512／Qwen3、3 chunks、Index READY。Setup 382秒、実処理169秒、合計552.328秒。fallback JSONとして保持 |
 | Evaluation Job | `<EVALUATION_JOB_ID>`／run `<DATABRICKS_RESOURCE_ID>` | 2026-09-06 | `SUCCESS`、Phase 1〜5／development 60結果・エラー0・Trace 60・提案5件 |
 | Index sync Job | `<INDEX_SYNC_JOB_ID>`／run `<DATABRICKS_RESOURCE_ID>` | 2026-09-06 | `SUCCESS`、triggered sync |
-| Databricks App | `<APP_URL>`／deployment `<DEPLOYMENT_ID>` | 2026-09-08 | GitHub `main/app`、`SUCCEEDED`／`RUNNING`／`ACTIVE`、health HTTP 200、asset `1.4.5`、binding 7件 |
+| Databricks App | 実ID／URLは非掲載 | 2026-09-09 | GitHub `main/app`、asset `1.4.8`、`SUCCEEDED`／`RUNNING`／`ACTIVE`、health `databricks_ready=true`、binding 7件 |
+| Phase 1評価の再表示 | 実run IDは非掲載 | 2026-09-09 | asset `1.4.7`で実行済みの1問×1回runをasset `1.4.8`で再表示。1／1、774秒、指標1件、提案1件、error 0 |
 | 選択評価smoke | eval run `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>` | 2026-09-08 | `TERMINATED`／`SUCCESS`。`figure-001`だけ、結果1行、選択外0、error 0。MLflow run `<RESOURCE_ID>` |
 | 孤児Chat run回復付きPDF削除 | Project `<RESOURCE_ID>`／document `<RESOURCE_ID>` | 2026-09-08 | DELETE 202、deletion request `<RESOURCE_ID>`。後継prep `<RESOURCE_ID>`／`<RESOURCE_ID>`は両方READY、削除PDF行／hit 0 |
 | PDF単体削除E2E（2件→1件） | Project `<RESOURCE_ID>` | 2026-09-08 | helper exit 0。初期Variant `<RESOURCE_ID>`を`SUPERSEDED`にし、後継 `<RESOURCE_ID>`／Index 6行、削除PDF hit 0、保持PDF hit 1を確認 |
