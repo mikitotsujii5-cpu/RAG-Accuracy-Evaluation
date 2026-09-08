@@ -111,8 +111,13 @@ def _workspace_target(settings: Settings) -> tuple[str, str | None] | None:
             return None
     if not isinstance(raw, str) or not raw.strip():
         return None
+    raw = raw.strip()
+    # Some Apps runtime revisions expose the documented workspace host as a
+    # bare hostname. HTTPS is still enforced after normalization.
+    if "://" not in raw:
+        raw = "https://" + raw
     try:
-        parsed = urlparse(raw.strip())
+        parsed = urlparse(raw)
         if (
             parsed.scheme != "https"
             or not parsed.hostname
