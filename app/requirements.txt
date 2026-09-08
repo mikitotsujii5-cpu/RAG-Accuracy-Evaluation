@@ -1,0 +1,8 @@
+# Versions are pinned so that Databricks Apps deployments are reproducible.
+# FastAPI and Uvicorn match the versions pre-installed by Databricks Apps.
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.32
+databricks-sdk==0.135.0
+databricks-ai-search==0.78
+mlflow-skinny==3.15.2

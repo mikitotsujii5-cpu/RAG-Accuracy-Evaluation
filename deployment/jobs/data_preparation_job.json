@@ -1,0 +1,53 @@
+{
+  "name": "toyota-rag-data-preparation",
+  "description": "Server-validated, Project-scoped preparation of immutable RAG Index Variants, including deterministic successor activation after document deletion.",
+  "format": "MULTI_TASK",
+  "max_concurrent_runs": 2,
+  "queue": {
+    "enabled": true
+  },
+  "parameters": [
+    {
+      "name": "prep_run_id",
+      "default": ""
+    }
+  ],
+  "performance_target": "PERFORMANCE_OPTIMIZED",
+  "environments": [
+    {
+      "environment_key": "toyota_rag_serverless_v5",
+      "spec": {
+        "environment_version": "5",
+        "dependencies": [
+          "databricks-sdk==0.135.0"
+        ]
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "task_key": "prepare_index_variant",
+      "description": "Verify prep_run_id, build the selected chunk profile, create/register its isolated Variant, sync AI Search, and seed starter evaluation questions.",
+      "environment_key": "toyota_rag_serverless_v5",
+      "timeout_seconds": 7200,
+      "max_retries": 1,
+      "min_retry_interval_millis": 60000,
+      "retry_on_timeout": true,
+      "notebook_task": {
+        "notebook_path": "/Workspace/Users/<RUN_AS_USER_EMAIL>/toyota-rag-accuracy-eval/jobs/data_preparation_job",
+        "source": "WORKSPACE",
+        "base_parameters": {
+          "prep_run_id": "{{job.parameters.prep_run_id}}"
+        }
+      }
+    }
+  ],
+  "run_as": {
+    "user_name": "<RUN_AS_USER_EMAIL>"
+  },
+  "tags": {
+    "application": "toyota-rag-accuracy-eval",
+    "compute_profile": "serverless-performance-optimized-v5",
+    "environment": "field-eng-east"
+  }
+}

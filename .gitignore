@@ -1,0 +1,30 @@
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local credentials and environment overrides
+.env
+.env.*
+!.env.example
+
+# Python build and test output
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+
+# JavaScript dependencies and logs
+node_modules/
+npm-debug.log*
+
+# Databricks CLI local state
+.databricks/
+
+# Generated scratch artifacts
+tmp/
+reports/
+deployment/resource_state.json

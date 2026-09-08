@@ -1,0 +1,6 @@
+{
+  "warehouse_id": "<SQL_WAREHOUSE_ID>",
+  "statement": "SELECT grantee, table_catalog, table_schema, table_name, privilege_type FROM system.information_schema.table_privileges WHERE grantee IN ('<APP_SERVICE_PRINCIPAL_ID>', '<APP_SERVICE_PRINCIPAL_NAME>') ORDER BY table_name, privilege_type",
+  "wait_timeout": "50s",
+  "on_wait_timeout": "CONTINUE"
+}

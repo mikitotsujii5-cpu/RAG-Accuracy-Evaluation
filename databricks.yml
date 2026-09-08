@@ -1,0 +1,127 @@
+bundle:
+  name: rag-accuracy-evaluation-app
+  databricks_cli_version: ">= 1.3.0, < 1.4.0"
+
+# All values below point to resources that an administrator created beforehand.
+# This bundle creates or updates only the Databricks App.
+variables:
+  app_name:
+    description: Globally unique Databricks App name in the workspace
+  git_repository_url:
+    description: HTTPS URL of the private GitHub repository
+  git_branch:
+    description: Git branch deployed to the App
+    default: main
+  app_source_path:
+    description: Path to the App source in the repository
+    default: app
+  uc_catalog:
+    description: Existing Unity Catalog catalog name
+  uc_schema:
+    description: Existing Unity Catalog schema name
+  uc_volume_full_name:
+    description: Existing Volume full name (catalog.schema.volume)
+  sql_warehouse_id:
+    description: Existing SQL Warehouse ID
+  vector_search_endpoint:
+    description: Existing AI Search endpoint name
+  baseline_index_full_name:
+    description: Existing baseline AI Search index full name
+  default_llm_endpoint:
+    description: Existing FMAPI LLM serving endpoint name
+  prep_job_id:
+    description: Existing data-preparation Lakeflow Job ID
+  eval_job_id:
+    description: Existing evaluation Lakeflow Job ID
+  mlflow_experiment_id:
+    description: Existing MLflow Experiment ID
+
+resources:
+  apps:
+    rag_accuracy_evaluation:
+      name: ${var.app_name}
+      description: PDFをProject単位で検索・チャットし、Phase 1〜5を比較するRAG精度評価アプリ
+      compute_size: MEDIUM
+      git_repository:
+        provider: gitHub
+        url: ${var.git_repository_url}
+      git_source:
+        branch: ${var.git_branch}
+        source_code_path: ${var.app_source_path}
+      user_api_scopes:
+        - model-serving
+      resources:
+        - name: app-warehouse
+          description: RAG application SQL Warehouse
+          sql_warehouse:
+            id: ${var.sql_warehouse_id}
+            permission: CAN_USE
+        - name: toyota-volume
+          description: Project PDF and page image storage
+          uc_securable:
+            securable_full_name: ${var.uc_volume_full_name}
+            securable_type: VOLUME
+            permission: WRITE_VOLUME
+        - name: baseline-index
+          description: Existing baseline AI Search index
+          uc_securable:
+            securable_full_name: ${var.baseline_index_full_name}
+            securable_type: TABLE
+            permission: SELECT
+        - name: default-llm
+          description: Default chat and optimization FMAPI endpoint
+          serving_endpoint:
+            name: ${var.default_llm_endpoint}
+            permission: CAN_QUERY
+        - name: prep-job
+          description: Existing data-preparation Lakeflow Job
+          job:
+            id: ${var.prep_job_id}
+            permission: CAN_MANAGE_RUN
+        - name: eval-job
+          description: Existing phase-evaluation Lakeflow Job
+          job:
+            id: ${var.eval_job_id}
+            permission: CAN_MANAGE_RUN
+        - name: mlflow-experiment
+          description: Existing MLflow tracing and evaluation Experiment
+          experiment:
+            experiment_id: ${var.mlflow_experiment_id}
+            permission: CAN_EDIT
+      config:
+        command:
+          - python
+          - main.py
+        env:
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: app-warehouse
+          - name: UC_CATALOG
+            value: ${var.uc_catalog}
+          - name: UC_SCHEMA
+            value: ${var.uc_schema}
+          - name: UC_VOLUME
+            value_from: toyota-volume
+          - name: VECTOR_SEARCH_ENDPOINT
+            value: ${var.vector_search_endpoint}
+          - name: DEFAULT_INDEX_NAME
+            value_from: baseline-index
+          - name: DEFAULT_LLM_ENDPOINT
+            value_from: default-llm
+          - name: PREP_JOB_ID
+            value_from: prep-job
+          - name: EVAL_JOB_ID
+            value_from: eval-job
+          - name: MLFLOW_EXPERIMENT_ID
+            value_from: mlflow-experiment
+          - name: MLFLOW_TRACKING_URI
+            value: databricks
+          - name: MLFLOW_TRACING_SQL_WAREHOUSE_ID
+            value_from: app-warehouse
+          - name: DATABRICKS_WORKSPACE_UI_HOST
+            value: ${workspace.host}
+
+targets:
+  prod:
+    mode: production
+    workspace:
+      root_path: ~/.bundle/${bundle.name}/${bundle.target}/${var.app_name}

@@ -1,0 +1,19 @@
+{
+  "columns": [
+    "chunk_id",
+    "project_id",
+    "document_id",
+    "chunk_to_retrieve",
+    "doc_uri",
+    "page_number",
+    "title",
+    "model",
+    "model_year",
+    "document_type",
+    "vehicle_category",
+    "variant_id"
+  ],
+  "query_text": "2024年式プリウスのE-Fourの型式",
+  "query_type": "ANN",
+  "num_results": 5
+}

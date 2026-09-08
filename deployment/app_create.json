@@ -1,0 +1,69 @@
+{
+  "name": "toyota-rag-accuracy-eval",
+  "description": "任意のPDFをProject単位で検索・チャットし、Phase 1〜5とデータ準備Variantを比較する「RAG精度評価アプリ」",
+  "compute_size": "MEDIUM",
+  "user_api_scopes": [
+    "model-serving"
+  ],
+  "resources": [
+    {
+      "name": "app-warehouse",
+      "description": "RAG application SQL Warehouse",
+      "sql_warehouse": {
+        "id": "<SQL_WAREHOUSE_ID>",
+        "permission": "CAN_USE"
+      }
+    },
+    {
+      "name": "toyota-volume",
+      "description": "Project PDF and page image storage",
+      "uc_securable": {
+        "securable_full_name": "mikito_toyota_rag_eval.rag_accuracy.documents",
+        "securable_type": "VOLUME",
+        "permission": "WRITE_VOLUME"
+      }
+    },
+    {
+      "name": "baseline-index",
+      "description": "Baseline AI Search index",
+      "uc_securable": {
+        "securable_full_name": "mikito_toyota_rag_eval.rag_accuracy.toyota_chunks_standard_512_v1_index",
+        "securable_type": "TABLE",
+        "securable_kind": "TABLE_ONLINE_VECTOR_INDEX_REPLICA",
+        "permission": "SELECT"
+      }
+    },
+    {
+      "name": "default-llm",
+      "description": "Default chat and optimization FMAPI endpoint",
+      "serving_endpoint": {
+        "name": "databricks-gpt-5-6-luna",
+        "permission": "CAN_QUERY"
+      }
+    },
+    {
+      "name": "prep-job",
+      "description": "Data Preparation Lakeflow Job",
+      "job": {
+        "id": "<DATA_PREPARATION_JOB_ID>",
+        "permission": "CAN_MANAGE_RUN"
+      }
+    },
+    {
+      "name": "eval-job",
+      "description": "Phase Evaluation Lakeflow Job",
+      "job": {
+        "id": "<EVALUATION_JOB_ID>",
+        "permission": "CAN_MANAGE_RUN"
+      }
+    },
+    {
+      "name": "mlflow-experiment",
+      "description": "MLflow 3 tracing and evaluation experiment",
+      "experiment": {
+        "experiment_id": "<MLFLOW_EXPERIMENT_ID>",
+        "permission": "CAN_EDIT"
+      }
+    }
+  ]
+}

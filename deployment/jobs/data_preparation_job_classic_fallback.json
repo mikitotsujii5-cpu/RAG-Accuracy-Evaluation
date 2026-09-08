@@ -1,0 +1,69 @@
+{
+  "name": "toyota-rag-data-preparation",
+  "description": "Server-validated, Project-scoped preparation of immutable RAG Index Variants, including deterministic successor activation after document deletion.",
+  "format": "MULTI_TASK",
+  "max_concurrent_runs": 2,
+  "queue": {
+    "enabled": true
+  },
+  "parameters": [
+    {
+      "name": "prep_run_id",
+      "default": ""
+    }
+  ],
+  "job_clusters": [
+    {
+      "job_cluster_key": "toyota_rag_dbr18",
+      "new_cluster": {
+        "spark_version": "18.x-scala2.13",
+        "node_type_id": "Standard_D8s_v5",
+        "driver_node_type_id": "Standard_D16s_v5",
+        "runtime_engine": "STANDARD",
+        "data_security_mode": "USER_ISOLATION",
+        "num_workers": 2,
+        "azure_attributes": {
+          "availability": "ON_DEMAND_AZURE",
+          "first_on_demand": 1,
+          "spot_bid_max_price": -1
+        },
+        "custom_tags": {
+          "application": "toyota-rag-accuracy-eval",
+          "compute_profile": "accelerated-data-preparation"
+        }
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "task_key": "prepare_index_variant",
+      "description": "Verify prep_run_id, build the selected chunk profile, create/register its isolated Variant, sync AI Search, and seed starter evaluation questions.",
+      "job_cluster_key": "toyota_rag_dbr18",
+      "timeout_seconds": 7200,
+      "max_retries": 1,
+      "min_retry_interval_millis": 60000,
+      "retry_on_timeout": true,
+      "libraries": [
+        {
+          "pypi": {
+            "package": "databricks-sdk==0.135.0"
+          }
+        }
+      ],
+      "notebook_task": {
+        "notebook_path": "/Workspace/Users/<RUN_AS_USER_EMAIL>/toyota-rag-accuracy-eval/jobs/data_preparation_job",
+        "source": "WORKSPACE",
+        "base_parameters": {
+          "prep_run_id": "{{job.parameters.prep_run_id}}"
+        }
+      }
+    }
+  ],
+  "run_as": {
+    "user_name": "<RUN_AS_USER_EMAIL>"
+  },
+  "tags": {
+    "application": "toyota-rag-accuracy-eval",
+    "environment": "field-eng-east"
+  }
+}

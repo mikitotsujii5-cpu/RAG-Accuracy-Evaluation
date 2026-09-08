@@ -1,0 +1,36 @@
+{
+  "name": "mikito_toyota_rag_eval.rag_accuracy.toyota_chunks_standard_512_v1_index",
+  "endpoint_name": "toyota-rag-search",
+  "primary_key": "chunk_id",
+  "index_type": "DELTA_SYNC",
+  "index_subtype": "HYBRID",
+  "delta_sync_index_spec": {
+    "source_table": "mikito_toyota_rag_eval.rag_accuracy.toyota_chunks_standard_512_v1",
+    "pipeline_type": "TRIGGERED",
+    "embedding_source_columns": [
+      {
+        "name": "chunk_to_embed",
+        "embedding_model_endpoint_name": "databricks-qwen3-embedding-0-6b"
+      }
+    ],
+    "columns_to_sync": [
+      "project_id",
+      "document_id",
+      "chunk_to_retrieve",
+      "parent_chunk_id",
+      "parent_chunk_to_retrieve",
+      "doc_uri",
+      "page_number",
+      "page_numbers",
+      "parent_page_numbers",
+      "title",
+      "model",
+      "model_year",
+      "document_type",
+      "vehicle_category",
+      "section_title",
+      "keywords",
+      "variant_id"
+    ]
+  }
+}

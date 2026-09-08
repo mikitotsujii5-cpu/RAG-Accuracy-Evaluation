@@ -1,0 +1,157 @@
+name: Deploy Databricks App
+
+on:
+  workflow_dispatch:
+    inputs:
+      bootstrap_only:
+        description: Create the App and bindings, but do not start or deploy its Git source
+        type: boolean
+        default: false
+  push:
+    branches:
+      - main
+    paths:
+      - app/**
+      - databricks.yml
+      - .github/workflows/deploy-databricks-app.yml
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: databricks-app-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Validate and deploy App only
+    runs-on: ubuntu-latest
+    environment: prod
+    timeout-minutes: 45
+    env:
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      BUNDLE_VAR_app_name: ${{ vars.APP_NAME }}
+      BUNDLE_VAR_git_repository_url: ${{ vars.GIT_REPOSITORY_URL }}
+      BUNDLE_VAR_git_branch: ${{ vars.GIT_BRANCH }}
+      BUNDLE_VAR_app_source_path: ${{ vars.APP_SOURCE_PATH }}
+      BUNDLE_VAR_uc_catalog: ${{ vars.UC_CATALOG }}
+      BUNDLE_VAR_uc_schema: ${{ vars.UC_SCHEMA }}
+      BUNDLE_VAR_uc_volume_full_name: ${{ vars.UC_VOLUME_FULL_NAME }}
+      BUNDLE_VAR_sql_warehouse_id: ${{ vars.SQL_WAREHOUSE_ID }}
+      BUNDLE_VAR_vector_search_endpoint: ${{ vars.VECTOR_SEARCH_ENDPOINT }}
+      BUNDLE_VAR_baseline_index_full_name: ${{ vars.BASELINE_INDEX_FULL_NAME }}
+      BUNDLE_VAR_default_llm_endpoint: ${{ vars.DEFAULT_LLM_ENDPOINT }}
+      BUNDLE_VAR_prep_job_id: ${{ vars.PREP_JOB_ID }}
+      BUNDLE_VAR_eval_job_id: ${{ vars.EVAL_JOB_ID }}
+      BUNDLE_VAR_mlflow_experiment_id: ${{ vars.MLFLOW_EXPERIMENT_ID }}
+
+    steps:
+      - name: Check out the requested commit
+        uses: actions/checkout@v4
+
+      - name: Check required Environment variables
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            DATABRICKS_HOST DATABRICKS_CLIENT_ID BUNDLE_VAR_app_name
+            BUNDLE_VAR_git_repository_url BUNDLE_VAR_git_branch BUNDLE_VAR_app_source_path
+            BUNDLE_VAR_uc_catalog BUNDLE_VAR_uc_schema BUNDLE_VAR_uc_volume_full_name
+            BUNDLE_VAR_sql_warehouse_id BUNDLE_VAR_vector_search_endpoint
+            BUNDLE_VAR_baseline_index_full_name BUNDLE_VAR_default_llm_endpoint
+            BUNDLE_VAR_prep_job_id BUNDLE_VAR_eval_job_id BUNDLE_VAR_mlflow_experiment_id
+          )
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing GitHub Environment variable: ${name#BUNDLE_VAR_}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Install Databricks CLI 1.3.0
+        uses: databricks/setup-cli@main
+        with:
+          version: 1.3.0
+
+      - name: Verify CLI version
+        shell: bash
+        run: databricks version | grep -F "Databricks CLI v1.3.0"
+
+      - name: Validate App bundle
+        run: databricks bundle validate --target prod
+
+      - name: Create or update App and seven bindings
+        run: databricks bundle deploy --target prod --auto-approve
+
+      - name: Start or restart App from GitHub
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.bootstrap_only != true }}
+        run: databricks bundle run rag_accuracy_evaluation --target prod
+
+      - name: Confirm App is running with seven bindings
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.bootstrap_only != true }}
+        id: app_status
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            databricks apps get "$BUNDLE_VAR_app_name" --output json > /tmp/app.json
+            app_state=$(jq -r '.app_status.state // "UNKNOWN"' /tmp/app.json)
+            compute_state=$(jq -r '.compute_status.state // "UNKNOWN"' /tmp/app.json)
+            echo "Attempt ${attempt}: app=${app_state}, compute=${compute_state}"
+            if [[ "$app_state" == "RUNNING" && "$compute_state" == "ACTIVE" ]]; then
+              jq -e '
+                ([.resources[].name] | sort) ==
+                (["app-warehouse", "baseline-index", "default-llm", "eval-job",
+                  "mlflow-experiment", "prep-job", "toyota-volume"] | sort)
+              ' /tmp/app.json >/dev/null
+              app_url=$(jq -r '.url // empty' /tmp/app.json)
+              test -n "$app_url"
+              echo "app_url=$app_url" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 10
+          done
+          jq '{app_status, compute_status, resources}' /tmp/app.json >&2
+          exit 1
+
+      - name: Check application health
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.bootstrap_only != true }}
+        env:
+          APP_URL: ${{ steps.app_status.outputs.app_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check "databricks-sdk>=0.57,<1"
+          python - <<'PY'
+          import json
+          import os
+          import time
+          import urllib.request
+
+          from databricks.sdk.core import Config
+
+          url = os.environ["APP_URL"].rstrip("/") + "/api/health"
+          headers = Config().authenticate()
+          last_error = None
+          for attempt in range(1, 31):
+              try:
+                  request = urllib.request.Request(url, headers=headers)
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      payload = json.load(response)
+                  if (
+                      payload.get("status") == "ok"
+                      and payload.get("databricks_ready") is True
+                      and payload.get("missing") == []
+                  ):
+                      print(json.dumps(payload, ensure_ascii=False))
+                      raise SystemExit(0)
+                  last_error = RuntimeError(f"unhealthy response: {payload}")
+              except Exception as exc:
+                  last_error = exc
+              print(f"Health attempt {attempt}/30 failed: {last_error}")
+              time.sleep(10)
+          raise SystemExit(f"App health check failed: {last_error}")
+          PY

@@ -1,0 +1,34 @@
+command:
+  - python
+  - main.py
+
+env:
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: app-warehouse
+  - name: UC_CATALOG
+    value: mikito_toyota_rag_eval
+  - name: UC_SCHEMA
+    value: rag_accuracy
+  - name: UC_VOLUME
+    valueFrom: toyota-volume
+  - name: VECTOR_SEARCH_ENDPOINT
+    value: toyota-rag-search
+  - name: DEFAULT_INDEX_NAME
+    valueFrom: baseline-index
+  - name: DEFAULT_LLM_ENDPOINT
+    valueFrom: default-llm
+  - name: PREP_JOB_ID
+    valueFrom: prep-job
+  - name: EVAL_JOB_ID
+    valueFrom: eval-job
+  - name: MLFLOW_EXPERIMENT_ID
+    valueFrom: mlflow-experiment
+  - name: MLFLOW_TRACKING_URI
+    value: databricks
+  - name: MLFLOW_TRACING_SQL_WAREHOUSE_ID
+    valueFrom: app-warehouse
+
+# Resource IDs are supplied by Databricks App resource bindings. The
+# browser-facing Workspace URL is supplied by ``${workspace.host}`` in
+# ``databricks.yml``; when that override is not used, the App falls back to the
+# Databricks-provided ``DATABRICKS_HOST`` value.

@@ -1,0 +1,10 @@
+doc_id,filename,title,model,model_year,document_type,vehicle_category,baseline_corpus,notes
+D01,01_prius_2024_owners_guide_demo.pdf,Prius 2024 取扱クイックガイド,Prius,2024,owners_guide,passenger_car,true,2024年式の基準文書
+D02,02_prius_2023_owners_guide_demo.pdf,Prius 2023 取扱クイックガイド,Prius,2023,owners_guide,passenger_car,true,年式Filter用の類似負例
+D03,03_prius_2024_grade_equipment_demo.pdf,Prius 2024 グレード別装備一覧,Prius,2024,equipment_spec,passenger_car,true,表・行列・脚注
+D04,04_prius_2024_safety_operation_demo.pdf,Prius 2024 安全支援 操作ガイド,Prius,2024,safety_operation_guide,passenger_car,true,センサー図と操作手順
+D05,05_prius_2024_emergency_response_demo.pdf,Prius 2024 緊急時対応・レスキューガイド,Prius,2024,emergency_response_guide,passenger_car,true,配置図と5段階手順
+D06,06_prius_2023_2024_change_report_demo.pdf,Prius 2023-2024 変更点レポート,Prius,2024,model_change_report,passenger_car,true,新旧比較と複数文書参照
+D07,07_crown_sport_2024_owners_guide_demo.pdf,Crown Sport 2024 取扱クイックガイド,Crown Sport,2024,owners_guide,suv,true,車種Filter用の類似負例
+D08,08_toyota_demo_safety_glossary.pdf,安全支援用語集・型式索引,Common,,glossary,all,true,Query展開とReranking用decoy
+D09,09_prius_2024_emergency_response_scan_demo.pdf,Prius 2024 緊急時対応・レスキューガイド スキャン風版,Prius,2024,emergency_response_scan,passenger_car,false,D05と別snapshotでDocument Parsing比較

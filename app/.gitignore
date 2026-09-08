@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
+node_modules/
+npm-debug.log*
+package.json
+package-lock.json
+*.py[cod]
+mlflow.db
+mlruns/
+tests/
+
+# Databricks Apps deploys this application with pip/requirements.txt.
+# Keep local uv development metadata out of the Workspace source directory.
+pyproject.toml
+uv.lock

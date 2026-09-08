@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="ja" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="DatabricksでPDFを検索するRAGを作り、検索精度・回答品質・応答時間を比べるアプリ">
+  <title>RAG精度評価アプリ</title>
+  <link rel="stylesheet" href="/assets/styles.css?v=1.4.4">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f3e58'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='Arial' font-weight='700' font-size='18' fill='%23a8e6cf'%3ER%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">本文へ移動</a>
+  <div id="app-shell" class="app-shell">
+    <header class="topbar">
+      <button id="sidebar-toggle" class="icon-button mobile-only" type="button" aria-label="メニューを開閉" aria-expanded="false">☰</button>
+      <a class="brand" href="/" aria-label="RAG精度評価アプリ ホーム">
+        <span class="brand-mark" aria-hidden="true">R</span>
+        <span>
+          <strong>RAG精度評価アプリ</strong>
+          <small>PDF検索・回答・精度比較</small>
+        </span>
+      </a>
+      <div class="project-switcher">
+        <label for="project-select">プロジェクト</label>
+        <select id="project-select" aria-describedby="project-help">
+          <option value="">プロジェクトを選択</option>
+        </select>
+        <span id="project-help" class="sr-only">PDF、RAG検索データ、会話、評価結果をまとめます</span>
+        <span id="project-status" class="status-pill muted">未選択</span>
+      </div>
+      <div class="topbar-actions">
+        <button id="refresh-button" class="icon-button" type="button" aria-label="表示を更新" title="表示を更新">↻</button>
+        <button id="theme-button" class="icon-button" type="button" aria-label="配色を切り替え" title="配色を切り替え">◐</button>
+        <span id="current-user" class="user-chip" title="Databricks Appsのログインユーザー">
+          <span id="current-user-avatar" class="user-avatar" aria-hidden="true">…</span>
+          <span class="user-copy"><small>ログイン中</small><strong id="current-user-email">確認中…</strong></span>
+        </span>
+      </div>
+    </header>
+
+    <aside id="sidebar" class="sidebar" aria-label="メインメニュー">
+      <nav>
+        <button class="nav-item active" type="button" data-page="data-preparation">
+          <span class="nav-number">1</span><span><strong>データ準備</strong><small>RAG検索データを作成</small></span>
+        </button>
+        <button class="nav-item" type="button" data-page="catalog">
+          <span class="nav-number">2</span><span><strong>PDFカタログ</strong><small>RAGで使うPDFを確認</small></span>
+        </button>
+        <button class="nav-item" type="button" data-page="chat">
+          <span class="nav-number">3</span><span><strong>RAGチャット</strong><small>PDFを検索して回答</small></span>
+        </button>
+        <button class="nav-item" type="button" data-page="evaluation">
+          <span class="nav-number">4</span><span><strong>RAG精度評価</strong><small>検索・回答精度を比較</small></span>
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="project-scope-card" aria-label="現在のプロジェクト">
+          <span>現在のプロジェクト</span>
+          <strong data-project-name>未選択</strong>
+        </div>
+        <button id="create-project-button" class="secondary-button full-width" type="button">＋ プロジェクトを作成</button>
+        <button id="delete-project-button" class="danger-text-button full-width" type="button" disabled>プロジェクトを削除</button>
+        <p><span class="help-dot">?</span> PDFと評価結果をプロジェクトごとに管理します。</p>
+      </div>
+    </aside>
+
+    <main id="main-content" class="content" tabindex="-1">
+      <div id="configuration-banner" class="banner warning hidden" role="status"></div>
+      <div id="global-error" class="banner error hidden" role="alert"></div>
+      <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+      <section id="project-onboarding" class="onboarding hidden" aria-labelledby="onboarding-title">
+        <div class="onboarding-icon" aria-hidden="true">◇</div>
+        <p class="eyebrow">まずはここから</p>
+        <h1 id="onboarding-title">RAGプロジェクトを作成</h1>
+        <p>PDF、検索設定、会話、評価結果を1つにまとめます。</p>
+        <button class="primary-button" type="button" data-open-project-modal>最初のプロジェクトを作成</button>
+      </section>
+
+      <section id="page-data-preparation" class="page active" data-page-panel="data-preparation">
+        <div class="page-heading">
+          <div>
+            <p class="breadcrumb"><span data-project-name>プロジェクト</span> / データ準備</p>
+            <h1>RAG検索データを作成・同期</h1>
+            <p>PDFを解析・分割し、管理者が事前に用意したAI Search Indexへ同期します。</p>
+          </div>
+          <span class="step-badge">Step 1 / 4</span>
+        </div>
+        <div class="feature-strip" aria-label="データ準備で利用するDatabricks機能">
+          <strong>Databricks構成</strong>
+          <span title="PDFを安全に保管">Unity Catalog Volume</span>
+          <span title="PDFから文字・表・ページ情報を抽出">ai_parse_document</span>
+          <span title="データ準備処理を実行・監視">Lakeflow Jobs</span>
+          <span title="チャンクとメタデータを保存">Delta Table</span>
+          <span title="チャンクをベクトル化">FMAPI Embeddings</span>
+          <span title="手動作成済みの検索Indexを同期">AI Search（既存Index）</span>
+        </div>
+
+        <div class="prep-layout">
+          <div class="stack">
+            <article class="card upload-card">
+              <div class="card-header">
+                <div><span class="section-number">01</span><h2>PDFをアップロード</h2></div>
+                <span class="required-label">PDF（100 MB以下）</span>
+              </div>
+              <form id="upload-form">
+                <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="PDFを選択またはドロップ">
+                  <input id="pdf-input" name="file" type="file" accept="application/pdf,.pdf" hidden>
+                  <div class="upload-symbol" aria-hidden="true">⇧</div>
+                  <strong>PDFをここにドロップ</strong>
+                  <span>または <u>クリックして選択</u></span>
+                  <small id="selected-file">まだ選択されていません</small>
+                </div>
+                <details id="upload-metadata-details" class="optional-panel">
+                  <summary>
+                    <span><strong>文書情報を追加</strong><small>タイトル・カテゴリ・タグなど（任意）</small></span>
+                    <span class="optional-panel-action">開く</span>
+                  </summary>
+                  <div class="optional-panel-body">
+                    <p class="subtle">未入力でも登録できます。タイトルはファイル名、概要は解析後にAIが自動設定します。</p>
+                    <div class="form-grid two-column">
+                      <label><span class="field-heading">タイトル <small class="optional-label">任意</small></span><input id="document-title" maxlength="300" placeholder="未入力の場合はファイル名を使用"></label>
+                      <label><span class="field-heading">カテゴリ <small class="optional-label">任意</small></span><input id="document-category" maxlength="100" placeholder="例：社内規程、製品マニュアル"></label>
+                      <label><span class="field-heading">タグ <small class="optional-label">任意</small></span><input id="document-tags" maxlength="2000" placeholder="例：人事, 在宅勤務（カンマ区切り）"></label>
+                      <label><span class="field-heading">文書日付 <small class="optional-label">任意</small></span><input id="document-date" type="date"></label>
+                      <label class="full-column"><span class="field-heading">ソース <small class="optional-label">任意</small></span><input id="document-source" maxlength="500" placeholder="例：人事部、https://example.com/manual"></label>
+                    </div>
+                    <fieldset class="metadata-builder">
+                      <legend>追加メタデータ <small class="optional-label">任意</small></legend>
+                      <p>部署、製品名、版など、検索の絞り込みに使う項目を自由に追加できます。</p>
+                      <div class="metadata-column-labels" aria-hidden="true"><span>項目名</span><span>値</span><span></span></div>
+                      <div id="custom-metadata-rows" class="custom-metadata-rows" aria-live="polite"></div>
+                      <button id="add-metadata-button" class="secondary-button metadata-add-button" type="button">＋ 項目を追加</button>
+                    </fieldset>
+                  </div>
+                </details>
+                <div class="action-row">
+                  <p class="inline-help"><span class="help-dot">?</span> 必須項目はPDFだけです。登録後に内容を自動解析します。</p>
+                  <button id="upload-button" class="primary-button" type="submit">アップロードして解析</button>
+                </div>
+              </form>
+            </article>
+
+            <article class="card">
+              <div class="card-header">
+                <div><span class="section-number">02</span><h2>検索する文書のチャンク化・ベクトル化</h2></div>
+                <span class="subtle">事前登録済みのIndexへ保存・同期</span>
+              </div>
+              <fieldset class="control-group">
+                <legend>文章の長さ（トークン） <span class="tooltip" data-tooltip="RAGが一度に検索する文章量の目安です。">?</span></legend>
+                <div class="segmented" id="chunk-size-options">
+                  <label><input type="radio" name="chunk-size" value="256"><span>256<small>細かく検索</small></span></label>
+                  <label><input type="radio" name="chunk-size" value="512" checked><span>512<small>標準</small></span></label>
+                  <label><input type="radio" name="chunk-size" value="1024"><span>1024<small>前後を広く保持</small></span></label>
+                </div>
+              </fieldset>
+              <fieldset class="control-group">
+                <legend>分割方法</legend>
+                <div class="method-cards" id="chunk-method-options">
+                  <label class="method-card selected"><input type="radio" name="chunk-method" value="STANDARD" checked><span><strong>均等に分割</strong><small>ほぼ同じ長さ（Standard）</small></span></label>
+                  <label class="method-card"><input type="radio" name="chunk-method" value="SEMANTIC"><span><strong>意味ごとに分割</strong><small>見出しや文の切れ目（Semantic）</small></span></label>
+                  <label class="method-card"><input type="radio" name="chunk-method" value="PARENT_CHILD"><span><strong>親子で分割</strong><small>短く検索して前後も使う（Parent-child）</small></span></label>
+                </div>
+              </fieldset>
+              <fieldset class="control-group build-document-picker">
+                <legend>対象PDF <span id="build-document-count" class="subtle">0件</span></legend>
+                <div class="selection-actions">
+                  <button id="select-all-build-documents" class="text-button" type="button">解析済みを選択</button>
+                  <button id="clear-build-documents" class="text-button" type="button">選択解除</button>
+                </div>
+                <div id="build-document-list" class="build-document-list" aria-live="polite"><p class="empty-inline">解析済みPDFはまだありません。</p></div>
+                <small class="subtle">1回につき最大100件。101件以上ある場合は、作成するPDFを選んでください。</small>
+              </fieldset>
+              <label class="field-label">ベクトル化モデル <span class="tooltip" data-tooltip="このDatabricks環境で使えるEmbeddingモデルを表示します。日本語対応のQwen3 Embedding 0.6Bを優先します。">?</span>
+                <select id="embedding-model"><option value="">モデル一覧を読み込み中…</option></select>
+              </label>
+              <div id="embedding-model-detail" class="model-detail muted-panel">選ぶと、ベクトルの次元数と利用状態を表示します。</div>
+              <div class="toggle-grid">
+                <label class="toggle-row"><span><strong>不要な文字を除去</strong><small>ヘッダー、フッター、ページ番号を除く</small></span><input id="cleaning-toggle" type="checkbox" role="switch" checked></label>
+                <label class="toggle-row"><span><strong>概要・見出しを追加</strong><small>文書情報を検索用テキストに追加</small></span><input id="semantic-toggle" type="checkbox" role="switch" checked></label>
+                <label class="toggle-row"><span><strong>表・図・レイアウトを保持</strong><small>解析した表・図・配置を検索に反映</small></span><input id="layout-toggle" type="checkbox" role="switch" checked></label>
+              </div>
+              <div id="index-profile-match" class="index-profile-match unavailable" aria-live="polite" aria-atomic="true">
+                <div class="index-profile-heading"><span class="index-profile-icon" aria-hidden="true">◇</span><span>使用するIndex:</span></div>
+                <strong id="selected-index-name">確認中…</strong>
+                <p id="index-profile-message">事前登録済みのIndexを確認しています。</p>
+              </div>
+              <div class="action-row end">
+                <button id="build-button" class="primary-button" type="button" disabled>RAG検索データを作成・同期</button>
+              </div>
+            </article>
+          </div>
+
+          <aside class="stack">
+            <article class="card sticky-card">
+              <div class="card-header compact"><h2>RAG検索データの作成状況</h2><span id="prep-percent" class="metric-value small">0%</span></div>
+              <div class="progress-track"><span id="prep-progress-bar" style="width:0%"></span></div>
+              <ol id="prep-stepper" class="stepper">
+                <li data-step="upload"><span>1</span><div><strong>PDFを保存</strong><small>PDF保管領域へ保存</small></div></li>
+                <li data-step="parsing"><span>2</span><div><strong>文書を解析</strong><small>文字・表・図・ページを抽出</small></div></li>
+                <li data-step="chunking"><span>3</span><div><strong>検索データを作成</strong><small>検索用データとして保存</small></div></li>
+                <li data-step="sync"><span>4</span><div><strong>既存Indexを同期</strong><small>事前作成済みのAI Searchを更新</small></div></li>
+              </ol>
+              <div id="prep-message" class="empty-inline">PDFを選択して開始してください。</div>
+            </article>
+            <article class="card">
+              <div class="card-header compact"><h2>作成済みの検索データ</h2><button id="refresh-variants" class="text-button" type="button">更新</button></div>
+              <div id="variant-list" class="compact-list"><p class="empty-inline">検索データはまだありません。</p></div>
+            </article>
+          </aside>
+        </div>
+      </section>
+
+      <section id="page-catalog" class="page" data-page-panel="catalog">
+        <div class="page-heading">
+          <div>
+            <p class="breadcrumb"><span data-project-name>プロジェクト</span> / PDFカタログ</p>
+            <h1>RAGで使うPDF</h1>
+            <p>PDFの概要と解析状態を確認し、原文を開けます。</p>
+          </div>
+          <button class="primary-button" type="button" data-navigate="data-preparation">＋ PDFを追加</button>
+        </div>
+        <div class="feature-strip" aria-label="PDFカタログで利用するDatabricks機能">
+          <strong>Databricks構成</strong>
+          <span title="PDF原文を保管">Unity Catalog Volume</span>
+          <span title="タイトル・概要・状態を管理">Delta Table</span>
+          <span title="アップロード時に20〜30字の概要を生成">FMAPIによるAI概要</span>
+          <span title="文字・表・ページを解析">ai_parse_document</span>
+        </div>
+        <div class="catalog-toolbar card">
+          <label class="search-field"><span aria-hidden="true">⌕</span><input id="catalog-search" type="search" placeholder="タイトル・概要・タグで検索"></label>
+          <label>状態<select id="catalog-status-filter"><option value="">すべて</option><option value="READY">利用可能</option><option value="PARSED">解析済み</option><option value="PARSING">解析中</option><option value="ERROR">エラー</option></select></label>
+          <span id="catalog-count" class="subtle">0件</span>
+          <div class="view-switch" aria-label="表示形式"><button class="active" type="button" data-catalog-view="cards" aria-label="カード表示">▦</button><button type="button" data-catalog-view="table" aria-label="表表示">☷</button></div>
+        </div>
+        <div id="catalog-grid" class="catalog-grid"></div>
+        <div id="catalog-table-wrap" class="card table-wrap hidden">
+          <table>
+            <thead><tr><th>タイトル</th><th>概要</th><th>分類・タグ</th><th>日付・ソース</th><th>状態</th><th>操作</th></tr></thead>
+            <tbody id="catalog-table-body"></tbody>
+          </table>
+        </div>
+        <div id="pdf-viewer" class="viewer-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="viewer-title">
+          <div class="viewer-header"><div><p class="eyebrow">PDF原文</p><h2 id="viewer-title">文書</h2></div><button id="viewer-close" class="icon-button" type="button" aria-label="閉じる">×</button></div>
+          <div id="viewer-loading" class="viewer-loading" role="status"><span class="spinner" aria-hidden="true"></span>PDFを読み込んでいます…</div>
+          <iframe id="viewer-frame" title="PDFプレビュー"></iframe>
+        </div>
+        <button id="viewer-scrim" class="scrim hidden" type="button" aria-label="PDFプレビューを閉じる"></button>
+      </section>
+
+      <section id="page-chat" class="page chat-page" data-page-panel="chat">
+        <div class="page-heading compact-heading">
+          <div>
+            <p class="breadcrumb"><span data-project-name>プロジェクト</span> / RAGチャット</p>
+            <h1>PDFに質問する</h1>
+            <p class="chat-heading-help">プロジェクト内のPDFを検索し、参照元を示して回答します。</p>
+          </div>
+          <span class="status-pill success"><span aria-hidden="true">●</span> PDFリンク付き回答</span>
+        </div>
+        <div class="feature-strip compact" aria-label="RAGチャットで利用するDatabricks機能">
+          <strong>RAG実行</strong>
+          <span title="プロジェクトの検索インデックスから根拠を取得">AI Search</span>
+          <span title="選択したLLMで回答を生成">FMAPI</span>
+          <span title="検索・回答処理を記録">MLflow 3 Tracing</span>
+          <span title="検索設定と事前登録済みIndexを対応付け">Index Profile</span>
+        </div>
+        <div class="chat-layout">
+          <aside class="card conversation-pane" aria-labelledby="conversation-pane-title">
+            <div class="pane-heading conversation-heading">
+              <div>
+                <p class="pane-eyebrow">会話</p>
+                <h2 id="conversation-pane-title">会話履歴</h2>
+              </div>
+              <span class="history-scope">このプロジェクト</span>
+            </div>
+            <button id="new-chat-button" class="primary-button new-chat-button full-width" type="button"><span aria-hidden="true">＋</span> 新しい会話</button>
+            <label class="search-field small session-search-field">
+              <span aria-hidden="true">⌕</span>
+              <span class="sr-only">会話履歴を検索</span>
+              <input id="session-search" type="search" placeholder="会話履歴を検索" autocomplete="off">
+            </label>
+            <div class="session-list-heading" aria-hidden="true"><span>最近の会話</span><span>更新順</span></div>
+            <div id="session-list" class="session-list" aria-label="会話履歴"><p class="empty-inline">会話を作成してください。</p></div>
+          </aside>
+          <article class="card chat-pane" aria-label="RAGチャット">
+            <header class="chat-pane-header">
+              <div class="assistant-identity">
+                <span class="assistant-mark" aria-hidden="true">R</span>
+                <span><strong>RAGアシスタント</strong><small>PDFを検索して回答</small></span>
+              </div>
+              <div class="chat-pane-actions">
+                <span class="assistant-availability"><span aria-hidden="true"></span> 利用可能</span>
+                <button id="chat-details-toggle" class="secondary-button chat-details-toggle" type="button" aria-expanded="false" aria-controls="chat-details">
+                  <span aria-hidden="true">⚙</span><span>RAG設定</span><span id="chat-details-count" class="detail-count">0</span>
+                </button>
+              </div>
+            </header>
+            <div id="chat-messages" class="chat-messages" role="log" aria-label="会話内容" aria-live="polite" aria-relevant="additions">
+              <div class="chat-empty"><span class="chat-empty-kicker">根拠のある回答をすばやく確認</span><h2>RAGチャットを開始</h2><p>PDFについて質問すると、回答と参照ページを一緒に表示します。</p><div class="suggestion-chips"><button type="button">この資料の要点を3つ教えて</button><button type="button">手順と注意点を整理して</button></div></div>
+            </div>
+            <div id="stream-status" class="stream-status hidden" role="status" aria-live="polite" aria-atomic="true">
+              <span class="spinner" aria-hidden="true"></span>
+              <span class="stream-copy"><strong id="stream-status-text">回答を作成しています</strong><small>PDFを検索して根拠を確認中</small></span>
+              <time id="stream-timer" aria-hidden="true">0.0秒</time>
+            </div>
+            <form id="chat-form" class="composer" autocomplete="off">
+              <label class="sr-only" for="chat-input">PDFへの質問</label>
+              <textarea id="chat-input" rows="2" maxlength="8000" placeholder="PDFについて質問を入力…" aria-describedby="chat-input-help" aria-controls="chat-messages" enterkeyhint="send"></textarea>
+              <div class="composer-actions">
+                <span id="chat-input-help" class="composer-help"><kbd>Enter</kbd> 送信 <span aria-hidden="true">·</span> <kbd>Shift</kbd>＋<kbd>Enter</kbd> 改行</span>
+                <button id="stop-button" class="danger-button stop-button hidden" type="button" aria-label="回答の生成を停止"><span class="stop-icon" aria-hidden="true"></span><span>停止</span></button>
+                <button id="send-button" class="primary-button send-button" type="submit"><span>送信</span><span aria-hidden="true">↑</span></button>
+              </div>
+            </form>
+          </article>
+          <aside id="chat-details" class="card evidence-pane" aria-label="RAG設定と検索結果" hidden>
+            <div class="tabs" role="tablist" aria-label="チャットの詳細">
+              <button id="chat-settings-tab" class="active" type="button" role="tab" aria-selected="true" aria-controls="chat-settings" data-chat-tab="settings">RAG設定</button>
+              <button id="chat-evidence-tab" type="button" role="tab" aria-selected="false" aria-controls="chat-evidence" tabindex="-1" data-chat-tab="evidence">参照PDF <span id="evidence-count">0</span></button>
+            </div>
+            <div id="chat-settings" class="tab-panel active" role="tabpanel" aria-labelledby="chat-settings-tab">
+              <div class="settings-section">
+                <p class="settings-section-title">検索フロー</p>
+                <label>RAGモード<select id="rag-mode"><option value="DETERMINISTIC">比較モード（条件を固定）</option><option value="AGENTIC" disabled>Agentモード（現在は利用不可）</option></select></label>
+                <label>Phase（検索設定）<select id="chat-phase"><option value="phase_01">Phase 1 — Vector</option><option value="phase_02">Phase 2 — Hybrid</option><option value="phase_03">Phase 3 — + 条件絞り込み</option><option value="phase_04" selected>Phase 4 — + 並べ替え</option><option value="phase_05">Phase 5 — + 質問最適化</option><option value="custom">カスタム</option></select></label>
+                <div class="phase-summary" id="phase-summary"></div>
+                <fieldset id="custom-settings" disabled>
+                  <legend>設定を個別に変更</legend>
+                  <label>検索手法<select id="search-type"><option value="ANN">Vector Search</option><option value="HYBRID">Hybrid Search</option></select></label>
+                  <label class="toggle-row compact"><span>メタデータで絞り込む</span><input id="metadata-filtering" type="checkbox" role="switch"></label>
+                  <label class="toggle-row compact"><span>検索結果を並べ替える</span><input id="reranking" type="checkbox" role="switch"></label>
+                  <label class="toggle-row compact"><span>検索する質問を最適化する</span><input id="query-optimization" type="checkbox" role="switch"></label>
+                </fieldset>
+              </div>
+              <div class="settings-section">
+                <p class="settings-section-title">データとモデル</p>
+                <label>検索データ<select id="chat-variant"><option value="">読み込み中…</option></select></label>
+                <div id="chat-index-detail" class="model-detail muted-panel">使用するIndexを選択してください。</div>
+                <label>回答モデル<select id="chat-model"><option value="">読み込み中…</option></select></label>
+                <div id="chat-model-detail" class="model-detail muted-panel">選ぶと、対応機能と利用状態を表示します。</div>
+              </div>
+              <p class="settings-note"><span aria-hidden="true">ⓘ</span> 変更した設定は次の質問から反映されます。</p>
+            </div>
+            <div id="chat-evidence" class="tab-panel" role="tabpanel" aria-labelledby="chat-evidence-tab">
+              <div class="evidence-intro"><strong>検索・引用したPDF</strong><p>回答の根拠はチャンク本文ではなく、PDF原文のリンクから確認できます。</p></div>
+              <div id="query-chips" class="query-chips"></div>
+              <div id="evidence-list" class="evidence-list"><p class="empty-inline">質問すると検索されたPDFを表示します。</p></div>
+              <div id="citation-list" class="citation-list"></div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="page-evaluation" class="page" data-page-panel="evaluation">
+        <div class="page-heading">
+          <div><p class="breadcrumb"><span data-project-name>プロジェクト</span> / RAG精度評価</p><h1>RAG精度を比較</h1><p>同じ質問でPhaseごとの検索精度・回答品質・応答時間を比べます。</p></div>
+          <span class="step-badge">同じ評価データ</span>
+        </div>
+        <div class="feature-strip" aria-label="RAG精度評価で利用するDatabricks機能">
+          <strong>評価基盤</strong>
+          <span title="評価質問と正解を版管理">評価Dataset / Delta Table</span>
+          <span title="Phase比較を再現可能に実行">Lakeflow Jobs</span>
+          <span title="検索・回答品質を採点">MLflow 3 Evaluation</span>
+          <span title="試行ごとの処理を追跡">MLflow 3 Trace</span>
+          <span title="検索データと既存Indexの条件を固定">Index Profile</span>
+        </div>
+        <article class="card evaluation-data-card">
+          <div class="card-header compact">
+            <div><p class="eyebrow">STEP 1 · 評価する質問</p><h2>正解付きの質問を選択</h2></div>
+            <span id="evaluation-case-count" class="status-pill info" aria-live="polite">0件中0件を選択</span>
+          </div>
+          <p class="subtle">登録済みの質問から今回使うものを選びます。選んだ質問だけを、同じ条件でPhase 1〜5に実行します。</p>
+          <div class="evaluation-dataset-toolbar">
+            <label>評価データ版<select id="dataset-version" class="evaluation-mutating-control"><option value="">評価質問を登録してください</option></select></label>
+            <label>用途<select id="dataset-split" class="evaluation-mutating-control"><option value="development">開発用（調整用）</option><option value="holdout">最終確認用</option></select></label>
+            <div class="evaluation-bulk-actions" role="group" aria-label="評価質問の一括選択">
+              <button id="select-all-evaluation-cases" class="secondary-button evaluation-mutating-control" type="button">すべて選択</button>
+              <button id="clear-evaluation-cases" class="text-button evaluation-mutating-control" type="button">選択を解除</button>
+            </div>
+          </div>
+          <div id="evaluation-case-list" class="evaluation-case-list"><p class="empty-inline">評価質問はまだありません。</p></div>
+          <p id="evaluation-selection-help" class="evaluation-selection-help" aria-live="polite">質問を選ぶと、評価の実行件数を確認できます。</p>
+          <details id="evaluation-case-editor" class="optional-panel evaluation-case-editor">
+            <summary>
+              <span><strong>新しい質問を登録</strong><small>質問、期待する回答、根拠となるPDF・ページを追加</small></span>
+              <span class="optional-panel-action">開く</span>
+            </summary>
+            <div class="optional-panel-body">
+              <form id="evaluation-case-form" class="evaluation-case-form">
+                <label class="full-column">質問<textarea id="evaluation-case-question" rows="2" maxlength="8000" required placeholder="例：インシデント検知後、一次報告は何分以内ですか？"></textarea></label>
+                <label class="full-column">期待する回答 <small class="optional-label">任意</small><textarea id="evaluation-case-answer" rows="2" maxlength="8000" placeholder="例：検知から30分以内"></textarea></label>
+                <label>正解PDF<select id="evaluation-case-document" required><option value="">解析済みPDFを選択</option></select></label>
+                <label>正解ページ<input id="evaluation-case-pages" required placeholder="例：2 または 2,3"></label>
+                <label>評価データ版<input id="evaluation-case-version" required maxlength="128" value="v1.0.0" pattern="[A-Za-z0-9][A-Za-z0-9._-]*"></label>
+                <label>用途<select id="evaluation-case-split"><option value="development">開発用（調整用）</option><option value="holdout">最終確認用</option></select></label>
+                <div class="full-column action-row end"><button id="add-evaluation-case" class="secondary-button" type="submit">＋ 評価質問を追加</button></div>
+              </form>
+            </div>
+          </details>
+        </article>
+        <article class="card evaluation-history-card">
+          <div class="card-header compact">
+            <div><p class="eyebrow">評価履歴</p><h2>過去のPhase比較</h2></div>
+            <button id="refresh-evaluation-runs" class="text-button" type="button">更新</button>
+          </div>
+          <p class="subtle">過去の実行を選ぶと、同じProjectの指標とAI改善提案を再表示します。</p>
+          <div id="evaluation-run-list" class="evaluation-run-list"><p class="empty-inline">評価履歴はまだありません。</p></div>
+        </article>
+        <div class="evaluation-layout">
+          <aside class="card evaluation-config">
+            <div class="card-header compact"><div><p class="eyebrow">STEP 2</p><h2>比較条件</h2></div><span class="lock-label">🔒 実行中は変更不可</span></div>
+            <div id="evaluation-selection-summary" class="evaluation-selection-summary"><strong>0問</strong><span>評価する質問を選択してください</span></div>
+            <fieldset>
+              <legend>評価するPhase</legend>
+              <div class="phase-selector">
+                <label><input type="checkbox" name="eval-phase" value="phase_01" checked><span><b>1</b><strong>Vector</strong><small>基準</small></span></label>
+                <label><input type="checkbox" name="eval-phase" value="phase_02" checked><span><b>2</b><strong>Hybrid</strong><small>Keyword併用</small></span></label>
+                <label><input type="checkbox" name="eval-phase" value="phase_03" checked><span><b>3</b><strong>+ 絞り込み</strong><small>条件で絞る</small></span></label>
+                <label><input type="checkbox" name="eval-phase" value="phase_04" checked><span><b>4</b><strong>+ 並べ替え</strong><small>順位を調整</small></span></label>
+                <label><input type="checkbox" name="eval-phase" value="phase_05" checked><span><b>5</b><strong>+ 質問最適化</strong><small>質問を展開</small></span></label>
+              </div>
+            </fieldset>
+            <label>繰り返し回数<input id="trial-count" type="number" min="1" max="10" value="3"></label>
+            <label>比較する検索データ<select id="evaluation-variant"><option value="">読み込み中…</option></select></label>
+            <div id="evaluation-index-detail" class="model-detail muted-panel">使用するIndexを選択してください。</div>
+            <label>回答用LLM<select id="evaluation-model"><option value="">読み込み中…</option></select></label>
+            <label>採点用LLM<select id="judge-model"><option value="">読み込み中…</option></select></label>
+            <button id="start-evaluation" class="primary-button full-width" type="button" disabled>質問を選択してください</button>
+            <button id="cancel-evaluation" class="danger-button full-width hidden" type="button">評価を停止</button>
+          </aside>
+          <div class="stack evaluation-results">
+            <article id="evaluation-progress-card" class="card hidden">
+              <div class="card-header compact"><div><p class="eyebrow">評価実行</p><h2 id="evaluation-progress-title">Phase比較を実行中</h2></div><span id="evaluation-progress-label">0 / 0</span></div>
+              <div class="progress-track large"><span id="evaluation-progress-bar" style="width:0%"></span></div>
+              <div id="phase-run-status" class="phase-run-status"></div>
+            </article>
+            <div class="metric-grid">
+              <article class="metric-card"><span>検索再現率（Recall@10）</span><strong id="metric-recall">—</strong><small>関連ページを見つけた割合</small></article>
+              <article class="metric-card"><span>回答正解率</span><strong id="metric-correctness">—</strong><small>期待する内容と合う割合</small></article>
+              <article class="metric-card"><span>根拠一致率</span><strong id="metric-groundedness">—</strong><small>PDFの根拠に基づく割合</small></article>
+              <article class="metric-card"><span>引用正解率</span><strong id="metric-citation-correctness">—</strong><small>引用リンクが回答を支える割合</small></article>
+              <article class="metric-card"><span>初回表示時間</span><strong id="metric-ttft">—</strong><small>回答が出始めるまでの中央値</small></article>
+              <article class="metric-card"><span>回答時間（中央値）</span><strong id="metric-latency-p50">—</strong><small>回答完了までの中央値</small></article>
+              <article class="metric-card"><span>回答時間（95%）</span><strong id="metric-latency-p95">—</strong><small>遅いケースを含む応答時間</small></article>
+              <article class="metric-card"><span>使用トークン</span><strong id="metric-tokens">—</strong><small>全試行で使ったトークンの合計</small></article>
+              <article class="metric-card"><span>コスト</span><strong id="metric-cost">未取得</strong><small>モデル利用コスト</small></article>
+            </div>
+            <article class="card">
+              <div class="card-header"><div><p class="eyebrow">Phase比較</p><h2>精度と応答時間</h2></div><span class="subtle">同じ質問・検索データ・LLM</span></div>
+              <div class="chart-wrap"><canvas id="phase-chart" width="900" height="290" aria-label="Phase別の精度とレイテンシ比較"></canvas><div id="chart-empty" class="chart-empty">評価完了後に比較グラフを表示します。</div></div>
+              <div class="table-wrap borderless"><table><thead><tr><th>Phase</th><th>検索再現率</th><th>検索適合率</th><th>検索順位</th><th>回答正解率</th><th>根拠一致率</th><th>引用正解率</th><th>初回表示</th><th>回答 p50</th><th>回答 p95</th><th>トークン</th><th>コスト</th><th>エラー率</th></tr></thead><tbody id="metrics-table-body"><tr><td colspan="13" class="empty-cell">まだ評価結果がありません。</td></tr></tbody></table></div>
+            </article>
+            <article class="card">
+              <div class="card-header"><div><p class="eyebrow">AIアドバイス</p><h2>RAG精度を上げる提案</h2></div><span class="status-pill info">LLMが分析</span></div>
+              <div id="suggestion-list" class="suggestion-list"><p class="empty-inline">評価後、低精度の原因と次に試す設定をPhaseごとに表示します。</p></div>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="project-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="project-modal-title">
+    <form id="project-form" class="modal-card">
+      <div class="modal-icon" aria-hidden="true">◇</div>
+      <h2 id="project-modal-title">RAGプロジェクトを作成</h2>
+      <p>同じ目的で使うPDF、会話、評価結果を1つにまとめます。</p>
+      <label>プロジェクト名<input id="project-name-input" required maxlength="100" placeholder="例：社内規程 RAG評価"></label>
+      <label>説明（任意）<textarea id="project-description-input" rows="3" maxlength="1000" placeholder="例：社内規程を使った検索・回答精度を比較"></textarea></label>
+      <div class="action-row end"><button id="project-modal-cancel" class="secondary-button" type="button">キャンセル</button><button class="primary-button" type="submit">プロジェクトを作成</button></div>
+    </form>
+  </div>
+
+  <div id="confirm-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-message">
+    <div class="modal-card confirm-card">
+      <div class="modal-icon danger" aria-hidden="true">!</div>
+      <h2 id="confirm-modal-title">削除の確認</h2>
+      <p id="confirm-modal-message">この操作は取り消せません。</p>
+      <div class="action-row end"><button id="confirm-modal-cancel" class="secondary-button" type="button">キャンセル</button><button id="confirm-modal-accept" class="danger-button" type="button">削除する</button></div>
+    </div>
+  </div>
+
+  <script src="/assets/app.js?v=1.4.4" defer></script>
+</body>
+</html>
