@@ -3373,7 +3373,14 @@ class Repository:
             SELECT eval_run_id, phase_id, status, config_hash,
                    expected_trials, completed_trials, error_message, job_run_id,
                    CAST(created_at AS STRING) AS created_at,
-                   CAST(completed_at AS STRING) AS completed_at
+                   CAST(completed_at AS STRING) AS completed_at,
+                   CAST(GREATEST(
+                     0,
+                     timestampdiff(
+                       SECOND, created_at,
+                       COALESCE(completed_at, current_timestamp())
+                     )
+                   ) AS BIGINT) AS elapsed_seconds
             FROM {table}
             WHERE project_id={sql_string(project_id)}
               AND requested_by={sql_string(principal)}
@@ -3461,7 +3468,14 @@ class Repository:
             SELECT eval_run_id, phase_id, status, config_hash,
                    expected_trials, completed_trials, error_message, job_run_id,
                    CAST(created_at AS STRING) AS created_at,
-                   CAST(completed_at AS STRING) AS completed_at
+                   CAST(completed_at AS STRING) AS completed_at,
+                   CAST(GREATEST(
+                     0,
+                     timestampdiff(
+                       SECOND, created_at,
+                       COALESCE(completed_at, current_timestamp())
+                     )
+                   ) AS BIGINT) AS elapsed_seconds
             FROM {table}
             WHERE project_id={sql_string(project_id)}
               AND eval_run_id={sql_string(eval_run_id)}
@@ -3547,7 +3561,14 @@ class Repository:
             SELECT phase_id, status, expected_trials, completed_trials, error_message,
                    job_run_id,
                    CAST(created_at AS STRING) AS created_at,
-                   CAST(completed_at AS STRING) AS completed_at
+                   CAST(completed_at AS STRING) AS completed_at,
+                   CAST(GREATEST(
+                     0,
+                     timestampdiff(
+                       SECOND, created_at,
+                       COALESCE(completed_at, current_timestamp())
+                     )
+                   ) AS BIGINT) AS elapsed_seconds
             FROM {table} WHERE project_id={sql_string(project_id)}
               AND eval_run_id={sql_string(eval_run_id)} ORDER BY phase_id
         """)
@@ -3611,10 +3632,17 @@ class Repository:
                 # Continue with the known-safe ID and retry the repair on the
                 # next status request if the Warehouse is temporarily busy.
                 pass
+        elapsed_values: list[int] = []
         for row in rows:
             row["expected_trials"] = _int_or_none(row.get("expected_trials")) or 0
             row["completed_trials"] = _int_or_none(row.get("completed_trials")) or 0
             row["status"] = str(row.get("status") or "UNKNOWN").upper()
+            elapsed_seconds = _int_or_none(row.get("elapsed_seconds"))
+            if elapsed_seconds is not None and elapsed_seconds >= 0:
+                row["elapsed_seconds"] = elapsed_seconds
+                elapsed_values.append(elapsed_seconds)
+            else:
+                row["elapsed_seconds"] = None
             row.pop("job_run_id", None)
         statuses = {str(row["status"]) for row in rows}
         overall = _overall_evaluation_status(statuses)
@@ -3636,6 +3664,12 @@ class Repository:
             # the oldest creation and latest completion across all phases.
             "created_at": min(created_values) if created_values else None,
             "completed_at": max(completed_values) if completed_values else None,
+            # TIMESTAMP strings lose their Workspace offset when serialized by
+            # CAST.  Keep duration arithmetic in Databricks and expose one
+            # timezone-independent value for the browser timer.  The longest
+            # non-negative Phase duration covers small concurrent insert-time
+            # differences without trusting malformed values.
+            "elapsed_seconds": max(elapsed_values) if elapsed_values else None,
             "job_run_id": job_run_id,
             "job_run_url": None,
             "job_state": None,
@@ -4135,6 +4169,15 @@ def _collapse_evaluation_phase_rows(
         representative["completed_trials"] = max(
             (_int_or_none(row.get("completed_trials")) or 0 for row in duplicates),
             default=0,
+        )
+        elapsed_values = [
+            elapsed
+            for row in duplicates
+            if (elapsed := _int_or_none(row.get("elapsed_seconds"))) is not None
+            and elapsed >= 0
+        ]
+        representative["elapsed_seconds"] = (
+            max(elapsed_values) if elapsed_values else None
         )
         representative["error_message"] = next(
             (

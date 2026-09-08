@@ -102,7 +102,7 @@ databricks apps deploy <APP_NAME> \
 - 会話削除は本人の会話だけを対象にし、回答中なら停止を要求してHTTP 409を返します。停止完了後に再実行すると、message、run、sessionを子から順に削除します。
 - 精度評価画面はProject／評価データ版／用途内の登録済み質問を初回全選択し、個別／一括選択、正解状態、期待回答、正解PDF／ページ、選択件数と最大試行数を表示します。質問追加フォームは初期状態で閉じ、0件では評価を開始できません。Phase 1〜5は全幅の横並びカードにし、狭い画面ではPhase領域を横スクロール、設定・工程・指標群を1列で表示します。
 - trialの既定値は1です。開始ボタンは質問、Phase、既存Indexに対応するVariant、回答LLM、採点LLMがそろった場合だけ有効にします。Evaluation作成APIは`evaluation_case_ids`を1〜1000件で受け、Project・version・split所属を全件検証して`config_json`／`config_hash`へ固定します。Jobは選択IDだけを評価し、fieldを持たない旧runは同じ版・用途の全件を処理します。
-- 開始要求中からspinnerと進捗カードを表示し、受付、Job起動、Phase評価、指標集計、改善提案、全体／Phase別の完了試行数、割合、経過時間を更新します。Projectを再表示した場合はactive runを復元します。履歴からrunを開く最初のstatus GETは1回25秒でtimeoutし、一時的な失敗ではspinnerを保って最大3回再接続します。通常のpollも同じrunを監視し続けます。精度評価画面はProjectごとの最近の評価runも一覧表示し、過去runのPhase状態、指標、改善提案を再表示します。
+- 開始要求中からspinnerと進捗カードを表示し、受付、Job起動、Phase評価、指標集計、改善提案、全体／Phase別の完了試行数、割合、経過時間を更新します。経過時間はDeltaのTIMESTAMP文字列をブラウザで解釈せず、status APIのタイムゾーン非依存な`elapsed_seconds`を基準に進め、terminal状態で固定します。Projectを再表示した場合はactive runを復元します。履歴からrunを開く最初のstatus GETは1回25秒でtimeoutし、一時的な失敗ではspinnerを保って最大3回再接続します。通常のpollも同じrunを監視し続けます。精度評価画面はProjectごとの最近の評価runも一覧表示し、過去runのPhase状態、指標、改善提案を再表示します。
 - ブラウザは評価開始の応答が途切れた場合も、同じpayloadと`Idempotency-Key`で最大3回再送します。サーバーはProject、利用者、keyから同じ`eval_run_id`を決定し、Phase行を`MERGE`します。Lakeflow Jobも同じ`eval_run_id`をidempotency tokenに使うため、受付応答や`job_run_id`保存が失われても別run／別Jobを増やしません。
 - 評価status APIは一つの論理runと一つのLakeflow runの対応を検証し、queue、compute、environment、task、terminal状態を安全な文言へ変換します。一時的なJob受付失敗では30〜300秒のbackoffと`retry_after_ms`を返し、画面はその間隔で監視します。Jobs APIの状態取得が一時失敗した`UNKNOWN`はspinner付きで再確認し、Job ID不正や権限・設定の確定的な拒否は`FAILED`へ収束します。JobがNotebook開始前に失敗／停止しても、評価行を終端状態へ収束します。
 - 同一Phaseの同じ制御行が複数見えても、API、履歴、Evaluation JobはPhaseごとに1件へ集約し、進捗や試行数を水増ししません。固定設定が異なる重複行は拒否します。
@@ -210,7 +210,7 @@ https://<APP_HOST>
 
 ## この環境の実測結果
 
-直前のremote実測asset `1.4.5`をGitHubの`main/app`から新規Appへ配置し、App状態、health、resource binding、既存Index Variant一覧、実RAGチャット、MLflow Trace、PDFリンク引用まで確認しました。現行source asset `1.4.7`はPython 334件とUI 37件、合計371件の自動テストに合格していますが、remote実測は`PENDING`です。登録済み評価質問の選択runと孤児Chat run回復付きPDF単体削除はasset `1.4.4`の検証履歴です。旧asset `1.4.1`で実行した非車両G01のChat／評価も履歴として下表に残します。
+直前のremote実測asset `1.4.5`をGitHubの`main/app`から新規Appへ配置し、App状態、health、resource binding、既存Index Variant一覧、実RAGチャット、MLflow Trace、PDFリンク引用まで確認しました。現行source asset `1.4.8`はPython 337件とUI 38件、合計375件の自動テストに合格していますが、remote実測は`PENDING`です。登録済み評価質問の選択runと孤児Chat run回復付きPDF単体削除はasset `1.4.4`の検証履歴です。旧asset `1.4.1`で実行した非車両G01のChat／評価も履歴として下表に残します。
 
 | 項目 | 実測 |
 |---|---|
@@ -221,7 +221,7 @@ https://<APP_HOST>
 | Resources／scope | binding 7件、`iam.access-control:read`、`iam.current-user:read`、`model-serving` |
 | ログインユーザー | `/api/me` HTTP 200、`<DATABRICKS_USER_EMAIL>` |
 | App SP権限 | grant 30文成功。`toyota_index_variants`の`MODIFY`はStatement `<STATEMENT_ID>`、`SELECT`＋`MODIFY`の確認は`<STATEMENT_ID>` |
-| Source test | asset `1.4.7`、Python 334件、UI 37件、合計371件、差分check成功 |
+| Source test | asset `1.4.8`、Python 337件、UI 38件、合計375件、差分check成功 |
 | App起動 | deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`。旧deploymentのnpm失敗履歴は現行Appと分けて記録 |
 | PDF概要 | 20件snapshotで空欄0件、20〜30字違反0件。`AI_GENERATED=10`、`AI_GENERATED_NORMALIZED=9`、`USER=1`。最新registry 22件全体の監査値ではない |
 | PDF content API | 通常取得200、byte Range 206、ETag再検証304、`private, max-age=300` |

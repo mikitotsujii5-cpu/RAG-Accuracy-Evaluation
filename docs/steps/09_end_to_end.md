@@ -156,8 +156,8 @@ app/.venv/bin/python scripts/smoke_test_last_document_deletion.py \
 
 確認済み項目は`SUCCESS`です。
 
-- 現行source asset `1.4.7`はPython 334件とUI 37件、合計371件が成功し、差分checkも成功しました。ローカル画面でPhase横並び、評価開始直後のspinner、進捗、完了、停止、結果取得中のspinnerを確認しました。既存のChat実測ではEnter 5連打時の質問1件、思考中spinner、停止直後の入力復帰、会話履歴の往復277／284 ms、下書き保持、390 px表示、console error 0件を確認しています。
-- 直前のremote実測asset `1.4.5`はGitHubの`main/app`から新規Appへ配置済みです。`SUCCEEDED`／`RUNNING`／`ACTIVE`、health HTTP 200、resource binding 7件、既存Index Variant一覧1件を確認しました。実RAGチャットはAI Search 10件、回答、Trace、PDFリンク引用、`run.completed`まで成功しています。asset `1.4.7`のremote実測は`PENDING`です。
+- 現行source asset `1.4.8`はPython 337件とUI 38件、合計375件が成功し、差分checkも成功しました。ローカル画面でPhase横並び、評価開始直後のspinner、進捗、完了、停止、結果取得中のspinnerを確認しました。既存のChat実測ではEnter 5連打時の質問1件、思考中spinner、停止直後の入力復帰、会話履歴の往復277／284 ms、下書き保持、390 px表示、console error 0件を確認しています。
+- 直前のremote実測asset `1.4.5`はGitHubの`main/app`から新規Appへ配置済みです。`SUCCEEDED`／`RUNNING`／`ACTIVE`、health HTTP 200、resource binding 7件、既存Index Variant一覧1件を確認しました。実RAGチャットはAI Search 10件、回答、Trace、PDFリンク引用、`run.completed`まで成功しています。asset `1.4.8`のremote実測は`PENDING`です。
 - baseline Projectの使用中Variantを`baseline-standard-512-v1`へ復元し、UPDATE Statement `<STATEMENT_ID>`と検証SELECT `<STATEMENT_ID>`で確認しました。
 - 非車両Project `<RESOURCE_ID>`へPDFを登録し、タイトル自動補完、汎用metadata、旧車両値NULL、3ページの`FILE`型解析を確認しました。documentは`<RESOURCE_ID>`、parse runは`<RESOURCE_ID>`です。
 - 「RAG検索データを作成」はprep run `<RESOURCE_ID>`、Job run `<DATABRICKS_RESOURCE_ID>`、Semantic／512 Variant `<RESOURCE_ID>`で`SUCCEEDED`です。sourceとIndexは各6行、別Project行0、Indexは`READY`です。

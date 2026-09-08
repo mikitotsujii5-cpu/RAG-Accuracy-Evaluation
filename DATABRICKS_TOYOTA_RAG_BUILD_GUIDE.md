@@ -2727,7 +2727,7 @@ idle → submitting → streaming → stopping → cancelled
 | 正解情報 | 質問ごとに回答正解／検索正解の登録状態を表示。「正解を確認」で期待回答、正解PDF、正解ページ、認可済みPDFリンクを表示 |
 | 評価質問の追加 | 初期状態で閉じたフォームを必要なときだけ開き、質問、正解PDF、正解ページ、データ版、用途を登録。期待回答は任意。回答可能な質問では解析済みPDFとPDF内のページ番号を必須にする |
 | 実行設定 | Phase 1～5、trial数、Variant、回答LLM、judge LLM、dataset version／split、選択case ID。trialの既定値は1。選択件数と`case × Phase × trial`の最大試行数を表示し、質問、Phase、Variant、両LLMのいずれかが未選択なら開始不可 |
-| 進捗 | 開始要求中からspinnerを表示し、受付、Job起動、Phase評価、指標集計、改善提案の5工程、全体とPhase別の完了試行数、割合、経過時間、cancelを表示 |
+| 進捗 | 開始要求中からspinnerを表示し、受付、Job起動、Phase評価、指標集計、改善提案の5工程、全体とPhase別の完了試行数、割合、経過時間、cancelを表示。経過時間はstatus APIの`elapsed_seconds`を基準に更新し、terminal状態で固定 |
 | 評価履歴 | Projectごとの最近のrunを新しい順に表示し、選択した過去runのPhase状態、指標、改善提案を再表示 |
 | 検索品質 | Page Recall@k、Precision@k、DCG@k、nDCG@k |
 | 回答品質 | Answer Correctness、Groundedness、Citation Correctness。期待回答・期待事実がないケースのCorrectnessは`NULL`で平均から除外 |
@@ -4617,7 +4617,7 @@ Trial: 1
 
 このsmokeではHybrid SearchのPhase 2が検索3指標を改善した一方、Metadata Filtering以降はRecallが低下し、Query Optimizationを含むPhase 5はlatencyが増えた。改善機能を増やすこと自体を目的にせず、Phase別提案と失敗Traceから次の一変更を選んで再評価する。
 
-現行source asset `1.4.7`はPython 334件とUI 37件、合計371件の自動テストと差分checkに合格し、ローカル画面でPhase横並び、評価開始直後のspinner、進捗、完了、停止、結果取得中のspinnerを確認した。同一`Idempotency-Key`再送、`eval_run_id`によるJob冪等化、`retry_after_ms`、一時的な`UNKNOWN`再確認、確定的Job拒否の`FAILED`収束、評価履歴からの初回status GETの25秒timeout／最大3回再接続、停止POST待機中のterminal検知とPOST中止・結果保持、停止回復、重複Phase集約、結果取得の45秒timeout／最大3回再試行、Job ID正整数検証も回帰対象である。直前のremote実測asset `1.4.5`はGitHubの`main/app`から新規Appへ配置し、`SUCCEEDED`／`RUNNING`／`ACTIVE`、health HTTP 200、resource binding 7件を確認した。許可済み既存Index Variant 1件だけを一覧表示し、AI Search 10件取得、回答、Trace、PDFリンク引用、`run.completed`まで認証付きremote APIで確認した。asset `1.4.7`のremote実測は`PENDING`であり、デプロイ後に追記する。PDF viewerはローカルで初回3,057 ms、同一Project・PDF・pageの再表示296 msを確認し、Project切替時に保持iframeを破棄した。旧asset `1.4.1`のremote content APIではPDF 200、byte Range 206、ETag再検証304、private cacheを確認した履歴を保持する。
+現行source asset `1.4.8`はPython 337件とUI 38件、合計375件の自動テストと差分checkに合格し、ローカル画面でPhase横並び、評価開始直後のspinner、進捗、完了、停止、結果取得中のspinnerを確認した。同一`Idempotency-Key`再送、`eval_run_id`によるJob冪等化、`retry_after_ms`、一時的な`UNKNOWN`再確認、確定的Job拒否の`FAILED`収束、評価履歴からの初回status GETの25秒timeout／最大3回再接続、停止POST待機中のterminal検知とPOST中止・結果保持、停止回復、重複Phase集約、結果取得の45秒timeout／最大3回再試行、Job ID正整数検証も回帰対象である。直前のremote実測asset `1.4.5`はGitHubの`main/app`から新規Appへ配置し、`SUCCEEDED`／`RUNNING`／`ACTIVE`、health HTTP 200、resource binding 7件を確認した。許可済み既存Index Variant 1件だけを一覧表示し、AI Search 10件取得、回答、Trace、PDFリンク引用、`run.completed`まで認証付きremote APIで確認した。asset `1.4.8`のremote実測は`PENDING`であり、デプロイ後に追記する。PDF viewerはローカルで初回3,057 ms、同一Project・PDF・pageの再表示296 msを確認し、Project切替時に保持iframeを破棄した。旧asset `1.4.1`のremote content APIではPDF 200、byte Range 206、ETag再検証304、private cacheを確認した履歴を保持する。
 
 asset `1.4.4`では評価画面にProject／version／split内の質問一覧、初期全選択、個別／一括選択、正解状態／詳細、選択件数／最大試行数、0件開始禁止、折りたたみ追加フォームを実装した。作成APIは1〜1000件の`evaluation_case_ids`を所属検証して`config_json`／`config_hash`へ固定し、Evaluation Jobは選択IDだけを処理する。fieldを持たない旧runの全件評価は後方互換として維持する。選択評価run `<RESOURCE_ID>`はcase `figure-001`だけを処理し、Job `<DATABRICKS_RESOURCE_ID>`／task `<DATABRICKS_RESOURCE_ID>`が`TERMINATED`／`SUCCESS`となった。結果1行、選択外0行、error 0、MLflow run `<RESOURCE_ID>`を確認した。
 

@@ -7,7 +7,7 @@
 対象Workspaceは`field-eng-east`（ID `<WORKSPACE_ID>`）です。Databricksへサインインし、このAppの利用権限を持つアカウントで開いてください。
 
 > [!NOTE]
-> 現行sourceはasset version `1.4.7`です。Python 334件とUI 37件、合計371件の自動テストに合格し、ローカル画面でPhase横並び、進捗、完了、停止、結果取得中の表示を確認しました。直前のremote実測はasset `1.4.5`で、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health HTTP 200、resource binding 7件、既存Index Variant一覧、AI Search 10件取得、LLM回答、MLflow Trace、PDFリンク引用まで確認済みです。asset `1.4.7`のremote実測は`PENDING`であり、デプロイ後に結果を記録します。
+> 現行sourceはasset version `1.4.8`です。Python 337件とUI 38件、合計375件の自動テストに合格し、ローカル画面でPhase横並び、進捗、完了、停止、結果取得中の表示を確認しました。直前のremote実測はasset `1.4.5`で、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health HTTP 200、resource binding 7件、既存Index Variant一覧、AI Search 10件取得、LLM回答、MLflow Trace、PDFリンク引用まで確認済みです。asset `1.4.8`のremote実測は`PENDING`であり、デプロイ後に結果を記録します。
 
 > [!CAUTION]
 > 付属のトヨタ車種関連PDFはすべて架空の評価データです。内容を実車の操作、整備、救助、購入判断に使わないでください。これらは同梱シナリオであり、アプリは車両以外のPDFにも使えます。
@@ -318,6 +318,8 @@ G01の登録例:
 - Phaseごとの待機中、実行中、完了、失敗、停止と、完了試行数。
 - 先行Job待ち、Databricksコンピュート起動、評価環境準備、検索・回答・採点など、現在待っている処理。
 - 同じWorkspaceの正しいURLと確認できた場合だけ表示される「Lakeflow Jobを開く」。
+
+経過時間はDatabricksが計算した秒数を基準に更新し、完了・失敗・停止時点で固定されます。パソコンとWorkspaceのタイムゾーンが違っても、時差が経過時間へ加算されることはありません。
 
 評価開始の通信が途切れた場合、ブラウザは同じ`Idempotency-Key`（受付番号）を使って最大3回まで安全に受付結果を確認します。同じ操作から評価runやLakeflow Jobが二重に作られることはありません。「評価の受付結果を確認しています」と表示されたら、開始ボタンを押し直さずに待ってください。受付後は、サーバーが返す次の確認時刻に合わせて状態を確認します。
 

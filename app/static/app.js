@@ -62,6 +62,7 @@ const state = {
   evaluationSubmissionKey: null,
   evaluationSubmissionFingerprint: null,
   evaluationRunStartedAt: null,
+  evaluationElapsedFrozenMs: null,
   evaluationElapsedTimer: null,
   evaluationPollFailures: 0,
   catalogView: "cards",
@@ -971,6 +972,7 @@ function resetEvaluationUi() {
   state.evaluationRunId = null;
   state.evaluationSubmitting = false;
   state.evaluationRunStartedAt = null;
+  state.evaluationElapsedFrozenMs = null;
   state.evaluationPollFailures = 0;
   state.lastMetrics = [];
   setEvaluationRunningUi(false);
@@ -1800,6 +1802,10 @@ async function openEvaluationRun(runId, { restored = false } = {}) {
   state.evaluationCancelPending = false;
   state.evaluationTerminalStatus = null;
   state.evaluationPollFailures = 0;
+  stopEvaluationElapsedTimer();
+  state.evaluationRunStartedAt = null;
+  state.evaluationElapsedFrozenMs = null;
+  updateEvaluationElapsed();
   const context = { ...scope, runId, operation };
   setEvaluationRunningUi(true, "状態を確認中…");
   $("#evaluation-progress-card").classList.remove("hidden");
@@ -1808,7 +1814,6 @@ async function openEvaluationRun(runId, { restored = false } = {}) {
     const run = await fetchEvaluationStatusWithRecovery(context, { restored });
     if (!isCurrentEvaluationContext(context)) return;
     state.evaluationSubmitting = false;
-    setEvaluationRunStartTime(run.created_at);
     renderEvaluationProgress(run);
     const runStatus = String(run.status || "").toUpperCase();
     const active = EVALUATION_ACTIVE_STATUSES.has(runStatus);
@@ -3627,6 +3632,7 @@ async function startEvaluation() {
   state.evaluationTerminalStatus = null;
   state.evaluationPollFailures = 0;
   state.evaluationRunStartedAt = Date.now();
+  state.evaluationElapsedFrozenMs = null;
   renderMetrics([]);
   renderSuggestions([]);
   setEvaluationRunningUi(true, "評価を受け付けています…");
@@ -3944,6 +3950,7 @@ function renderEvaluationProgress(run) {
   $("#evaluation-progress-card").classList.remove("hidden");
   const rawStatus = String(run.status || "RUNNING").toUpperCase();
   const terminal = EVALUATION_TERMINAL_STATUSES.has(rawStatus);
+  syncEvaluationElapsed(run, terminal);
   const cancellationPending = !terminal
     && (rawStatus === "CANCEL_REQUESTED" || state.evaluationCancelPending);
   const status = cancellationPending ? "CANCEL_REQUESTED" : rawStatus;
@@ -4061,15 +4068,56 @@ function updateEvaluationStages(activeStage = "idle", status = "") {
   });
 }
 
-function setEvaluationRunStartTime(value) {
-  const parsed = value ? new Date(value).valueOf() : NaN;
-  state.evaluationRunStartedAt = Number.isFinite(parsed) ? parsed : state.evaluationRunStartedAt || Date.now();
+function evaluationElapsedMilliseconds(run, terminal) {
+  const rawSeconds = run?.elapsed_seconds;
+  if (rawSeconds !== null && rawSeconds !== undefined && rawSeconds !== "") {
+    const seconds = Number(rawSeconds);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.min(Math.floor(seconds * 1000), Number.MAX_SAFE_INTEGER);
+    }
+  }
+
+  // Backward compatibility only: CAST(TIMESTAMP AS STRING) can omit its
+  // timezone. For a terminal legacy response, subtracting its two similarly
+  // formatted values is safe because the same unknown offset cancels out.
+  // An active timestamp must never be compared with the browser clock; when
+  // elapsed_seconds is absent, start an approximate timer from this screen.
+  const createdAt = run?.created_at ? new Date(run.created_at).valueOf() : NaN;
+  const completedAt = run?.completed_at ? new Date(run.completed_at).valueOf() : NaN;
+  if (terminal && Number.isFinite(createdAt) && Number.isFinite(completedAt)) {
+    return Math.max(0, completedAt - createdAt);
+  }
+  return null;
+}
+
+function syncEvaluationElapsed(run, terminal) {
+  const elapsed = evaluationElapsedMilliseconds(run, terminal);
+  if (terminal) {
+    const current = state.evaluationElapsedFrozenMs ?? (
+      state.evaluationRunStartedAt
+        ? Math.max(0, Date.now() - state.evaluationRunStartedAt)
+        : 0
+    );
+    state.evaluationElapsedFrozenMs = elapsed ?? current;
+    state.evaluationRunStartedAt = null;
+  } else if (elapsed !== null) {
+    state.evaluationElapsedFrozenMs = null;
+    // Anchor the ticking browser timer to the server-computed duration.  This
+    // preserves smooth one-second updates without interpreting a Workspace
+    // TIMESTAMP as local browser time.
+    state.evaluationRunStartedAt = Date.now() - elapsed;
+  } else if (!state.evaluationRunStartedAt) {
+    state.evaluationElapsedFrozenMs = null;
+    state.evaluationRunStartedAt = Date.now();
+  }
   updateEvaluationElapsed();
 }
 
 function startEvaluationElapsedTimer() {
   stopEvaluationElapsedTimer();
-  if (!state.evaluationRunStartedAt) state.evaluationRunStartedAt = Date.now();
+  if (!state.evaluationRunStartedAt && state.evaluationElapsedFrozenMs === null) {
+    state.evaluationRunStartedAt = Date.now();
+  }
   updateEvaluationElapsed();
   state.evaluationElapsedTimer = setInterval(updateEvaluationElapsed, 1000);
 }
@@ -4081,7 +4129,11 @@ function stopEvaluationElapsedTimer() {
 }
 
 function updateEvaluationElapsed() {
-  const elapsed = state.evaluationRunStartedAt ? Math.max(0, Date.now() - state.evaluationRunStartedAt) : 0;
+  const elapsed = state.evaluationElapsedFrozenMs ?? (
+    state.evaluationRunStartedAt
+      ? Math.max(0, Date.now() - state.evaluationRunStartedAt)
+      : 0
+  );
   $("#evaluation-elapsed").textContent = `経過 ${formatElapsed(elapsed)}`;
 }
 
@@ -4421,6 +4473,8 @@ function stopActiveStreams() {
   state.evaluationTerminalStatus = null;
   state.evaluationSubmitting = false;
   stopEvaluationElapsedTimer();
+  state.evaluationRunStartedAt = null;
+  state.evaluationElapsedFrozenMs = null;
   clearInterval(state.streamTimer);
   state.streamTimer = null;
   stopPreparationMonitor({ resetRun: true });

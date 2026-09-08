@@ -20,7 +20,7 @@
 | 区分 | 状態 | 匿名化した結果 |
 |---|---|---|
 | 接続と権限 | `SUCCESS` | 対象Workspaceへ接続し、App専用サービスプリンシパルの最小権限を確認 |
-| Source test | `SUCCESS` | 現行asset `1.4.7`でPython 334件、UI 37件、合計371件、Python compile、JavaScript構文、JSON検証に成功 |
+| Source test | `SUCCESS` | 現行asset `1.4.8`でPython 337件、UI 38件、合計375件、Python compile、JavaScript構文、JSON検証に成功 |
 | Unity Catalog／PDF | `SUCCESS` | Project分離、PDF registry、論理削除、監査履歴を確認 |
 | Document Parsing | `SUCCESS` | `FILE`型を`ai_parse_document`へ渡し、parser errorがないことを確認 |
 | PDF render QA | `SUCCESS` | サンプル9冊45ページを目視し、文字化け、欠け、重なりがないことを確認 |
@@ -30,8 +30,8 @@
 | Lakeflow Jobs | `SUCCESS` | データ準備、評価、Index同期の各Jobが正常終了することを確認 |
 | MLflow | `SUCCESS` | `AGENT`配下に`RETRIEVER`、`CHAT_MODEL`、`EVALUATOR`のTrace階層を確認 |
 | Databricks App | `SUCCESS` | 直前のremote asset `1.4.5`でDeployment、`RUNNING`、compute `ACTIVE`、health HTTP 200、resource binding 7件を確認 |
-| 現行App remote | `PENDING` | asset `1.4.7`のGitHub同期、Databricks Appsデプロイ、remote E2Eは未実施 |
-| App UI | `SUCCESS` | asset `1.4.7`のローカル確認でPhase横並び、評価spinner・進捗、同一key再送、`UNKNOWN`再確認、初回status GETの25秒timeout・最大3回再接続、停止回復、terminal検知時の停止POST中止・結果保持、結果取得中spinner・45秒timeout・最大3回再試行・履歴からの再取得、Enter多重送信防止、履歴切替、モバイル幅、console error 0を確認 |
+| 現行App remote | `PENDING` | asset `1.4.8`のGitHub同期、Databricks Appsデプロイ、remote E2Eは未実施 |
+| App UI | `SUCCESS` | asset `1.4.8`のローカル確認でPhase横並び、評価spinner・進捗、同一key再送、`UNKNOWN`再確認、初回status GETの25秒timeout・最大3回再接続、停止回復、terminal検知時の停止POST中止・結果保持、結果取得中spinner・45秒timeout・最大3回再試行・履歴からの再取得、Enter多重送信防止、履歴切替、モバイル幅、console error 0を確認 |
 | 評価質問の選択 | `SUCCESS` | 個別・一括選択、0件開始防止、正解情報表示、選択IDだけの評価を確認 |
 | PDF viewer | `SUCCESS` | PDF 200、Range 206、ETag再検証、Project切替時の破棄を確認 |
 | PDF単体の論理削除 | `SUCCESS` | 影響Variantを残存PDFだけで再構築し、削除PDFの検索hitが0になることを確認 |
