@@ -30,7 +30,7 @@
 - READYなFMAPI Embedding候補だけを選べ、利用可能ならQwen3 Embedding 0.6Bが既定で「推奨・日本語対応」と表示される。利用不可時の別fallbackへ「日本語対応」を誤表示しない。
 - 新しいVariantは別Table／Indexとして残り、既存Variantを上書きしない。
 - カタログにタイトル、概要、リンクが表示され、認可済みPDFを開ける。
-- 「PDFを開く」をhoverまたはfocusした時点でprefetchし、content APIが`ETag`、byte `Range`、private cacheに対応する。同じProject・PDF・pageを閉じて再表示すると読み込み済みiframeを再利用し、Project切替時は破棄する。
+- 「PDFを開く」をhoverまたはfocusした時点でprefetchする。全画面viewerで全ページをスクロールでき、ページ幅表示、別タブ表示、ダウンロード、Esc終了を確認する。content APIは`ETag`、byte `Range`、private cacheに対応し、同じProject・PDF・pageを閉じて再表示すると読み込み済みiframeを再利用し、Project切替時は破棄する。
 - 状態が`ERROR`のPDFだけに「再解析」が表示され、同じ登録ファイルを`FILE`型で再処理する。連打しても再解析要求は1件だけである。
 - PDFカードと表の両方に「削除」があり、OWNER／EDITORだけが確認後に実行できる。処理中はspinnerが表示され、連打で同じrequestを増やさない。
 

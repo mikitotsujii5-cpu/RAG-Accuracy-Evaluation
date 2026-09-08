@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="DatabricksでPDFを検索するRAGを作り、検索精度・回答品質・応答時間を比べるアプリ">
   <title>RAG精度評価アプリ</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=1.4.9">
+  <link rel="stylesheet" href="/assets/styles.css?v=1.5.0">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f3e58'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='Arial' font-weight='700' font-size='18' fill='%23a8e6cf'%3ER%3C/text%3E%3C/svg%3E">
 </head>
 <body>
@@ -242,8 +242,15 @@
             <tbody id="catalog-table-body"></tbody>
           </table>
         </div>
-        <div id="pdf-viewer" class="viewer-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="viewer-title">
-          <div class="viewer-header"><div><p class="eyebrow">PDF原文</p><h2 id="viewer-title">文書</h2></div><button id="viewer-close" class="icon-button" type="button" aria-label="閉じる">×</button></div>
+        <div id="pdf-viewer" class="viewer-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="viewer-title" aria-describedby="viewer-help">
+          <div class="viewer-header">
+            <div class="viewer-heading"><p class="eyebrow">PDF原文</p><h2 id="viewer-title">文書</h2><p id="viewer-help">下へスクロールすると全ページを確認できます。</p></div>
+            <div class="viewer-actions">
+              <a id="viewer-open-new" class="secondary-button" href="#" target="_blank" rel="noopener">別タブで開く ↗</a>
+              <a id="viewer-download" class="secondary-button" href="#" download>ダウンロード</a>
+              <button id="viewer-close" class="icon-button" type="button" aria-label="PDFプレビューを閉じる" title="閉じる（Esc）">×</button>
+            </div>
+          </div>
           <div id="viewer-loading" class="viewer-loading" role="status"><span class="spinner" aria-hidden="true"></span>PDFを読み込んでいます…</div>
           <iframe id="viewer-frame" title="PDFプレビュー"></iframe>
         </div>
@@ -538,6 +545,6 @@
     </div>
   </div>
 
-  <script src="/assets/app.js?v=1.4.9" defer></script>
+  <script src="/assets/app.js?v=1.5.0" defer></script>
 </body>
 </html>

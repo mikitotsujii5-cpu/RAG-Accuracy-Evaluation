@@ -7,7 +7,7 @@
 対象Workspaceは`field-eng-east`（ID `<WORKSPACE_ID>`）です。Databricksへサインインし、このAppの利用権限を持つアカウントで開いてください。
 
 > [!NOTE]
-> 現行sourceはasset version `1.4.9`です。Python 344件とUI 40件、合計384件の自動テストに合格しています。GitHubからの配置、App／compute、health、binding 7件、Databricks機能リンク13件、質問例9件、「比較条件を選択」、個人名の固定表示がないことを確認済みです。
+> 現行sourceはasset version `1.5.0`です。PDF全画面viewerを含むUIテスト40件に合格しています。Python 344件とremote配置はasset `1.4.9`の確認記録です。
 
 > [!CAUTION]
 > 付属のトヨタ車種関連PDFはすべて架空の評価データです。内容を実車の操作、整備、救助、購入判断に使わないでください。これらは同梱シナリオであり、アプリは車両以外のPDFにも使えます。
@@ -158,13 +158,13 @@ ServerlessはUnity CatalogとStandard access modeを前提とし、Instance Pool
 - 検索欄: タイトル、概要、カテゴリ、タグ、ソースから絞り込む。
 - 状態: Ready、Parsed、Parsing、Errorで絞り込む。
 - カード／表ボタン: 表示方法を切り替える。
-- 「PDFを開く」または「表示」: 認可済みのアプリ内リンクでPDFを開く。
+- 「PDFを開く」または「表示」: 認可済みの全画面ビューアでPDFを開く。
 - 「再解析」: 状態が`ERROR`のPDFだけを、同じ登録ファイルからもう一度Document Parsingする。
 - 「削除」: OWNERまたはEDITORが、確認画面の後にPDFをRAGの検索対象から外す。
 
 カタログにはタイトル、20〜30字の概要、カテゴリ、タグ、文書日付、ソース、解析状態が表示されます。トヨタ評価シナリオでは、後方互換の車種、年式、文書種別も表示できます。概要が未入力の場合、Document Parsing後に「AI概要」または安全なfallback概要が表示されます。
 
-PDFを直接のVolume URLで開くのではなく、必ずアプリ内リンクを使います。これにより、Projectの閲覧権限を確認した後で文書を表示できます。「PDFを開く」へマウスを重ねる、フォーカスする、または押し始めた時点で先読みします。取得APIは`ETag`、byte `Range`、private cacheに対応し、同じProjectで一度読み込んだ同じPDF・ページはviewer内に保持するため、閉じてすぐ再表示すると再読込を待ちません。Projectを切り替えると保持内容を破棄し、別Projectへ文書を持ち越しません。ローカル実測では初回3,057 ms、同じPDFの再表示296 msでした。値はネットワークやPDFサイズで変わります。
+PDFを直接のVolume URLで開くのではなく、必ずアプリ内リンクを使います。全画面ビューアでは全ページを縦にスクロールでき、ページ移動、拡大・縮小、別タブ表示、ダウンロードを利用できます。Escまたは右上の×で閉じます。「PDFを開く」へマウスを重ねる、フォーカスする、または押し始めた時点で先読みします。取得APIは`ETag`、byte `Range`、private cacheに対応し、同じProjectで一度読み込んだ同じPDF・ページはviewer内に保持するため、閉じてすぐ再表示すると再読込を待ちません。Projectを切り替えると保持内容を破棄し、別Projectへ文書を持ち越しません。
 
 状態が`ERROR`のPDFでは「再解析」が表示されます。原因を直してから1回押してください。アプリは古い解析runを閉じ、新しい`PARSE_ONLY` runを作って、Volume上の同じPDFを`FILE`型の`ai_parse_document`へ渡します。連打しても同時に複数の再解析を開始しません。`PARSED`／`READY`など正常なPDFには再解析ボタンを表示しません。
 

@@ -4,7 +4,7 @@
 
 PDF、検索Index、チャット履歴、評価Dataset、評価結果はすべてProject単位で分離します。各ProjectのPDFに合う正解付き評価質問を画面から登録し、同じ評価データ版・用途の質問一覧から今回使う質問だけを選んで、Phase 1から5のVector Search、Hybrid Search、Metadata Filtering、Reranking、Query Optimizationの効果を順番に確認できます。
 
-現行UIでは、任意の文書情報を閉じたパネルにまとめ、Qwen3 Embedding 0.6Bを利用可能時の既定値にしています。PDF解析後はFMAPIで20〜30字の概要を作り、回答の根拠はチャンク本文ではなくProject認可済みPDF原文リンクで示します。ログインユーザーのメール、クリックしてWorkspaceコンソールを開けるDatabricks機能名、Project／PDF／会話の削除、チャット用の質問例9件、評価用サンプル質問3件、登録済み質問の個別・一括選択、正解情報、過去の精度評価結果も画面から確認できます。PDF単体の削除では、登録と監査履歴を残したまま検索対象から外し、影響するVariantを残存PDFだけで再構築します。解析に失敗したPDFは、同じファイルを再アップロードせずカタログから再解析できます。
+現行UIでは、任意の文書情報を閉じたパネルにまとめ、Qwen3 Embedding 0.6Bを利用可能時の既定値にしています。PDF解析後はFMAPIで20〜30字の概要を作り、回答の根拠はチャンク本文ではなくProject認可済みPDF原文リンクで示します。PDFビューアは全画面で全ページをスクロールでき、別タブ表示とダウンロードにも対応します。ログインユーザーのメール、クリックしてWorkspaceコンソールを開けるDatabricks機能名、Project／PDF／会話の削除、チャット用の質問例9件、評価用サンプル質問3件、登録済み質問の個別・一括選択、正解情報、過去の精度評価結果も画面から確認できます。PDF単体の削除では、登録と監査履歴を残したまま検索対象から外し、影響するVariantを残存PDFだけで再構築します。解析に失敗したPDFは、同じファイルを再アップロードせずカタログから再解析できます。
 
 RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索データ、回答LLM、採点LLMがそろった場合だけ開始できます。繰り返し回数の既定値は1です。1問と全5 Phaseを選んだ最小確認は最大5試行になります。開始要求中から回転表示、工程、完了試行数、割合、経過時間を表示し、再読込や画面移動の後もProject内の実行中評価を復元します。経過時間はDatabricks側で算出した秒数を使うため、Workspaceとブラウザのタイムゾーンが異なってもずれません。通信が途切れた場合も同じ受付番号で安全に再確認し、評価runやLakeflow Jobを二重に作りません。Job状態を一時的に取得できない場合は回転表示を続け、確定した設定・権限エラーだけを失敗として終了します。停止時は評価Tableへ要求を保存すると同時にLakeflow Jobへ取消を依頼し、停止APIの応答が一時的に失われても再確認しながら、完了・失敗・停止のいずれかへ確定するまで監視します。
 
@@ -47,7 +47,7 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 
 ## 現在の構築状態
 
-現行source asset `1.4.9`はPython 344件とUI 40件、合計384件の自動テストに合格しています。GitHubの`main/app`から配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.9`／`databricks_ready=true`、resource binding 7件を確認しました。Databricks機能リンク13件、必須リンク12種類、質問例9件、「比較条件を選択」、個人固有のCatalog名を持たないResource Binding解決も実環境で確認済みです。公開用Markdownには実測ID、メール、App URL、Workspace IDを含めません。
+現行source asset `1.5.0`はPDF全画面viewerを含むUIテスト40件に合格しています。Python 344件とremote配置の最終確認はasset `1.4.9`の記録です。公開用Markdownには実測ID、メール、App URL、Workspace IDを含めません。
 
 | 項目 | 状態 | 実測 |
 |---|---|---|
@@ -74,7 +74,7 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 | RAG検索データ作成E2E | `SUCCESS` | Semantic／512のsource 6行、Index 6行、別Project行0、Index READY |
 | 汎用RAG migration／再デプロイ／非車両PDF E2E | `SUCCESS` | migration、汎用化source、登録・解析・Variant・チャット・引用・評価を実環境で確認 |
 | Chat多重送信・停止 | `SUCCESS` | 旧asset `1.4.1`のremote履歴。同一request再送後も保存message 2件、停止API `CANCEL_REQUESTED`、terminal `run.cancelled`、履歴 `CANCELLED` |
-| 現行sourceの回帰テスト | `SUCCESS` | asset `1.4.9`、Python 344件、UI 40件、合計384件、差分check成功 |
+| 現行sourceの回帰テスト | `SUCCESS` | asset `1.5.0`、PDF全画面viewerを含むUI 40件、差分check成功。Python 344件はasset `1.4.9`の記録 |
 | 評価質問の選択 | `SUCCESS` | Project／評価データ版／用途内の登録済み質問を初期全選択。個別選択、すべて選択、選択解除、正解状態・期待回答・正解PDF／ページ、選択件数・最大試行数を表示し、0件では開始不可。API／Jobは選択IDだけを凍結・評価 |
 | PDF viewer | `SUCCESS` | 旧assetのremote content APIでPDF 200、Range 206、ETag 304、private cacheを確認。現行assetは削除前後のPDF 200を確認。ローカル再表示296 ms、Project切替時は保持iframeを破棄 |
 | PDF単体の論理削除 | `SUCCESS` | asset `1.4.4`でProject `<RESOURCE_ID>`のPDF `<RESOURCE_ID>`をDELETE 202。孤児Chat run 2件とassistant messageを`ERROR`へ整合後、影響旧Variant 4件から後継Variant 2件をREADY化。両Indexで削除PDF hit 0、保持PDFだけを検索 |

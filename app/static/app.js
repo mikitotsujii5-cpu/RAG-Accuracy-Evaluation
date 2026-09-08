@@ -315,6 +315,7 @@ function installEventHandlers() {
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && state.confirmation) closeConfirmation(false);
+    else if (event.key === "Escape" && !$("#pdf-viewer").classList.contains("hidden")) closeViewer();
   });
 }
 
@@ -2608,7 +2609,7 @@ function renderCatalog() {
 function pdfContentHref(documentId, page = null) {
   if (!state.projectId || !documentId) return "#";
   const base = `/api/projects/${encodeURIComponent(state.projectId)}/documents/${encodeURIComponent(documentId)}/content`;
-  return page ? `${base}#page=${Math.max(1, Number(page) || 1)}` : base;
+  return page ? `${base}#page=${Math.max(1, Number(page) || 1)}&zoom=page-width&toolbar=1&navpanes=0` : base;
 }
 
 function warmPdf(documentId) {
@@ -2646,18 +2647,25 @@ function openViewer(documentId, page = 1) {
   warmPdf(documentId);
   const frame = $("#viewer-frame");
   const href = pdfContentHref(documentId, page);
+  $("#viewer-open-new").href = href;
+  $("#viewer-download").href = pdfContentHref(documentId);
+  $("#viewer-download").download = documentData.original_filename || `${documentData.title || "document"}.pdf`;
   const alreadyLoaded = frame.dataset.loadedHref === href && frame.getAttribute("src") === href;
   $("#viewer-loading").classList.toggle("hidden", alreadyLoaded);
   if (!alreadyLoaded) {
     frame.dataset.requestedHref = href;
     frame.src = href;
   }
-  $("#pdf-viewer").classList.remove("hidden"); $("#viewer-scrim").classList.remove("hidden");
+  $("#pdf-viewer").classList.remove("hidden");
+  $("#viewer-scrim").classList.remove("hidden");
+  document.body.classList.add("pdf-viewer-open");
+  $("#viewer-close").focus();
 }
 function closeViewer({ reset = false } = {}) {
   $("#pdf-viewer").classList.add("hidden");
   $("#viewer-scrim").classList.add("hidden");
   $("#viewer-loading").classList.add("hidden");
+  document.body.classList.remove("pdf-viewer-open");
   if (reset) {
     const frame = $("#viewer-frame");
     frame.src = "about:blank";

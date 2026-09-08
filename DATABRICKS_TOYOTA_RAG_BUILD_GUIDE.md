@@ -2670,7 +2670,7 @@ GET /api/projects/{project_id}/documents/{document_id}/content
 
 取得APIはProject membershipと`document_id`の所属を再検証してからregistryのVolume URIを解決し、`Content-Type: application/pdf`、`Content-Disposition: inline`、`X-Content-Type-Options: nosniff`、`Cache-Control: private`、`ETag`、`Accept-Ranges: bytes`を設定する。`HEAD`、`If-None-Match`、単一byte `Range`へ対応する。raw `/Volumes/...`、任意の外部URL、`javascript:` URLをリンクとして描画しない。
 
-「PDFを開く」のhover、focus、pointerdown、touchstartでcontent routeをprefetchする。同じProjectで読み込み済みの同じPDF・pageはviewerのiframeを閉じても保持し、再表示時に再読込しない。Project切替、明示reset、権限変更時は保持内容を破棄する。ローカル受入実測は初回3,057 ms、同一PDF再表示296 msであり、固定SLAではなく改善確認値として記録する。
+「PDFを開く」のhover、focus、pointerdown、touchstartでcontent routeをprefetchする。viewerはviewport全体を使用し、header、loading、documentを明示したCSS Grid領域へ配置する。iframeはdocument領域の残り高をすべて使い、全ページの縦スクロール、ページ幅表示、別タブ表示、ダウンロード、Esc終了を提供する。同じProjectで読み込み済みの同じPDF・pageはviewerのiframeを閉じても保持し、再表示時に再読込しない。Project切替、明示reset、権限変更時は保持内容を破棄する。
 
 PDF削除ボタンはカードと表の両方に置き、必ずPDFタイトルを含む確認ダイアログを出す。削除中はspinner、`aria-busy=true`、disabledを設定して再送を防ぐ。`202 Accepted`の後はPDFを画面から即時に外し、最新のPDF、Variant、Project状態を並列に再取得する。最後のPDFなら「PDFがありません。RAG検索データもありません。」と表示し、古いVariant選択肢を残さない。403はOWNER／EDITOR権限、409は実行中処理または別mutationとの競合、その他の失敗はPDFが一覧に残っていることを確認する日本語メッセージとする。
 
@@ -4619,7 +4619,7 @@ Trial: 1
 
 このsmokeではHybrid SearchのPhase 2が検索3指標を改善した一方、Metadata Filtering以降はRecallが低下し、Query Optimizationを含むPhase 5はlatencyが増えた。改善機能を増やすこと自体を目的にせず、Phase別提案と失敗Traceから次の一変更を選んで再評価する。
 
-現行source asset `1.4.9`はPython 344件とUI 40件、合計384件の自動テストと差分checkに合格し、Workspace機能リンク、質問例9件、「比較条件を選択」、個人固有名を固定しないResource Binding解決を回帰確認した。同一`Idempotency-Key`再送、`eval_run_id`によるJob冪等化、`retry_after_ms`、一時的な`UNKNOWN`再確認、確定的Job拒否の`FAILED`収束、評価履歴からの初回status GETの25秒timeout／最大3回再接続、停止POST待機中のterminal検知とPOST中止・結果保持、停止回復、重複Phase集約、結果取得の45秒timeout／最大3回再試行、Job ID正整数検証も回帰対象である。
+現行source asset `1.5.0`はPDF全画面viewerを含むUIテスト40件と差分checkに合格した。Python 344件とremote配置はasset `1.4.9`の確認記録である。
 
 同日にGitHubの`main/app`からasset `1.4.9`を配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.9`／`databricks_ready=true`、resource binding 7件を確認した。認証付きremote APIでは、機能リンク13件、必須12種類、安全なWorkspace host、質問例9件、新しい評価見出し、個人名の固定表示なしを確認した。実ID、メール、App URL、Workspace IDは公開記録へ含めない。
 

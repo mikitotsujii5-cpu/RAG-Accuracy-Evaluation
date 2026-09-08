@@ -22,7 +22,7 @@
 | Step | 内容 | 2026-09-08時点 |
 |---:|---|---|
 | 0 | [接続先をfield-eng-eastへ固定](00_workspace.md) | `SUCCESS` |
-| 1 | [ローカル成果物を検証](01_local_validation.md) | asset `1.4.9`、Python 344件＋UI 40件＝合計384件を`SUCCESS` |
+| 1 | [ローカル成果物を検証](01_local_validation.md) | asset `1.5.0`のUI 40件を`SUCCESS`。Python 344件はasset `1.4.9`の記録 |
 | 2 | [Unity Catalogの土台を作成](02_unity_catalog.md) | 汎用メタデータ／PDF論理削除migrationと0件post-checkを`SUCCESS` |
 | 3 | [Project、PDF、モデルカタログを登録](03_seed_projects_and_models.md) | 非車両PDFとモデル再同期を含め`SUCCESS` |
 | 4 | [`FILE`型でPDFをDocument Parsing](04_parse_pdfs_with_file_type.md) | G01の3ページ解析を含め`SUCCESS` |
