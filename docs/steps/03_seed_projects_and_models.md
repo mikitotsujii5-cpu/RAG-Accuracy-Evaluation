@@ -57,7 +57,7 @@ source: 情報システム部
 
 任意keyには、共通項目名とsystem項目の`document_id`／`project_id`／`doc_uri`を使えません。`model`／`model_year`／`document_type`／`vehicle_category`という名前は汎用の任意keyとして使用でき、`metadata_json.custom`へ保存されます。旧トヨタ項目は既存クライアントとseedの後方互換としてトップレベルでも受付を続け、`metadata_json.legacy`へ分離しますが、汎用PDFでは不要です。
 
-Embeddingの画面既定値は`toyota_rag_model_defaults`の`emb-qwen3-0-6b`、表示名「Qwen3 Embedding 0.6B」です。日本語を含む多言語文書の検索に適した候補として優先します。ただし、対象Workspaceで`READY`、region利用可、`selectable=true`を満たす場合だけ選択します。利用不可なら、モデル名を偽装せず、検証済み候補の先頭へ決定的にfallbackします。画面の「日本語対応」はQwen3 Embedding 0.6Bだけに付け、Qwen以外のfallback候補へ誤表示しません。
+Embeddingはモデルカタログから単独選択せず、管理者が既存Delta Table／AI Search Indexとともに登録したIndex Profileから決まります。通常構成はStandard／512／Qwen3 Embedding 0.6Bの1件です。このProfileが利用不可なら別のREADY Embeddingへfallbackせず、検索データ準備を利用不可として扱います。別Embeddingを使う場合は対応する物理リソースを手動作成し、App／Job両方の許可リストへProfile登録します。画面の「日本語対応」はQwen3 Embedding 0.6Bだけに表示します。
 
 ## 確認
 
@@ -79,9 +79,9 @@ python3 scripts/query_sql.py \
 
 - トヨタ評価シナリオをseedした場合、Projectが2件あり、D01〜D08がbaseline、D09がscan Projectにだけ属する。
 - registryのURI、SHA-256、サイズがVolume上のPDFと対応する。
-- UI候補は、Workspaceで発見でき、`READY`、region利用可、`selectable=true`のモデルだけである。
+- Chat／JudgeのUI候補は、Workspaceで発見でき、`READY`、region利用可、`selectable=true`のモデルだけである。Embeddingは登録済みIndex Profileに含まれるものだけを表示する。
 - ChatでTool Callingを必要とする場合は`tool_calling` capabilityも確認する。
-- Qwen3 Embedding 0.6Bが利用可能なら`is_default`／`is_recommended`として先頭・既定表示され、利用不可なら別のREADY候補が既定になる。
+- 通常構成ではStandard／512／Qwen3 Embedding 0.6Bの登録済みProfileだけが固定表示される。Profileが利用不可でも、未登録のREADY Embeddingを代替表示しない。
 - 汎用smoke Projectでは、PDFだけの登録でタイトルがファイル名から補完される。任意メタデータ付きの登録も確認するときは、同一ProjectのSHA-256重複を避けて別PDFまたは別Projectを使い、`category`、`tags`、`document_date`、`source`、`metadata_json`が保持される。
 - 概要を手入力しないPDFは、解析完了後に20〜30字の`AI_GENERATED`／`AI_GENERATED_NORMALIZED`概要、または同じ長さの`FILENAME_FALLBACK`概要を持つ。決定論的に長さを整えたLLM出力は`AI_GENERATED_NORMALIZED`として区別する。
 - 汎用PDFの登録で車種master照合を要求されない。
@@ -90,7 +90,7 @@ python3 scripts/query_sql.py \
 
 - PDF欠落またはhash不一致は、対象1冊だけを正しいProject pathへ再配置してregistryを更新します。
 - モデル名を手入力で追加しません。`sync_model_catalog.py`を再実行し、endpoint状態と利用権限を再確認します。
-- 別Projectの文書が混ざった場合はIndexを作る前に修正します。既に作った誤ったVariantは正式評価へ使いません。
+- 別Projectの文書が混ざった場合はData Preparation runを開始する前に修正します。Jobは新規Indexを作らず、登録済みProfileを検証・同期します。既に作った誤った論理Variantは正式評価へ使いません。
 - 汎用PDFの登録で列不足が出る場合は、Step 2へ戻りmigrationと4つの検証値を確認します。
 - メタデータ制約違反は値だけを修正します。制約を緩めたり、任意JSONを未検証のまま保存したりしません。
 

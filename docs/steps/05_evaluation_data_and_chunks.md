@@ -40,17 +40,17 @@ python3 scripts/execute_sql_file.py sql/06_build_baseline_chunks.sql \
 
 これは画面をすぐ試すためのサンプルです。正解を捏造しないため、期待回答、正解ページ、relevance judgmentは空のままです。期待回答・期待事実がないケースは`answer_correctness=NULL`とし、平均から除外します。0点へ変換しません。ページ正解がない場合のRetrieval指標も判定対象外です。正式評価へ使う前に、人が正解を付けた評価ケースを追加します。新しいProjectでは、最初のData Preparation Jobが成功したときにも同じ3件を作ります。
 
-このbaselineは再現性を優先した比較用チャンクです。`ai_prep_search`は意味チャンクと文書コンテキストを作る選択肢ですが、256／512／1024を`ai_prep_search`の直接引数だとは扱いません。サイズや手法を比較するときは、Data Preparation Jobで別のDelta Table／Index Variantを作ります。
+このbaselineは再現性を優先した比較用チャンクです。`ai_prep_search`は意味チャンクと文書コンテキストを作る選択肢ですが、256／512／1024を`ai_prep_search`の直接引数だとは扱いません。通常構成で登録されているのはStandard／512 Profileだけです。サイズや手法を比較するときは、管理者が別のDelta Table／AI Search Indexを手動作成し、App／Job両方の許可リストへIndex Profileとして登録します。Data Preparation Jobは物理Table／Indexを作成しません。
 
-汎用化後のData Preparation Jobは、次を各Variantへ引き継ぎます。
+汎用化後のData Preparation Jobは、次を選択済みProfile内の各論理Variantへ引き継ぎます。
 
 - 本文、タイトル、URI、物理ページ、Project、文書ID
 - `category`、`tags`、`document_date`、`source`、`metadata_json`
 - 後方互換の`model`、`model_year`、`document_type`、`vehicle_category`
 
-非車両PDFはトヨタbaseline Tableへ追加せず、別Projectの動的Variantへ保存します。既存Indexを上書きしないため、評価結果を後から再現できます。
+非車両PDFはトヨタbaselineの論理sliceへ混ぜず、同じ登録済みProfileの共有source Delta Tableへ別の論理Variantとして保存します。行は`project_id`＋`variant_id`で分離し、既存の論理Variantを上書きしないため、評価結果を後から再現できます。
 
-各動的Variantには、作成時の`source_document_ids`も保存します。これはPDF単体の論理削除で、どのVariantが影響を受けるか、どのPDFだけを残した後継Variantを作るかを安全に決めるlineageです。過去のVariantでこの列がない場合は、許可済みsource Tableから`document_id`を確認します。lineageを証明できないactive Variantがあるときは、誤ったデータを検索に残さないためPDF削除を409で拒否します。
+各論理Variantには、作成時の`source_document_ids`も保存します。これはPDF単体の論理削除で、どのVariantが影響を受けるか、どのPDFだけを残した後継Variantを作るかを安全に決めるlineageです。過去のVariantでこの列がない場合は、許可済みProfileのsource Tableを`project_id`＋`variant_id`で絞って`document_id`を確認します。lineageを証明できないactive Variantがあるときは、誤ったデータを検索に残さないためPDF削除を409で拒否します。
 
 ## 確認
 
@@ -69,7 +69,7 @@ Baselineチャンク:
 python3 scripts/query_sql.py \
   --profile <DATABRICKS_CLI_PROFILE> \
   --warehouse-id <SQL_WAREHOUSE_ID> \
-  --statement "SELECT COUNT(*) AS chunk_count, COUNT(DISTINCT chunk_id) AS unique_chunk_count, COUNT(DISTINCT document_id) AS document_count, COUNT_IF(project_id <> '<BASELINE_PROJECT_ID>') AS alien_rows FROM <UC_CATALOG>.rag_accuracy.toyota_chunks_standard_512_v1"
+  --statement "SELECT COUNT(*) AS chunk_count, COUNT(DISTINCT chunk_id) AS unique_chunk_count, COUNT(DISTINCT document_id) AS document_count FROM <UC_CATALOG>.rag_accuracy.toyota_chunks_standard_512_v1 WHERE project_id = '<BASELINE_PROJECT_ID>' AND variant_id = 'baseline-standard-512-v1'"
 ```
 
 Change Data Feed:
@@ -92,11 +92,11 @@ python3 scripts/query_sql.py \
 - 解析済みPDFを持つProjectでは`starter-v1`／`development`のサンプル質問が3件あり、期待回答と正解ページを捏造していない。
 - 未ラベルのサンプル質問はAnswer Correctnessの分母へ入らず、画面では`—`として表示される。
 - 答えられない質問にはqrelがないことを許し、それ以外のqrelはbaseline ProjectのURIと物理ページを指す。
-- baselineは40チャンク、`chunk_id`は40件すべて一意、文書はD01〜D08の8冊だけである。
+- `project_id='<BASELINE_PROJECT_ID>'`かつ`variant_id='baseline-standard-512-v1'`のbaseline論理sliceは40チャンク、`chunk_id`は40件すべて一意、文書はD01〜D08の8冊だけである。共有Table全体には別Project／別Variantの行が存在してよい。
 - Delta Change Data Feedが`true`である。
 - UIとqrelsのページは、`ai_parse_document`の0始まり`page_id`に1を足した物理ページ番号である。
-- 新しく作る動的Variantのschemaに`category`、`tags`、`document_date`、`source`、`metadata_json`がある。
-- 非車両ProjectのSemantic／512 Variantはsource 6行、Index 6行、別Project行0である。
+- 登録済みProfileのsource schemaに`category`、`tags`、`document_date`、`source`、`metadata_json`があり、新しい論理Variantへ値を引き継げる。
+- 選択した論理Variantについて、sourceとIndexの`project_id`＋`variant_id`で絞った件数が一致し、別Project／別Variantの行が検索結果へ混入しない。
 
 ## Metadata Filteringの安全な流れ
 
@@ -114,17 +114,17 @@ Phase 3〜5では、質問から得た文字列を任意のAI Search JSON path�
 
 - qrelのURIがregistryと一致しない場合は、トヨタ互換seedでは先にregistryを直してから評価seedを再実行します。画面登録では、同じProjectの解析済みPDFを選び直します。
 - PDF内容を変更した場合は同じDataset versionを使い回さず、文書version／hashとDataset versionを上げます。
-- baselineへD09または別Projectが入った場合は、AI Search Indexを作る前にチャンク作成条件を修正します。
-- Change Data Feedが無効の場合は、Index作成前にsource Delta Tableで有効化します。
-- 動的Variantに汎用列がない場合は、Step 2のmigrationと最新のData Preparation Job sourceを確認します。別schemaの既存Tableをそのまま上書きしません。
+- baseline論理sliceへD09または別Projectが入った場合は、そのsliceを同期する前にチャンク作成条件を修正します。
+- Change Data Feedが無効の場合は、登録済みProfileの既存source Delta Tableで有効化してから同期します。
+- 登録済みProfileに汎用列がない場合は、Step 2のmigration、Profileのsource schema、最新のData Preparation Job sourceを確認します。Jobから別schemaの物理Tableを動的作成して回避しません。
 - `source_document_ids`が保存されない場合は、Step 2のPDF論理削除migrationと最新のData Preparation Jobを確認します。利用者がブラウザからsource Table名やlineageを指定できる仕様に変更しません。
 - 質問一覧が空の場合は、画面上部のProject、評価データ版、用途の組み合わせを確認します。別Projectのcase IDを直接送って回避せず、正しいProjectへ評価質問を登録します。
 
 ## この環境の実測結果
 
-既存トヨタ評価baselineは引き続き`SUCCESS`です。評価Datasetは16件（development 12、holdout 4）、baselineは40チャンク／8文書、Change Data Feedは`true`です。1件は意図的なunanswerable、1件は曖昧質問のため、すべてのケースに単一の正解ページがあるとは限りません。
+既存トヨタ評価baselineは引き続き`SUCCESS`です。評価Datasetは16件（development 12、holdout 4）、`project_id='<BASELINE_PROJECT_ID>'`かつ`variant_id='baseline-standard-512-v1'`の論理sliceは40チャンク／8文書、Change Data Feedは`true`です。共有Table全体の件数ではありません。1件は意図的なunanswerable、1件は曖昧質問のため、すべてのケースに単一の正解ページがあるとは限りません。
 
-非車両Projectでも`SUCCESS`を確認しました。評価ケース `<RESOURCE_ID>`をDataset `security-policy-v1`へ画面登録しました。固定評価ケースはトヨタbaseline 16件と非車両Project 1件で、これとは別に、解析済み文書を持つ各Projectへ未ラベルの`starter-v1`質問を3件ずつ登録しています。G01からSemantic／512 Variant `<RESOURCE_ID>`を作成し、汎用列を持つsource 6行、Index 6行、別Project行0を確認しました。評価run `<RESOURCE_ID>`はPhase 1〜5の5結果、エラー0、Correctness／Groundedness／Citation各5件、Trace 5件、改善提案5件です。
+非車両Projectでも`SUCCESS`を確認しました。評価ケース `<RESOURCE_ID>`をDataset `security-policy-v1`へ画面登録しました。固定評価ケースはトヨタbaseline 16件と非車両Project 1件で、これとは別に、解析済み文書を持つ各Projectへ未ラベルの`starter-v1`質問を3件ずつ登録しています。旧動的Index方式ではG01からSemantic／512 Variant `<RESOURCE_ID>`を作成し、汎用列を持つsource 6行、Index 6行、別Project行0を確認しました。この記録は現行UIでSemantic／512 Profileが利用可能であることを示しません。評価run `<RESOURCE_ID>`はPhase 1〜5の5結果、エラー0、Correctness／Groundedness／Citation各5件、Trace 5件、改善提案5件です。
 
 ## 公式ドキュメント
 

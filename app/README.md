@@ -22,7 +22,7 @@
 
 | 変数 | 内容 |
 |---|---|
-| `PREP_JOB_ID` | チャンク、Delta Table、Index作成・同期を行うJob |
+| `PREP_JOB_ID` | 既存ProfileのDelta Tableへチャンクを書き込み、既存Indexを同期するJob |
 | `EVAL_JOB_ID` | 固定DatasetでPhase 1〜5を評価するJob |
 
 `PREP_JOB_ID`と`EVAL_JOB_ID`は、先頭ゼロや空白を含まない正の整数でなければなりません。Appは起動時に検証し、不正な値で評価画面を待機させ続けず設定エラーとして停止します。
@@ -111,7 +111,7 @@ python3 scripts/smoke_test_app.py \
 - `model`、`model_year`、`document_type`、`vehicle_category`は既存クライアントとトヨタ評価seedの後方互換として受け付けます。新しい汎用UIでは必須にしません。
 - `metadata_json`は`schema_version=1.0`、`common`、`custom`、`legacy`を分けて保存します。共通項目名とsystem項目名を`custom_metadata`のkeyに使わせず、大文字・小文字違いの重複も拒否します。`model`など旧トヨタ項目と同じ名前の汎用keyは`custom`で使用でき、互換用トップレベル値は`legacy`へ分離します。
 - Document Parsingは`READ_FILES(path, format => 'file')`が返す`FILE`型を`ai_parse_document`へ直接渡します。BINARY列は使用しません。
-- `ai_parse_document`はAppのbackground taskからX-Large Serverless SQL Warehouseへ送信します。`READ_FILES(..., format => 'file')`が返す`FILE`型を使う経路は変更していません。後続の`BUILD_VARIANT`だけを、Performance-optimized Serverless Lakeflow Jobへ移行し、チャンク化、source Delta Table作成、AI Search Index作成・同期の依頼を行います。
+- `ai_parse_document`はAppのbackground taskからX-Large Serverless SQL Warehouseへ送信します。`READ_FILES(..., format => 'file')`が返す`FILE`型を使う経路は変更していません。後続の`BUILD_VARIANT`だけをPerformance-optimized Serverless Lakeflow Jobへ移し、チャンク化、登録済みProfileの共有source Delta Tableへの書き込み、既存AI Search Indexの同期を行います。AppとJobは物理Table／Indexを新規作成しません。
 - Data Preparation Jobは`performance_target=PERFORMANCE_OPTIMIZED`、Serverless Environment version `5`、`max_concurrent_runs=2`、tag `compute_profile=serverless-performance-optimized-v5`です。Serverless notebook taskではtask-levelの`libraries`を使わず、Environmentの`dependencies`へ`databricks-sdk==0.135.0`を固定します。これはHYBRID Index同期に必要な`IndexSubtype`を含む検証済み版です。
 - Standard／512／Qwen3のcanaryと複数PDF canaryで、source／Indexの行数一致とIndex `READY`を確認します。具体的なrun／task／prep／Variant IDと計測値はprivate operations logへ保存します。
 - 移行前のClassic増強構成（Driver `Standard_D16s_v5`、Worker `Standard_D8s_v5`×2）は[`data_preparation_job_classic_fallback.json`](../deployment/jobs/data_preparation_job_classic_fallback.json)に保持します。障害時は同じJob IDへresetできます。reset wrapperとrollback手順は[`deployment/jobs/README.md`](../deployment/jobs/README.md)を参照してください。

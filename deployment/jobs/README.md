@@ -18,10 +18,10 @@ keep the Classic Job compute declared in their own JSON files.
 
 Serverless notebook tasks do not support task-level libraries. The pinned SDK
 is therefore declared under the Job Environment `dependencies`, not under
-`tasks[].libraries`. It provides the `IndexSubtype` API required to create a
-HYBRID AI Search index. Two concurrent runs allow independent Variant rebuilds
-to proceed in parallel. The managed AI Search Index create/sync stage still
-runs outside the Job compute.
+`tasks[].libraries`. It provides the `IndexSubtype` API used to validate the
+pre-created HYBRID AI Search index. Two concurrent runs allow independent
+logical Variant rebuilds to proceed in parallel. The managed AI Search sync
+stage still runs outside the Job compute.
 
 Performance optimized prioritizes startup latency. Standard performance mode
 uses fewer DBUs and normally tolerates a 4-to-6-minute startup delay. Compare
@@ -31,7 +31,9 @@ the measured latency with `system.billing.usage` before changing this setting.
 The upload background task sends it to the X-Large Serverless SQL Warehouse by
 using a `FILE` value from `READ_FILES(..., format => 'file')`. The Serverless
 Data Preparation Job starts with the later `BUILD_VARIANT` work: chunking,
-writing the source Delta Table, and requesting AI Search Index creation/sync.
+writing rows to the selected pre-created source Delta Table, and requesting a
+sync of its pre-created AI Search Index. It does not create a physical Table or
+Index.
 
 The verified reference deployment completed both a 1-PDF canary and an
 isolated 8-PDF canary with a READY Index. Keep concrete Job, run, task, prep,
@@ -134,14 +136,16 @@ The Evaluation Job additionally requires `MLFLOW_EXPERIMENT_PATH`,
 placeholders in a local copy of `evaluation_job.json` before creating or
 resetting the Job.
 
-The preparation Job supports all nine method/size profiles (`STANDARD`,
-`SEMANTIC`, `PARENT_CHILD` × 256/512/1024) and every READY/selectable FMAPI
-Embedding entry in the model catalog. It reads `project_id` and `document_ids`
-only from the persisted, hash-verified run row and rejects missing or
-cross-Project documents. Each source Table and HYBRID Delta Sync Index is
-deterministically derived from the server-generated Variant UUID. After the
-Index becomes READY, the Job grants only `SELECT` on that derived Index to the
-deployed App service principal; it does not grant access to every future Table.
+The preparation Job accepts only administrator-provisioned profiles from the
+same `RAG_INDEX_PROFILES_JSON` allow-list used by the App. When that variable is
+unset, the only profile is `STANDARD` / 512 / Qwen3 and the bound baseline source
+Table and AI Search Index. Additional sizes, methods, or Embedding models require
+a separate existing Delta Table and AI Search Index plus a matching allow-list
+entry; the Job never creates those resources. It reads `project_id` and
+`document_ids` only from the persisted, hash-verified run row and rejects missing
+or cross-Project documents. Rows for logical Projects and Variants share the
+selected profile's physical source Table and Index and are isolated by
+`project_id` and `variant_id`.
 The same successful run idempotently creates three `starter-v1` questions in
 the Project's Delta evaluation table. They reference a Project PDF but leave
 unknown answer/page labels empty; the evaluation Job therefore records NULL
@@ -151,9 +155,10 @@ cases are added.
 The single-PDF logical-deletion workflow also uses the same Data Preparation
 Job. Before submission, the App reconstructs each affected Variant's verified
 configuration and replaces its source-document list with the remaining PDFs
-from that Variant. The Job validates the persisted hash and writes a new,
-immutable source Table and AI Search Index; it never edits the superseded
-Variant in place. Only the successor of the previously active Variant uses the
+from that Variant. The Job validates the persisted hash and writes a new
+logical Variant into the same allow-listed source Table and AI Search Index;
+it never creates physical resources or edits the superseded logical Variant in
+place. Only the successor of the previously active Variant uses the
 default `activate_on_success=true`. Other successors persist the server-only
 `activate_on_success=false` flag in the verified configuration, so parallel
 rebuild completion cannot overwrite the Project's active Variant pointer. If a
@@ -162,7 +167,7 @@ Variant has no remaining source PDF, no empty successor is submitted.
 Whenever `jobs/data_preparation_job.py` or `jobs/job_common.py` changes for this
 workflow, re-import both files (and, by policy, all four notebook sources), then
 reset the existing Data Preparation Job ID. A deletion E2E is not complete
-until the successor Job succeeds, the new Index is READY, and its source and
+until the successor Job succeeds, the allow-listed Index is READY, and its source and
 indexed rows contain no chunk from the logically deleted document.
 
 The evaluation Job resolves cases from the persisted run's Project,

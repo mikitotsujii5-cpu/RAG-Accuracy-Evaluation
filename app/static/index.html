@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="DatabricksでPDFを検索するRAGを作り、検索精度・回答品質・応答時間を比べるアプリ">
   <title>RAG精度評価アプリ</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=1.6.0">
+  <link rel="stylesheet" href="/assets/styles.css?v=1.7.0">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f3e58'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='Arial' font-weight='700' font-size='18' fill='%23a8e6cf'%3ER%3C/text%3E%3C/svg%3E">
 </head>
 <body>
@@ -147,6 +147,22 @@
                 <div><span class="section-number">02</span><h2>検索する文書のチャンク化・ベクトル化</h2></div>
                 <span class="subtle">事前登録済みのIndexへ保存・同期</span>
               </div>
+              <div id="preparation-profile-card" class="preparation-profile-card loading" aria-live="polite">
+                <div class="preparation-profile-heading">
+                  <div><span>利用できる検索設定</span><strong id="preparation-profile-name">確認中…</strong></div>
+                  <span id="preparation-profile-count" class="status-pill muted">確認中</span>
+                </div>
+                <label id="preparation-profile-selector-field" class="field-label hidden">検索設定
+                  <select id="index-profile-select"><option value="">読み込み中…</option></select>
+                </label>
+                <div class="preparation-profile-summary">
+                  <div><span>チャンク方式</span><strong id="preparation-profile-method">—</strong></div>
+                  <div><span>チャンクサイズ</span><strong id="preparation-profile-size">—</strong></div>
+                  <div><span>Embedding</span><strong id="preparation-profile-embedding">—</strong></div>
+                </div>
+                <p id="preparation-profile-help">管理者が用意したDelta Table／AI Search Indexを確認しています。</p>
+              </div>
+              <div id="index-profile-internal-chunk-controls" hidden aria-hidden="true">
               <fieldset class="control-group">
                 <legend>文章の長さ（トークン） <span class="tooltip" data-tooltip="RAGが一度に検索する文章量の目安です。">?</span></legend>
                 <div class="segmented" id="chunk-size-options">
@@ -163,6 +179,7 @@
                   <label class="method-card"><input type="radio" name="chunk-method" value="PARENT_CHILD"><span><strong>親子で分割</strong><small>短く検索して前後も使う（Parent-child）</small></span></label>
                 </div>
               </fieldset>
+              </div>
               <fieldset class="control-group build-document-picker">
                 <legend>対象PDF <span id="build-document-count" class="subtle">0件</span></legend>
                 <div class="selection-actions">
@@ -172,6 +189,7 @@
                 <div id="build-document-list" class="build-document-list" aria-live="polite"><p class="empty-inline">解析済みPDFはまだありません。</p></div>
                 <small class="subtle">1回につき最大100件。101件以上ある場合は、作成するPDFを選んでください。</small>
               </fieldset>
+              <div id="index-profile-internal-model-controls" hidden aria-hidden="true">
               <label class="field-label">ベクトル化モデル <span class="tooltip" data-tooltip="このDatabricks環境で使えるEmbeddingモデルを表示します。日本語対応のQwen3 Embedding 0.6Bを優先します。">?</span>
                 <select id="embedding-model"><option value="">モデル一覧を読み込み中…</option></select>
               </label>
@@ -181,11 +199,15 @@
                 <label class="toggle-row"><span><strong>概要・見出しを追加</strong><small>文書情報を検索用テキストに追加</small></span><input id="semantic-toggle" type="checkbox" role="switch" checked></label>
                 <label class="toggle-row"><span><strong>表・図・レイアウトを保持</strong><small>解析した表・図・配置を検索に反映</small></span><input id="layout-toggle" type="checkbox" role="switch" checked></label>
               </div>
-              <div id="index-profile-match" class="index-profile-match unavailable" aria-live="polite" aria-atomic="true">
-                <div class="index-profile-heading"><span class="index-profile-icon" aria-hidden="true">◇</span><span>使用するIndex:</span></div>
-                <strong id="selected-index-name">確認中…</strong>
-                <p id="index-profile-message">事前登録済みのIndexを確認しています。</p>
               </div>
+              <details class="index-technical-details">
+                <summary>技術情報（保存先のAI Search Index）</summary>
+                <div id="index-profile-match" class="index-profile-match unavailable" aria-live="polite" aria-atomic="true">
+                  <div class="index-profile-heading"><span class="index-profile-icon" aria-hidden="true">◇</span><span>使用するIndex:</span></div>
+                  <strong id="selected-index-name">確認中…</strong>
+                  <p id="index-profile-message">事前登録済みのIndexを確認しています。</p>
+                </div>
+              </details>
               <div class="action-row end">
                 <button id="build-button" class="primary-button" type="button" disabled>RAG検索データを作成・同期</button>
               </div>
@@ -558,6 +580,6 @@
     </div>
   </div>
 
-  <script src="/assets/app.js?v=1.6.0" defer></script>
+  <script src="/assets/app.js?v=1.7.0" defer></script>
 </body>
 </html>

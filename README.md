@@ -4,7 +4,7 @@
 
 PDF、検索Index、チャット履歴、評価Dataset、評価結果はすべてProject単位で分離します。各ProjectのPDFに合う正解付き評価質問を画面から登録し、同じ評価データ版・用途の質問一覧から今回使う質問だけを選んで、Phase 1から5のVector Search、Hybrid Search、Metadata Filtering、Reranking、Query Optimizationの効果を順番に確認できます。
 
-現行UIでは、任意の文書情報を閉じたパネルにまとめ、Qwen3 Embedding 0.6Bを利用可能時の既定値にしています。PDF解析後はFMAPIで20〜30字の概要を作り、回答の根拠はチャンク本文ではなくProject認可済みPDF原文リンクで示します。PDFビューアは全画面で全ページをスクロールでき、別タブ表示とダウンロードにも対応します。ログインユーザーのメール、クリックしてWorkspaceコンソールを開けるDatabricks機能名、Project／PDF／会話の削除、チャット用の質問例9件、評価用サンプル質問3件、登録済み質問の個別・一括選択、正解情報、過去の精度評価結果も画面から確認できます。PDF単体の削除では、登録と監査履歴を残したまま検索対象から外し、影響するVariantを残存PDFだけで再構築します。解析に失敗したPDFは、同じファイルを再アップロードせずカタログから再解析できます。
+現行UIでは、任意の文書情報を閉じたパネルにまとめ、管理者が登録したIndex Profileのチャンク方式・サイズ・Embeddingだけを表示します。通常構成はStandard／512／Qwen3 Embedding 0.6Bの1件です。PDF解析後はFMAPIで20〜30字の概要を作り、回答の根拠はチャンク本文ではなくProject認可済みPDF原文リンクで示します。PDFビューアは全画面で全ページをスクロールでき、別タブ表示とダウンロードにも対応します。ログインユーザーのメール、クリックしてWorkspaceコンソールを開けるDatabricks機能名、Project／PDF／会話の削除、チャット用の質問例9件、評価用サンプル質問3件、登録済み質問の個別・一括選択、正解情報、過去の精度評価結果も画面から確認できます。PDF単体の削除では、登録と監査履歴を残したまま検索対象から外し、影響するVariantを残存PDFだけで再構築します。解析に失敗したPDFは、同じファイルを再アップロードせずカタログから再解析できます。
 
 RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索データ、回答LLM、採点LLMがそろった場合だけ開始できます。繰り返し回数の既定値は1です。1問と全5 Phaseを選んだ最小確認は最大5試行になります。開始要求中から回転表示、工程、完了試行数、割合、経過時間を表示し、再読込や画面移動の後もProject内の実行中評価を復元します。経過時間はDatabricks側で算出した秒数を使うため、Workspaceとブラウザのタイムゾーンが異なってもずれません。通信が途切れた場合も同じ受付番号で安全に再確認し、評価runやLakeflow Jobを二重に作りません。Job状態を一時的に取得できない場合は回転表示を続け、確定した設定・権限エラーだけを失敗として終了します。停止時は評価Tableへ要求を保存すると同時にLakeflow Jobへ取消を依頼し、停止APIの応答が一時的に失われても再確認しながら、完了・失敗・停止のいずれかへ確定するまで監視します。
 
@@ -47,22 +47,22 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 
 ## 現在の構築状態
 
-現行source asset `1.6.0`は評価用検索データの自動選択とPDF全画面viewerを含むUIテスト42件に合格しています。field-eng-eastへの配置後、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.6.0`、resource binding 7件を確認しました。Python 344件はasset `1.4.9`の確認記録です。公開用Markdownには実測ID、メール、App URL、Workspace IDを含めません。
+現行source asset `1.7.0`はPython 344件と、登録済みIndex Profileだけを表示する回帰を含むUI 45件に合格しています。field-eng-eastへ再配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件、asset URLのversion `1.7.0`を確認しました。指定Projectのremote画面はStandard／512／Qwen3の1 Profileだけを表示し、Profile selector、256／1024の可視要素、console warning／errorはいずれも0件です。`/api/health`の直接再確認値はこの記録へ外挿しません。公開用Markdownには実測ID、メール、App URL、Workspace IDを含めません。
 
 | 項目 | 状態 | 実測 |
 |---|---|---|
 | Unity Catalog／PDF／Document Parsing | `SUCCESS` | 非ARCHIVED Project 11、PDF registry 22。PDFは`ACTIVE` 18件、`DELETING` 0件、論理削除済み4件。Statement `<STATEMENT_ID>` |
 | 評価Dataset／baseline chunks | `SUCCESS` | 評価ケース44件。starter内訳は過去snapshotで8 Project×3件。baseline 40 chunks、CDF `true` |
 | Model catalog | `SUCCESS` | 同期後49件（Chat 46、Embedding 3）、READYでない選択可能モデル0件 |
-| AI Search | `SUCCESS` | endpoint ONLINE、baseline Index ready 40行、4種smoke成功 |
+| AI Search | `SUCCESS` | endpoint ONLINE、共有Index READY、baselineの`project_id`＋`variant_id`論理slice 40行、4種smoke成功 |
 | Index Sync Job | `SUCCESS` | Job `<INDEX_SYNC_JOB_ID>`、run `<DATABRICKS_RESOURCE_ID>` |
-| Data Preparation Job | `SUCCESS` | 非車両PDFのprep run `<RESOURCE_ID>`、Job run `<DATABRICKS_RESOURCE_ID>`、Semantic／512 Variant `<RESOURCE_ID>`、Index READY |
+| Data Preparation Job | `SUCCESS` | 現行のStandard／512／Qwen3登録Profileで論理Variantを構築・同期。Semantic／512の個別Index実測は旧方式の検証履歴 |
 | Phase 1〜5 Evaluation Job | `SUCCESS` | Job `<EVALUATION_JOB_ID>`、run `<DATABRICKS_RESOURCE_ID>`、60結果、エラー0、Trace 60、LLM改善提案5 |
 | 未ラベルstarter評価 | `SUCCESS` | eval `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`。Phase 1×3 trial、error 0、Answer Correctness `NULL`、提案1件 |
 | MLflow Trace | `SUCCESS` | 全60 Traceで`AGENT`配下の`RETRIEVER`／`CHAT_MODEL`／`EVALUATOR`を確認 |
-| Databricks App | `SUCCESS` | GitHub `main/app`のasset `1.6.0`。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件 |
+| Databricks App | `SUCCESS` | GitHub `main/app`のasset `1.7.0`を再配置。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件、asset URL version `1.7.0` |
 | App live read APIs | `SUCCESS` | health HTTP 200、`/api/me`でログインメールを取得、Project別PDF／Variant／評価データ／評価履歴を取得 |
-| デプロイ済みasset | `SUCCESS` | GitHub `main/app`、health version `1.6.0`／`databricks_ready=true`、評価用検索データの自動選択、PDF全画面viewer |
+| デプロイ済みasset | `SUCCESS` | GitHub `main/app`のasset `1.7.0`。remote画面でStandard／512／Qwen3の1 Profileだけを確認。health APIの直接再確認は未実施 |
 | Phase 1評価の再表示 | `SUCCESS` | asset `1.4.7`で実行済みの1問×1回runをasset `1.4.8`のremote APIで取得。`SUCCEEDED`、1／1、`elapsed_seconds=774`、指標1件、改善提案1件 |
 | PDF概要監査（直近snapshot） | `SUCCESS` | 20件時点で空欄0件、20〜30字違反0件。`AI_GENERATED=10`、`AI_GENERATED_NORMALIZED=9`、`USER=1`。その後追加された削除E2E用2件へは外挿しない |
 | App SP権限 | `SUCCESS` | 既存権限checkに加え、`toyota_index_variants`の`SELECT`／`MODIFY`を確認 |
@@ -71,16 +71,16 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 | 非車両PDFのRemote Chat E2E | `SUCCESS` | 旧asset `1.4.1`の履歴。期待回答`30分`と一致、PDF引用1件、Trace `<TRACE_ID>`、PDF／Trace link成功 |
 | 非車両ProjectのPhase 1〜5評価 | `SUCCESS` | 旧asset `1.4.1`の履歴。Dataset `security-policy-v1`、5結果、エラー0、Correctness／Groundedness／Citation各5、Trace 5、改善提案5 |
 | トヨタ互換回帰 | `SUCCESS` | 旧asset `1.4.1`の履歴。期待回答`60`と一致、引用2件、Trace `<TRACE_ID>` |
-| RAG検索データ作成E2E | `SUCCESS` | Semantic／512のsource 6行、Index 6行、別Project行0、Index READY |
+| RAG検索データ作成E2E | `SUCCESS` | 旧動的Index方式でのSemantic／512、source 6行、Index 6行、別Project行0、Index READY。現行UIで利用可能なProfileを示す記録ではない |
 | 汎用RAG migration／再デプロイ／非車両PDF E2E | `SUCCESS` | migration、汎用化source、登録・解析・Variant・チャット・引用・評価を実環境で確認 |
 | Chat多重送信・停止 | `SUCCESS` | 旧asset `1.4.1`のremote履歴。同一request再送後も保存message 2件、停止API `CANCEL_REQUESTED`、terminal `run.cancelled`、履歴 `CANCELLED` |
-| 現行sourceの回帰テスト | `SUCCESS` | asset `1.6.0`、評価用検索データの自動選択とPDF全画面viewerを含むUI 42件、差分check成功。Python 344件はasset `1.4.9`の記録 |
+| 現行sourceの回帰テスト | `SUCCESS` | asset `1.7.0`、Python 344件、登録済みIndex Profileだけを表示する回帰を含むUI 45件、差分check成功 |
 | 評価質問の選択 | `SUCCESS` | Project／評価データ版／用途内の登録済み質問を初期全選択。個別選択、すべて選択、選択解除、正解状態・期待回答・正解PDF／ページ、選択件数・最大試行数を表示し、0件では開始不可。API／Jobは選択IDだけを凍結・評価 |
 | PDF viewer | `SUCCESS` | 旧assetのremote content APIでPDF 200、Range 206、ETag 304、private cacheを確認。現行assetは削除前後のPDF 200を確認。ローカル再表示296 ms、Project切替時は保持iframeを破棄 |
 | PDF単体の論理削除 | `SUCCESS` | asset `1.4.4`でProject `<RESOURCE_ID>`のPDF `<RESOURCE_ID>`をDELETE 202。孤児Chat run 2件とassistant messageを`ERROR`へ整合後、影響旧Variant 4件から後継Variant 2件をREADY化。両Indexで削除PDF hit 0、保持PDFだけを検索 |
 | Data Preparation Serverless本番移行 | `SUCCESS` | Job `<DATA_PREPARATION_JOB_ID>`をPerformance optimized／Environment v5へ移行。production run `<DATABRICKS_RESOURCE_ID>`でStandard／512／Qwen3、3 chunks、Index READY。Classic同入力比でSetup 98.95%、Job実処理8.88%、合計71.18%短縮 |
 | Data Preparation Classic増強履歴 | `SUCCESS_AFTER_REMEDIATION` | D16 Driver／D8 Worker×2のJob `<DATABRICKS_RESOURCE_ID>`が成功、Standard／512／Qwen3、3 chunks、Index READY。増強前比でJob実処理18.75%、合計6.5%短縮したが、Setup 382秒は変わらなかった |
-| TTFT／残り7 chunk profile／SSO済みremoteブラウザE2E | `PENDING` | 品質runからTTFTを推測しない。Standard／256とSemantic／512以外、およびSSO済みremote画面の手操作は未確認 |
+| TTFT／追加Index Profile／SSO済みremoteブラウザE2E | `PENDING` | 品質runからTTFTを推測しない。256／1024やSemantic／Parent-childは、別Delta Table／AI Search Indexを手動作成して登録した場合だけ対象とする |
 
 ### RAG検索データ作成の監視と自己回復
 
@@ -90,7 +90,7 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 - Job受付後に応答または`job_run_id`保存だけが失敗しても、同じ`prep_run_id`由来の冪等tokenで自己回復します。権限エラー等では30〜300秒の指数バックオフを使い、3秒ごとの再投入を防ぎます。
 - Data Preparation Job `<DATA_PREPARATION_JOB_ID>`はPerformance-optimized Serverless、Standard Environment v5、`max_concurrent_runs=2`です。Notebook taskではtask libraryを使わず、Job Environmentのdependencyとして検証済み`databricks-sdk==0.135.0`を固定します。構成識別用tagは`compute_profile=serverless-performance-optimized-v5`です。
 - Performance optimizedは起動時間を優先するため、Standard performance modeよりDBU使用量が増える場合があります。速度だけでなく`system.billing.usage`の実績も継続して比較します。
-- PDF解析の`ai_parse_document`は引き続きX-Large Serverless SQL Warehouseで、`READ_FILES(..., format => 'file')`が返す`FILE`値を入力にします。Serverless Jobsへ移したのは後続のチャンク化とsource Delta Table作成、AI Search Index作成・同期依頼です。Index作成・同期自体はAI Search managed serviceが担当します。
+- PDF解析の`ai_parse_document`は引き続きX-Large Serverless SQL Warehouseで、`READ_FILES(..., format => 'file')`が返す`FILE`値を入力にします。Serverless Jobsへ移したのは後続のチャンク化、登録済みProfileの既存source Delta Tableへの論理Variant書き込み、AI Search同期依頼です。App／Jobは物理TableやIndexを作成しません。
 - production run `<DATABRICKS_RESOURCE_ID>`（task `<DATABRICKS_RESOURCE_ID>`、prep `<RESOURCE_ID>`、Variant `<RESOURCE_ID>`）はSetup 4秒、Job実処理154秒、合計159.146秒、App E2E 182.4秒で、3 chunksとREADY Indexを確認しました。同入力のClassic run `<DATABRICKS_RESOURCE_ID>`は382秒／169秒／552.328秒であり、合計を71.18%短縮しました。
 - 隔離検証では1 PDFのrun `<DATABRICKS_RESOURCE_ID>`が157.875秒、8 PDFのrun `<DATABRICKS_RESOURCE_ID>`が158.368秒で完了しました。後者は8文書、31 chunks、Index READYで、`activate_on_success=false`によりProjectのactive Variantを変更していません。
 - Classic増強構成は障害時に同じJob IDへ戻せるよう、[`deployment/jobs/data_preparation_job_classic_fallback.json`](deployment/jobs/data_preparation_job_classic_fallback.json)へ保持しています。Instance Poolはidle instanceを常時warmにするAzure VM費用が発生するため採用していません。
@@ -241,7 +241,7 @@ python3 scripts/execute_sql_file.py sql/03_register_documents.sql \
 - baseline ProjectにD01〜D08の8件、scan ProjectにD09の1件がある。
 - registryの`sha256`と実ファイルが一致する。
 - model catalogには、サーバー側で確認できたFMAPIモデルだけが入り、`READY`かつ`selectable=true`の候補だけをUIで選べる。
-- Qwen3 Embedding 0.6Bが利用可能なら別管理の既定値ポリシーにより選択され、利用不可ならREADY候補へfallbackする。fallback先には「推奨」を表示しても、Qwen3以外へ「日本語対応」を誤表示しない。
+- 画面にはApp／Jobの許可リストへ登録されたIndex Profileだけが表示される。通常構成はStandard／512／Qwen3 Embedding 0.6Bで、未登録のEmbedding候補へ実行時fallbackしない。
 - 任意PDFの必須入力はPDF本体だけで、文書情報パネルは初期状態で閉じている。タイトル未入力時は安全なファイル名から補完され、解析後は20〜30字のAI概要またはfallback概要を保持する。汎用メタデータを入力した場合はregistryへ保持される。
 
 修正:
@@ -340,7 +340,7 @@ python3 scripts/smoke_test_ai_search.py --profile <DATABRICKS_CLI_PROFILE>
 修正:
 
 - row数不一致はsource Table、CDF、pipeline sync statusを確認して同期を再実行する。
-- Embedding endpointやdimensionを変えた場合は既存Indexを上書きせず、新しいimmutable VariantとIndexを作る。
+- Embedding endpointやdimensionを変える場合は、先に別のDelta Table／AI Search Indexを手動作成してIndex Profileへ登録する。Appはその既存Profileを使って新しい論理Variantを作り、物理リソースは作成しない。
 
 ### Step 7: Lakeflow Jobsを配置する
 
@@ -359,7 +359,7 @@ python3 scripts/smoke_test_ai_search.py --profile <DATABRICKS_CLI_PROFILE>
 修正:
 
 - Notebook変更時は4本すべてを再importし、Jobをresetする。
-- smoke runはまず`STANDARD / 256`、次に`SEMANTIC / 512`、最後に`PARENT_CHILD / 512`の順で1件ずつ実行し、各run完了後にVariant Table、Index、registryを確認する。
+- smoke runは登録済みのStandard／512 Profileで実行し、論理Variant、共有source Tableの`project_id`＋`variant_id`の行、Index同期状態、registryを確認する。256／1024やSemantic／Parent-childを比較する場合は、管理者が別Delta Table／AI Search Indexを手動作成し、App／Job両方の許可リストへProfile登録してから同じ確認を行う。
 
 ### Step 8: MLflowとDatabricks Appを配置する
 
@@ -383,7 +383,7 @@ Appの説明やuser scopeを更新するときも、7件のresourceを含むfull
 - サイドバーが「データ準備、PDFカタログ、RAGチャット、RAG精度評価」の順である。
 - 右上にDatabricks Appsログインユーザーのメールが表示され、各ページに利用中のDatabricks機能名が表示される。
 - アップロード画面の必須項目はPDFだけで、任意項目を閉じられ、車種固有項目を入力しなくても登録できる。
-- 「02 検索する文書のチャンク化・ベクトル化」と表示され、利用可能ならQwen3 Embedding 0.6Bが既定値になる。
+- 「02 検索する文書のチャンク化・ベクトル化」と表示され、登録済みProfileだけを選択できる。通常構成ではStandard／512／Qwen3 Embedding 0.6Bの1件だけが固定表示される。
 - カタログに20〜30字の概要があり、PDF content APIのprefetch、`ETag`、`Range`、同一PDF viewer再利用が動く。
 - Projectと会話を確認付きで削除でき、進行中処理との競合を安全に拒否する。
 - PDF単体をOWNER／EDITORが確認付きで論理削除できる。削除中は連打を防ぎ、影響するVariantだけを検索不可にして、残存PDFで後継Variantを構築・AI Search同期する。原本、解析結果、過去の会話・引用・評価は保持する。
@@ -393,7 +393,7 @@ Appの説明やuser scopeを更新するときも、7件のresourceを含むfull
 
 - `RESOURCE_NOT_READY`の`missing`項目を見て、対応するApp resourceまたは権限だけを直す。
 - App secretやtokenをsource、Table、logへ保存しない。
-- 共有Variant registry `toyota_index_variants`にはApp service principalの`SELECT`／`MODIFY`を付与し、動的に作る各AI Search Indexには`SELECT`を付与する。
+- 共有Variant registry `toyota_index_variants`にはApp service principalの`SELECT`／`MODIFY`を付与する。Profileの既存Delta Table／AI Search Indexへの権限は管理者がProfile登録時に付与し、App／Jobが実行時にIndexを作成・grantしない。
 - `toyota_rag_eval_cases`への評価質問登録で権限エラーになる場合は、App service principalの`SELECT`／`MODIFY`を確認する。
 
 ### Step 9: アプリからend-to-endで確認する
@@ -403,7 +403,8 @@ Appの説明やuser scopeを更新するときも、7件のresourceを含むfull
 合格条件:
 
 - PDF登録後、`FILE`型のDocument Parsingが完了する。
-- 3手法 × 3サイズのVariantを少なくとも1つずつ作成できる。
+- 管理者が登録したIndex Profileだけが表示され、通常構成ではStandard／512／Qwen3の1件だけを選択できる。未登録の256／1024やSemantic／Parent-childは表示されない。
+- 新しい論理Variantは選択Profileの共有Delta Table／AI Search Indexを再利用し、`project_id`＋`variant_id`で他のProject／Variantと分離される。
 - Vector／Hybrid、Metadata Filtering、Reranking、Query OptimizationをPhaseで切り替えられる。
 - 回答にProject認可済みのPDF・ページリンクが付き、そのリンクを開ける。
 - 回答画面にチャンク本文を表示せず、PDF原文リンクだけを根拠として示す。
@@ -428,12 +429,12 @@ Appの説明やuser scopeを更新するときも、7件のresourceを含むfull
 2026-09-09にローカルで次を確認しました。
 
 - `app/.venv/bin/python -m pytest app/tests jobs/tests -q`: Python 344 tests pass
-- `cd app && npm run test:chat-ui`: UI 42 tests pass
-- 自動テスト合計: 386 tests pass
+- `cd app && npm run test:chat-ui`: UI 45 tests pass
+- 自動テスト合計: 389 tests pass
 - JavaScript構文2ファイル、Python compile 51ファイル、JSON 19ファイル: pass
 - 4画面とPhase 1〜5のUI確認: browser console error 0
 
-現行remote asset `1.6.0`はGitHubの`main/app`からfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.6.0`／`databricks_ready=true`、binding 7件を確認しました。指定Projectの認証付きremote画面で、検索データ未作成時は選択欄を表示せず「データ準備へ」を表示することを確認しました。利用可能な検索データは自動選択し、複数ある場合だけ変更操作を表示します。
+現行source asset `1.7.0`はローカル回帰に合格し、field-eng-eastへ再配置済みです。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、binding 7件、asset URL version `1.7.0`を確認しました。指定Projectの認証付きremote画面ではStandard／512／Qwen3の1 Profileだけが固定表示され、Profile selectorと256／1024の可視要素は0件、console warning／errorも0件でした。`/api/health`は今回直接再確認していないため、version値を推測していません。
 
 ## デプロイ記録
 
@@ -441,17 +442,17 @@ Appの説明やuser scopeを更新するときも、7件のresourceを含むfull
 
 | リソース | 匿名化した参照 | 確認日時 | 確認内容 |
 |---|---|---|---|
-| Data preparation Job（Serverless本番） | `<DATA_PREPARATION_JOB_ID>`／run `<DATABRICKS_RESOURCE_ID>` | 2026-09-08 | Performance optimized／Environment v5。task `<DATABRICKS_RESOURCE_ID>`、prep `<RESOURCE_ID>`、Variant `<RESOURCE_ID>`、3 chunks、Index READY。Setup 4秒、実処理154秒、合計159.146秒、App E2E 182.4秒 |
-| Data preparation Serverless隔離検証 | run `<DATABRICKS_RESOURCE_ID>`／`<DATABRICKS_RESOURCE_ID>` | 2026-09-08 | 1 PDFは157.875秒。8 PDFは158.368秒、8文書、31 chunks、Index READY。いずれもactive pointer不変 |
-| Data preparation Classic増強履歴 | run `<DATABRICKS_RESOURCE_ID>` | 2026-09-08 | D16 Driver／D8 Worker×2、Standard／512／Qwen3、3 chunks、Index READY。Setup 382秒、実処理169秒、合計552.328秒。fallback JSONとして保持 |
+| Data preparation Job（Serverless本番） | `<DATA_PREPARATION_JOB_ID>`／run `<DATABRICKS_RESOURCE_ID>` | 2026-09-08 | Performance optimized／Environment v5。task `<DATABRICKS_RESOURCE_ID>`、prep `<RESOURCE_ID>`、Variant `<RESOURCE_ID>`、対象論理slice 3 chunks、Index READY。Setup 4秒、実処理154秒、合計159.146秒、App E2E 182.4秒 |
+| Data preparation Serverless隔離検証 | run `<DATABRICKS_RESOURCE_ID>`／`<DATABRICKS_RESOURCE_ID>` | 2026-09-08 | 1 PDFは157.875秒。8 PDFは158.368秒、対象論理slice 8文書・31 chunks、Index READY。いずれもactive pointer不変 |
+| Data preparation Classic増強履歴 | run `<DATABRICKS_RESOURCE_ID>` | 2026-09-08 | D16 Driver／D8 Worker×2、Standard／512／Qwen3、対象論理slice 3 chunks、Index READY。Setup 382秒、実処理169秒、合計552.328秒。fallback JSONとして保持 |
 | Evaluation Job | `<EVALUATION_JOB_ID>`／run `<DATABRICKS_RESOURCE_ID>` | 2026-09-06 | `SUCCESS`、Phase 1〜5／development 60結果・エラー0・Trace 60・提案5件 |
 | Index sync Job | `<INDEX_SYNC_JOB_ID>`／run `<DATABRICKS_RESOURCE_ID>` | 2026-09-06 | `SUCCESS`、triggered sync |
-| Databricks App | 実ID／URLは非掲載 | 2026-09-09 | GitHub `main/app`、asset `1.6.0`、`SUCCEEDED`／`RUNNING`／`ACTIVE`、health `databricks_ready=true`、binding 7件、評価用検索データの自動選択、PDF全画面viewer |
+| Databricks App | 実ID／URLは非掲載 | 2026-09-09 | GitHub `main/app`のasset `1.7.0`、`SUCCEEDED`／`RUNNING`／`ACTIVE`、binding 7件、asset URL version `1.7.0`。Standard／512／Qwen3の1 Profileだけをremote確認。health API直接確認は未実施 |
 | Phase 1評価の再表示 | 実run IDは非掲載 | 2026-09-09 | asset `1.4.7`で実行済みの1問×1回runをasset `1.4.8`で再表示。1／1、774秒、指標1件、提案1件、error 0 |
 | 選択評価smoke | eval run `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>` | 2026-09-08 | `TERMINATED`／`SUCCESS`。`figure-001`だけ、結果1行、選択外0、error 0。MLflow run `<RESOURCE_ID>` |
-| 孤児Chat run回復付きPDF削除 | Project `<RESOURCE_ID>`／document `<RESOURCE_ID>` | 2026-09-08 | DELETE 202、deletion request `<RESOURCE_ID>`。後継prep `<RESOURCE_ID>`／`<RESOURCE_ID>`は両方READY、削除PDF行／hit 0 |
-| PDF単体削除E2E（2件→1件） | Project `<RESOURCE_ID>` | 2026-09-08 | helper exit 0。初期Variant `<RESOURCE_ID>`を`SUPERSEDED`にし、後継 `<RESOURCE_ID>`／Index 6行、削除PDF hit 0、保持PDF hit 1を確認 |
-| 最後のPDF削除E2E（1件→0件） | Project `<RESOURCE_ID>` | 2026-09-08 | DELETE 202、`EMPTY`、active Variantなし、READY Variant 0、prep 4→4、原本・解析2件・過去引用を保持 |
-| 非車両Project | `<RESOURCE_ID>` | 2026-09-07 | PDF登録・3ページ解析・汎用metadata・Semantic／512 Index・Chat・引用・`security-policy-v1`のPhase 1〜5評価を確認 |
+| 孤児Chat run回復付きPDF削除 | Project `<RESOURCE_ID>`／document `<RESOURCE_ID>` | 2026-09-08 | 旧動的Index方式の履歴。DELETE 202、deletion request `<RESOURCE_ID>`。後継prep `<RESOURCE_ID>`／`<RESOURCE_ID>`は両方READY、削除PDF行／hit 0 |
+| PDF単体削除E2E（2件→1件） | Project `<RESOURCE_ID>` | 2026-09-08 | 旧動的Index方式の履歴。helper exit 0。初期Variant `<RESOURCE_ID>`を`SUPERSEDED`にし、後継 `<RESOURCE_ID>`／Index 6行、削除PDF hit 0、保持PDF hit 1を確認 |
+| 最後のPDF削除E2E（1件→0件） | Project `<RESOURCE_ID>` | 2026-09-08 | 旧動的Index方式の履歴。DELETE 202、`EMPTY`、active Variantなし、READY Variant 0、prep 4→4、原本・解析2件・過去引用を保持 |
+| 非車両Project | `<RESOURCE_ID>` | 2026-09-07 | 旧動的Index方式でPDF登録・3ページ解析・汎用metadata・Semantic／512 Index・Chat・引用・`security-policy-v1`のPhase 1〜5評価を確認。現行利用可能Profileの証跡ではない |
 | トヨタ互換回帰 | session `<RESOURCE_ID>` | 2026-09-07 | 期待回答`60`と一致、引用2件、Trace link成功 |
-| App service principal | client `<APP_SERVICE_PRINCIPAL_ID>`／numeric `<APP_SERVICE_PRINCIPAL_NUMERIC_ID>` | 2026-09-08 | 7 App resources、個別UC grants、動的Index `SELECT`、Variant registry `SELECT`／`MODIFY` |
+| App service principal | client `<APP_SERVICE_PRINCIPAL_ID>`／numeric `<APP_SERVICE_PRINCIPAL_NUMERIC_ID>` | 2026-09-08 | 7 App resources、個別UC grants、Variant registry `SELECT`／`MODIFY`。動的Index `SELECT`は旧方式の検証履歴 |

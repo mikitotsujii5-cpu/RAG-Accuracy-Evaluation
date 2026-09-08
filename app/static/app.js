@@ -18,6 +18,7 @@ const state = {
   indexProfiles: [],
   indexProfilesStatus: "idle",
   selectedIndexProfile: null,
+  selectedPreparationProfileKey: null,
   embeddingModels: [],
   chatModels: [],
   judgeModels: [],
@@ -183,6 +184,10 @@ function installEventHandlers() {
   $("#embedding-model").addEventListener("change", () => {
     showModelDetail("embedding");
     updateIndexProfileSelection();
+  });
+  $("#index-profile-select").addEventListener("change", (event) => {
+    state.selectedPreparationProfileKey = event.target.value || null;
+    renderPreparationProfiles();
   });
   $("#build-button").addEventListener("click", buildVariant);
   $("#select-all-build-documents").addEventListener("click", () => {
@@ -506,7 +511,7 @@ async function loadModels(scope = currentProjectScope()) {
     populateModelSelect($("#chat-model"), state.chatModels);
     populateModelSelect($("#evaluation-model"), state.chatModels);
     populateModelSelect($("#judge-model"), state.judgeModels);
-    selectCompatibleEmbeddingModel();
+    renderPreparationProfiles();
     showModelDetail("embedding");
     showModelDetail("chat");
     updateIndexProfileSelection();
@@ -517,6 +522,7 @@ async function loadModels(scope = currentProjectScope()) {
     state.judgeModels = [];
     [$("#embedding-model"), $("#chat-model"), $("#evaluation-model"), $("#judge-model")]
       .forEach((select) => { select.replaceChildren(new Option("モデル一覧を取得できません", "")); });
+    renderPreparationProfiles();
     updateIndexProfileSelection();
     showError(error, false);
   }
@@ -526,20 +532,19 @@ async function loadIndexProfiles(scope = currentProjectScope()) {
   if (!isCurrentProjectScope(scope)) return;
   state.indexProfilesStatus = "loading";
   state.selectedIndexProfile = null;
-  updateIndexProfileSelection();
+  renderPreparationProfiles();
   try {
     const result = await api("/api/index-profiles");
     if (!isCurrentProjectScope(scope)) return;
     state.indexProfiles = (result?.items || []).map(normalizeIndexProfile).filter(Boolean);
     state.indexProfilesStatus = "ready";
-    selectCompatibleEmbeddingModel();
-    updateIndexProfileSelection();
+    renderPreparationProfiles();
   } catch (error) {
     if (!isCurrentProjectScope(scope)) return;
     state.indexProfiles = [];
     state.indexProfilesStatus = "error";
     state.selectedIndexProfile = null;
-    updateIndexProfileSelection();
+    renderPreparationProfiles();
     showError(error, false);
   }
 }
@@ -629,6 +634,113 @@ function normalizeIndexProfile(raw) {
     status,
     unavailable_reason: unavailableReason,
   };
+}
+
+function applyPreparationProfile(profile) {
+  if (!profile) return;
+  const method = $$('input[name="chunk-method"]').find((input) => input.value === profile.chunk_method);
+  const size = $$('input[name="chunk-size"]').find((input) => Number(input.value) === profile.chunk_size_tokens);
+  if (method) method.checked = true;
+  if (size) size.checked = true;
+  $("#cleaning-toggle").checked = Boolean(profile.cleaning_enabled);
+  $("#semantic-toggle").checked = Boolean(profile.semantic_metadata_enabled);
+  $("#layout-toggle").checked = profile.content_profile === "LAYOUT_PRESERVING";
+  const embedding = $("#embedding-model");
+  if ([...embedding.options].some((option) => option.value === profile.embedding_model_key)) {
+    embedding.value = profile.embedding_model_key;
+  }
+  updateMethodCards();
+  showModelDetail("embedding");
+}
+
+function preparationProfileOptionLabel(profile) {
+  const method = formatChunkMethod(profile.chunk_method);
+  const model = state.embeddingModels.find((item) => item.model_key === profile.embedding_model_key);
+  const content = profile.content_profile === "LAYOUT_PRESERVING" ? "レイアウト保持" : "テキストのみ";
+  const cleaning = profile.cleaning_enabled ? "クリーニングあり" : "クリーニングなし";
+  const metadata = profile.semantic_metadata_enabled ? "文書情報あり" : "文書情報なし";
+  return `${method} / ${profile.chunk_size_tokens} / ${model?.display_name || profile.embedding_model_key} / ${content} / ${cleaning} / ${metadata}`;
+}
+
+function renderPreparationProfiles() {
+  const card = $("#preparation-profile-card");
+  const select = $("#index-profile-select");
+  const selectorField = $("#preparation-profile-selector-field");
+  const name = $("#preparation-profile-name");
+  const count = $("#preparation-profile-count");
+  const method = $("#preparation-profile-method");
+  const size = $("#preparation-profile-size");
+  const embedding = $("#preparation-profile-embedding");
+  const help = $("#preparation-profile-help");
+  if (!card || !select || !selectorField || !name || !count || !method || !size || !embedding || !help) return;
+
+  card.classList.remove("loading", "ready", "unavailable");
+  const profiles = state.indexProfiles.filter((profile) => profile.enabled && profile.index_name);
+  if (state.indexProfilesStatus === "loading" || state.indexProfilesStatus === "idle") {
+    card.classList.add("loading");
+    select.replaceChildren(new Option("読み込み中…", ""));
+    selectorField.classList.add("hidden");
+    name.textContent = "確認中…";
+    count.className = "status-pill muted";
+    count.textContent = "確認中";
+    method.textContent = "—";
+    size.textContent = "—";
+    embedding.textContent = "—";
+    help.textContent = "管理者が用意したDelta Table／AI Search Indexを確認しています。";
+    state.selectedIndexProfile = null;
+    updateIndexProfileSelection();
+    return;
+  }
+  if (state.indexProfilesStatus === "error") {
+    card.classList.add("unavailable");
+    select.replaceChildren(new Option("検索設定を取得できません", ""));
+    selectorField.classList.add("hidden");
+    name.textContent = "検索設定を取得できません";
+    count.className = "status-pill error";
+    count.textContent = "読込エラー";
+    method.textContent = "—";
+    size.textContent = "—";
+    embedding.textContent = "—";
+    help.textContent = "画面右上の「表示を更新」で再読み込みしてください。";
+    state.selectedIndexProfile = null;
+    updateIndexProfileSelection();
+    return;
+  }
+  if (!profiles.length) {
+    card.classList.add("unavailable");
+    select.replaceChildren(new Option("利用できる設定がありません", ""));
+    selectorField.classList.add("hidden");
+    name.textContent = "利用できる検索設定がありません";
+    count.className = "status-pill error";
+    count.textContent = "未設定";
+    method.textContent = "—";
+    size.textContent = "—";
+    embedding.textContent = "—";
+    help.textContent = "管理者にDelta TableとAI Search Indexの設定を依頼してください。";
+    state.selectedIndexProfile = null;
+    updateIndexProfileSelection();
+    return;
+  }
+
+  const previous = state.selectedPreparationProfileKey;
+  const profile = profiles.find((item) => item.profile_key === previous) || profiles[0];
+  state.selectedPreparationProfileKey = profile.profile_key;
+  select.replaceChildren(...profiles.map((item) => new Option(preparationProfileOptionLabel(item), item.profile_key)));
+  select.value = profile.profile_key;
+  selectorField.classList.toggle("hidden", profiles.length === 1);
+  card.classList.add("ready");
+  name.textContent = profile.display_name;
+  count.className = "status-pill success";
+  count.textContent = profiles.length === 1 ? "この環境の設定" : `${profiles.length}件から選択`;
+  method.textContent = formatChunkMethod(profile.chunk_method);
+  size.textContent = `${profile.chunk_size_tokens} tokens`;
+  const model = state.embeddingModels.find((item) => item.model_key === profile.embedding_model_key);
+  embedding.textContent = model?.display_name || profile.embedding_model_key;
+  help.textContent = profiles.length === 1
+    ? "このAppに登録済みの1つの設定を使用します。未登録のサイズは表示しません。"
+    : "このAppに登録済みのDelta Table／AI Search Indexだけを表示します。";
+  applyPreparationProfile(profile);
+  updateIndexProfileSelection();
 }
 
 function currentPreparationConfiguration() {
@@ -727,6 +839,9 @@ function updateIndexProfileSelection() {
   if (state.indexProfilesStatus === "loading") {
     indexName.textContent = "確認中…";
     message.textContent = "事前登録済みのIndexを確認しています。";
+  } else if (state.indexProfilesStatus === "error") {
+    indexName.textContent = "未確認";
+    message.textContent = "検索設定を取得できません。画面を更新してください。";
   } else if (profile) {
     indexName.textContent = profile.index_name;
     message.textContent = `${profile.display_name} に完全一致しました。既存Indexへデータを書き込み、同期します。`;
@@ -943,6 +1058,7 @@ function resetProjectBoundState() {
   state.indexProfiles = [];
   state.indexProfilesStatus = "idle";
   state.selectedIndexProfile = null;
+  state.selectedPreparationProfileKey = null;
   state.sessions = [];
   state.evaluationDatasets = [];
   state.evaluationCases = [];

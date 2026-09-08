@@ -7,7 +7,7 @@
 対象Workspaceは`field-eng-east`（ID `<WORKSPACE_ID>`）です。Databricksへサインインし、このAppの利用権限を持つアカウントで開いてください。
 
 > [!NOTE]
-> 現行sourceはasset version `1.6.0`です。評価用検索データの自動選択とPDF全画面viewerを含むUIテスト42件に合格し、field-eng-eastへのremote配置、health、Resource Binding 7件を確認済みです。Python 344件はasset `1.4.9`の確認記録です。
+> 現行sourceはasset version `1.7.0`です。登録済みIndex Profileだけを表示する回帰を含むUIテスト45件とPythonテスト344件に合格しました。field-eng-eastへのremote配置後、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、Resource Binding 7件を確認し、指定ProjectでStandard／512／Qwen3の1 Profileだけが表示されることを確認済みです。
 
 > [!CAUTION]
 > 付属のトヨタ車種関連PDFはすべて架空の評価データです。内容を実車の操作、整備、救助、購入判断に使わないでください。これらは同梱シナリオであり、アプリは車両以外のPDFにも使えます。
@@ -100,38 +100,30 @@ Volume上のPDF
 
 ### 2.2 検索する文書のチャンク化・ベクトル化を設定する
 
-チャンクは、検索するときの文章の単位です。条件を変えるたびに新しいVariantを作るため、過去の比較結果を再現できます。
+チャンクは、検索するときの文章の単位です。このAppは、実在しない組み合わせを画面に出しません。管理者が事前にDelta TableとAI Search Indexを用意し、Appへ登録した「検索設定」だけを表示します。
 
-チャンクサイズ:
+現行field-eng-eastで利用できる設定は次の1件です。
 
-- `256`: 短く、ピンポイントな検索向け。断片化しやすい。
-- `512`: 精度と文脈のバランスを取りやすい開始点。
-- `1024`: 広い文脈を保持しやすい。不要な文章も入りやすい。
+- 分割方法: Standard
+- チャンクサイズ: 512 tokens
+- Embedding: Qwen3 Embedding 0.6B
+- 表・図・レイアウト: 保持
+- クリーニング／文書情報追加: 有効
 
-画面の「分割方法」:
+1件だけのため選択欄は表示されず、自動適用されます。管理者が別のDelta Table／AI Search Indexを登録した場合だけ「検索設定」が表示され、登録済みの構成から選べます。256や1024を比較するには、サイズごとのDelta TableとAI Search Indexを先に手動作成し、AppとLakeflow JobのIndex Profile許可リストへ同じ設定を登録する必要があります。
 
-- 「均等に分割」（Standard）: 一定のtoken上限で安定して分割する。
-- 「意味ごとに分割」（Semantic）: 見出しや文の境界を優先する。
-- 「親子で分割」（Parent-child）: 短い文章を検索し、前後の広い文脈も回答に渡す。
-
-「ベクトル化モデル」の一覧には、FMAPIで発見したEmbedding候補のうち、このワークスペースで`READY`、利用可能、選択可と確認できたモデルが表示されます。日本語を含む多言語検索に対応するQwen3 Embedding 0.6Bが利用できる場合は、これを既定値として選び、「推奨・日本語対応」と表示します。利用できない場合は検証済みの別モデルへ自動的に切り替えます。fallback先へ「推奨」と表示する場合でも、Qwen3以外のモデルへ「日本語対応」を誤表示しません。モデルを変えると別Indexになるため、同じVariantを上書きしません。
-
-追加スイッチ:
-
-- 不要な文字を除去: 繰り返すヘッダー、フッター、重複を除く。
-- 概要・見出しを追加: 文書情報をEmbedding用テキストへ加える。
-- 表・図・レイアウトを保持: Document Parsingの構造を検索用チャンクへ反映する。
+検索設定ごとに物理Delta Table／AI Search Indexを分けます。同じ検索設定を使うProjectや論理Variantは物理保存先を共有しますが、行は`project_id`と`variant_id`で分離されます。
 
 ### 2.3 RAG検索データを作る
 
 1. 対象PDFの解析が`PARSED`または`READY`であることを確認する。
-2. 「対象PDF」で、この検索データに含める解析済みPDFを選ぶ。
-3. 文章の長さ、分割方法、ベクトル化モデル、追加スイッチを選ぶ。
-4. 「RAG検索データを作成」を押す。
+2. 「利用できる検索設定」を確認する。1件の場合は操作不要。複数ある場合だけ登録済み設定を選ぶ。
+3. 「対象PDF」で、この検索データに含める解析済みPDFを選ぶ。
+4. 「RAG検索データを作成・同期」を押す。
 5. 画面右の「RAG検索データの作成状況」が完了するまで待つ。
 6. 「作成済みの検索データ」に`READY`のデータが表示されることを確認する。
 
-最初は「均等に分割 / 512 / Qwen3 Embedding 0.6B」を推奨します。Qwen3が利用不可の場合だけ、画面で選択されている別の利用可能モデルを使います。比較するときは、一度に一つの条件だけを変えます。
+画面に出る設定は、既存Indexへ完全一致するものだけです。設定が表示されない場合は、管理者に既存Index Profileの登録を依頼してください。
 
 「RAG検索データを作成」の監視は次のように動きます。
 
@@ -145,7 +137,7 @@ Volume上のPDF
 
 Performance optimizedは待ち時間を短くする代わりに、Standard performance modeよりDBU使用量が増える場合があります。管理者は速度と`system.billing.usage`の実績を合わせて確認してください。
 
-ただし、画面に見える一連の処理は一つのコンピュートだけで動いていません。PDF解析の`ai_parse_document`は引き続きX-Large Serverless SQL Warehouseで、`READ_FILES(..., format => 'file')`が返す`FILE`値を使います。後続のチャンク化とDelta Table作成はData Preparation Job、Index作成・同期はAI Search managed serviceが担当します。「処理の詳細を開く」で、Serverless Environment起動中、Job処理中、Index同期中のどこにいるかを確認してください。
+ただし、画面に見える一連の処理は一つのコンピュートだけで動いていません。PDF解析の`ai_parse_document`は引き続きX-Large Serverless SQL Warehouseで、`READ_FILES(..., format => 'file')`が返す`FILE`値を使います。後続のチャンク化と登録済み共有Delta Tableへの書き込みはData Preparation Job、既存Indexの同期はAI Search managed serviceが担当します。AppとJobは物理Table／Indexを新規作成しません。「処理の詳細を開く」で、Serverless Environment起動中、Job処理中、Index同期中のどこにいるかを確認してください。
 
 field-eng-eastのData Preparation Job `<DATA_PREPARATION_JOB_ID>`の本番run `<DATABRICKS_RESOURCE_ID>`では、Setup 4秒、Job実処理154秒、合計159.146秒、アプリからのE2Eは182.4秒でした。3 chunksとREADY Indexを確認しています。同じ入力のClassic runはSetup 382秒、実処理169秒、合計552.328秒だったため、合計を71.18%短縮しました。隔離検証では1 PDFのrun `<DATABRICKS_RESOURCE_ID>`が157.875秒、8 PDFのrun `<DATABRICKS_RESOURCE_ID>`が158.368秒で完了しました。後者は8文書、31 chunks、READY Indexで、どちらもactive Variantを変更していません。`COMPUTE_STARTING`または`ENVIRONMENT_STARTING`中に再度ボタンを押さず、そのまま監視してください。
 
@@ -417,7 +409,7 @@ advisorにはRecall／Precision／nDCGだけでなく、Answer Correctness、Gro
 - 旧asset `1.4.1`のトヨタ互換回帰でも期待回答`60`と一致し、Trace `<TRACE_ID>`、引用2件を確認済みです。
 - baseline Projectの使用中検索データは`baseline-standard-512-v1`へ復元済みです。
 - 旧asset `1.4.1`のremote回帰では、同一requestの保存がuser／assistant各1件であること、停止要求が`run.cancelled`／永続状態`CANCELLED`になることを確認済みです。評価履歴再表示、`ERROR` PDF再解析、PDFリンクだけを返すlive citationは現行sourceでも回帰済みです。
-- 現行asset `1.6.0`はGitHubの`main/app`からfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.6.0`／`databricks_ready=true`、resource binding 7件、評価用検索データの自動選択、未準備時の「データ準備へ」、PDF全画面viewerを確認しました。
+- 現行asset `1.7.0`はfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件を確認しました。指定Projectの認証付きremote画面では、asset URL `1.7.0`、Standard／512／Qwen3の1 Profile、検索設定選択欄の非表示、256／1024の可視要素0件、console warning／error 0件を確認しました。
 - asset `1.4.7`で実行済みだったPhase 1・1問・1回runをasset `1.4.8`のremote status／results APIで取得し、`SUCCEEDED`、1／1試行、`elapsed_seconds=774`を確認しました。Lakeflow run totalは777.125秒、指標1件、改善提案1件、Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msです。これはasset `1.4.8`で新規評価を実行した証跡ではありません。
 - Phase横並び、結果画面、経過時間「12分54秒」が3秒後も固定されることは、ローカルSSO代替画面で目視確認済みです。SSO済みremoteブラウザによる手操作、TTFT、残り7 profileは未確認です。
 - 現行deployment `<DEPLOYMENT_ID>`では、Project `<RESOURCE_ID>`に残っていた30分超の孤児Chat run 2件とassistant messageを`ERROR`へ整合した後、document `<RESOURCE_ID>`の削除がHTTP 202で完了しました。影響旧Variant 4件から後継Variant 2件を作り、両方を`READY`まで確認しました。source／AI Searchは削除PDF 0件で、保持document `<RESOURCE_ID>`だけを返します。
@@ -437,7 +429,7 @@ advisorにはRecall／Precision／nDCGだけでなく、Answer Correctness、Gro
 | Parsingが失敗 | FILE type Preview、対応compute、PDF暗号化・破損、run messageを確認する。原因を直した後、PDFカタログの「再解析」を1回押す |
 | Embedding／LLMを選べない | endpointがREADYか、AppにCAN QUERYがあるか、model catalogが更新済みか |
 | 検索データ作成が0%／`QUEUED`に見える | 画面のqueue説明と「処理の詳細を開く」を確認する。`ENVIRONMENT_STARTING`ならServerless Environmentの準備中、`WAITING_FOR_JOB_CAPACITY`なら先行run待ち。画面を再読込みしても監視は復元されるため、再度ボタンを押さない |
-| チャンク作成後も完了しない | AI Search pipeline statusを確認する。Index作成・同期はmanaged service側の処理であり、Serverless Jobの起動が速くても別に待ち時間が発生する |
+| チャンク作成後も完了しない | AI Search pipeline statusを確認する。既存Indexの同期はmanaged service側の処理であり、Serverless Jobの起動が速くても別に待ち時間が発生する |
 | VariantがREADYにならない | Prep Job、source TableのCDF、AI Search pipeline status、Embedding dimension |
 | チャットできない | READYなVariant、LLM、Project権限、IndexのSELECT権限 |
 | 引用リンクを開けない | 文書が同じProjectか、自分にVIEWER権限があるか |

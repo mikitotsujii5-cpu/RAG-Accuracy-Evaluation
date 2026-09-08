@@ -50,7 +50,7 @@ databricks jobs reset \
 databricks jobs get <DATA_PREPARATION_JOB_ID> --profile <DATABRICKS_CLI_PROFILE> -o json
 ```
 
-同じIDを保つため、Appの`PREP_JOB_ID`は変更しません。rollback後は新しい隔離smokeを実行し、prep `SUCCEEDED`、sourceとIndexの行数一致、Index `READY`を確認します。失敗したVariantや`SUPERSEDED` Variantを手動でactiveへ戻しません。
+同じIDを保つため、Appの`PREP_JOB_ID`は変更しません。rollback後は新しい隔離smokeを実行し、prep `SUCCEEDED`、対象`project_id`＋`variant_id`のsource／Index行数一致、Index `READY`を確認します。失敗したVariantや`SUPERSEDED` Variantを手動でactiveへ戻しません。
 
 ## 確認
 
@@ -81,10 +81,10 @@ Data Preparation／Evaluationは、AppがProjectを認可し、run管理Tableへ
 | Performance target | `PERFORMANCE_OPTIMIZED` | Standard Serverlessより起動時間を優先する設定 |
 | Environment | key `toyota_rag_serverless_v5`、version `5` | Notebook taskが使うServerless実行環境 |
 | 同時実行数 | `max_concurrent_runs=2` | 独立したVariant再構築を最大2件まで並行実行 |
-| Environment dependency | `databricks-sdk==0.135.0` | HYBRID Index作成に必要な`IndexSubtype`を含む検証済み版を固定する |
+| Environment dependency | `databricks-sdk==0.135.0` | 登録済みHYBRID Indexの設定照合・同期操作で検証済みの版を固定する |
 | tag | `compute_profile=serverless-performance-optimized-v5` | 利用量画面で本番構成を識別するための目印 |
 
-Serverless notebook taskではtask-levelの`libraries`を使用できません。このため、SDKは`tasks[].libraries`ではなく`environments[].spec.dependencies`へ指定します。このJobが担当するのは`BUILD_VARIANT`のチャンク化、source Delta Table作成、AI Search Index作成・同期の依頼です。アップロード直後の`ai_parse_document`は移行対象ではありません。引き続き`READ_FILES(..., format => 'file')`の`FILE`値を使い、X-Large Serverless SQL Warehouseで実行します。AI SearchのIndex作成・同期そのものはmanaged service側の処理です。
+Serverless notebook taskではtask-levelの`libraries`を使用できません。このため、SDKは`tasks[].libraries`ではなく`environments[].spec.dependencies`へ指定します。このJobが担当するのは`BUILD_VARIANT`のチャンク化、登録済みProfileの既存source Delta Tableへの論理Variant書き込み、AI Search同期依頼、READY待機です。アップロード直後の`ai_parse_document`は移行対象ではありません。引き続き`READ_FILES(..., format => 'file')`の`FILE`値を使い、X-Large Serverless SQL Warehouseで実行します。App／Jobは物理Delta TableやAI Search Indexを作成しません。
 
 Performance optimizedは起動時間を優先し、Standard performance modeは通常4〜6分の起動待ちを許容する代わりにDBU使用量を抑えます。本番では実測latencyと`system.billing.usage`を一緒に確認します。
 
@@ -96,9 +96,9 @@ Evaluationの受付では、Project、利用者、`Idempotency-Key`から同じ`
 
 Delta Tableは一意制約を強制しないため、同時MERGEで同一Phaseの同じ制御行が複数見える可能性があります。すべての固定設定が一致する重複行だけをJob側でPhase 1件へ集約し、試行を重複実行しません。固定設定が異なる重複行は評価batchの契約違反として拒否します。
 
-Data PreparationがVariantとIndexを正常に作成した後、そのProjectに`starter-v1`のサンプル質問3件を冪等に登録します。これらは期待回答と正解ページを空にした試用データで、正解ラベルを捏造しません。
+Data Preparationが論理Variantを書き込み、登録済みProfileのIndex同期を正常に完了した後、そのProjectに`starter-v1`のサンプル質問3件を冪等に登録します。これらは期待回答と正解ページを空にした試用データで、正解ラベルを捏造しません。
 
-PDF単体の論理削除も、同じData Preparation Jobで後継Variantを作ります。Appは、削除PDFを含む既存Variantの保存済み設定と`source_document_ids`をサーバー側で検証し、削除PDFを除いた文書IDだけの`BUILD_VARIANT` runを作ります。旧Variantは上書きせず`SUPERSEDED`とします。元のactive Variantの後継だけが`activate_on_success=true`、その他の後継は`false`となり、複数Jobの完了順でactive pointerが変わらないようにします。残るPDFがないVariantに空の後継Indexは作りません。
+PDF単体の論理削除も、同じData Preparation Jobで後継論理Variantを作ります。Appは、削除PDFを含む既存Variantの保存済みProfileと`source_document_ids`をサーバー側で検証し、削除PDFを除いた文書IDだけの`BUILD_VARIANT` runを作ります。旧Variantは上書きせず`SUPERSEDED`とします。元のactive Variantの後継だけが`activate_on_success=true`、その他の後継は`false`となり、複数Jobの完了順でactive pointerが変わらないようにします。残るPDFがない場合は空の後継論理Variantを作りません。
 
 Data Preparationの重複防止と回復契約:
 
@@ -112,7 +112,7 @@ Data Preparationの重複防止と回復契約:
 
 - 3 Jobが指定IDで存在し、Notebook pathとparameterがdeployment JSONに一致する。
 - Data Preparationは`PERFORMANCE_OPTIMIZED` Serverless、Environment version `5`、`max_concurrent_runs=2`、Environment dependency `databricks-sdk==0.135.0`、tag `compute_profile=serverless-performance-optimized-v5`である。task-levelの`libraries`を持たない。
-- Data PreparationはProject外のdocumentを拒否し、作成IndexだけをApp SPへ`SELECT`付与する。
+- Data PreparationはProject外のdocumentと未登録Profileを拒否し、許可済みの既存source Delta Table／AI Search Indexだけを使う。物理リソースの作成や実行時grantを行わない。
 - 同じ`prep_run_id`を再確認してもJob runが重複せず、NULLの`job_run_id`を自己回復できる。
 - Evaluationは同じProject、Dataset、Variant、モデル、設定hashだけを処理する。
 - `evaluation_case_ids`があるEvaluation runは指定IDだけを処理し、別Project・別version・別splitへの逸脱を拒否する。fieldのない旧runは全件評価を維持する。
@@ -120,7 +120,7 @@ Data Preparationの重複防止と回復契約:
 - Job受付応答や`job_run_id`保存が一時失敗しても同じJobを回復し、確定的なJob拒否だけを`FAILED`へ収束する。
 - Data Preparation成功後にProject内だけへスターター質問3件があり、別ProjectのPDF URIが混入しない。
 - PDF削除で作られた後継runは、元Variantの設定を保持し、削除PDFの`document_id`を含まない。非active Variantの後継が先に完了してもProjectのactive pointerを上書きしない。
-- 後継IndexがREADYとなり、sourceとIndexのどちらにも削除PDFのchunkが0件である。
+- 登録済みProfileのIndex同期がREADYとなり、後継論理Variantで絞ったsourceとIndexのどちらにも削除PDFのchunkが0件である。
 - runは`TERMINATED`かつ`result_state=SUCCESS`になる。
 
 ## 失敗時の修正
@@ -149,25 +149,25 @@ Data Preparationの重複防止と回復契約:
 | Index Sync Job | `<INDEX_SYNC_JOB_ID>`／run `<DATABRICKS_RESOURCE_ID>` | `SUCCESS` |
 | Phase Evaluation Job（トヨタbaseline履歴） | `<EVALUATION_JOB_ID>`／run `<DATABRICKS_RESOURCE_ID>` | `SUCCESS` |
 
-最新のData Preparation smokeでは、非車両Projectからprep run `<RESOURCE_ID>`、Semantic／512 Variant `<RESOURCE_ID>`を作成しました。Job runは`<DATABRICKS_RESOURCE_ID>`、動的Indexは`<UC_CATALOG>.rag_accuracy.toyota_chunks_v_<RESOURCE_ID>_index`です。4/4完了、Index `READY`、source 6行、Index 6行、別Project行0、`job_run_url`は同一Workspaceを指すことを確認しました。
+旧動的Index方式のData Preparation smokeでは、非車両Projectからprep run `<RESOURCE_ID>`、Semantic／512 Variant `<RESOURCE_ID>`を作成しました。Job runは`<DATABRICKS_RESOURCE_ID>`、動的Indexは`<UC_CATALOG>.rag_accuracy.toyota_chunks_v_<RESOURCE_ID>_index`です。4/4完了、Index `READY`、source 6行、Index 6行、別Project行0、`job_run_url`は同一Workspaceを指すことを確認しました。これは現行Appで利用できるProfileを示す記録ではありません。
 
-本番Job `<DATA_PREPARATION_JOB_ID>`はPerformance-optimized Serverless Environment version `5`へ同じIDのままreset済みです。本番確認run `<DATABRICKS_RESOURCE_ID>`／task `<DATABRICKS_RESOURCE_ID>`は、prep `<RESOURCE_ID>`、Variant `<RESOURCE_ID>`、Standard／512／Qwen3で成功しました。Setup `4,000 ms`、Job実処理 `154,000 ms`、合計 `159,146 ms`、App E2E `182.4秒`、source／Index各3 chunks、Index `READY`です。
+本番Job `<DATA_PREPARATION_JOB_ID>`はPerformance-optimized Serverless Environment version `5`へ同じIDのままreset済みです。本番確認run `<DATABRICKS_RESOURCE_ID>`／task `<DATABRICKS_RESOURCE_ID>`は、prep `<RESOURCE_ID>`、Variant `<RESOURCE_ID>`、Standard／512／Qwen3で成功しました。Setup `4,000 ms`、Job実処理 `154,000 ms`、合計 `159,146 ms`、App E2E `182.4秒`、対象`project_id`＋`variant_id`のsource／Index各3 chunks、Index `READY`です。
 
 同じ入力のClassic増強run `<DATABRICKS_RESOURCE_ID>`はSetup `382,000 ms`、Job実処理 `169,000 ms`、合計 `552,328 ms`でした。本番Serverlessでは合計が約71.2%短縮されています。この比較は各1回の実測であり、負荷試験の分布ではありません。
 
-Serverless移行前に、1 PDF canary run `<DATABRICKS_RESOURCE_ID>`を実行し、合計 `157,875 ms`で成功しました。続いて8 PDFの隔離canary run `<DATABRICKS_RESOURCE_ID>`／task `<DATABRICKS_RESOURCE_ID>`、prep `<RESOURCE_ID>`、Variant `<RESOURCE_ID>`を実行しました。Setup `5,000 ms`、実処理 `152,000 ms`、合計 `158,368 ms`、8文書31 chunks、Index `READY`です。`activate_on_success=false`を使い、baseline active Variantが変わっていないことも確認しました。
+Serverless移行前に、1 PDF canary run `<DATABRICKS_RESOURCE_ID>`を実行し、合計 `157,875 ms`で成功しました。続いて8 PDFの隔離canary run `<DATABRICKS_RESOURCE_ID>`／task `<DATABRICKS_RESOURCE_ID>`、prep `<RESOURCE_ID>`、Variant `<RESOURCE_ID>`を実行しました。Setup `5,000 ms`、実処理 `152,000 ms`、合計 `158,368 ms`、対象`project_id`＋`variant_id`の8文書31 chunks、Index `READY`です。`activate_on_success=false`を使い、baseline active Variantが変わっていないことも確認しました。
 
-過去のClassic増強履歴も保持します。同じ1 PDF、Standard／512、Qwen3のJob `<DATABRICKS_RESOURCE_ID>`は`TERMINATED`／`SUCCESS`、prep `<RESOURCE_ID>`、Variant `<RESOURCE_ID>`、source／Index各3行、Index READYでした。増強前run `<DATABRICKS_RESOURCE_ID>`との比較はSetup 382秒→382秒、Job実処理208秒→169秒、合計590.740秒→552.328秒です。最初のsmoke `<DATABRICKS_RESOURCE_ID>`ではDBR 18同梱SDKに`IndexSubtype`がないことを検出し、Classicでは`databricks-sdk==0.135.0`をtask libraryへ戻して成功しました。Serverlessでは同じ依存をEnvironmentへ指定します。
+過去のClassic増強履歴も保持します。同じ1 PDF、Standard／512、Qwen3のJob `<DATABRICKS_RESOURCE_ID>`は`TERMINATED`／`SUCCESS`、prep `<RESOURCE_ID>`、Variant `<RESOURCE_ID>`、対象`project_id`＋`variant_id`のsource／Index各3行、Index READYでした。増強前run `<DATABRICKS_RESOURCE_ID>`との比較はSetup 382秒→382秒、Job実処理208秒→169秒、合計590.740秒→552.328秒です。旧動的Index実装時の最初のsmoke `<DATABRICKS_RESOURCE_ID>`ではDBR 18同梱SDKに`IndexSubtype`がないことを検出し、Classicでは`databricks-sdk==0.135.0`をtask libraryへ戻して成功しました。現行Jobは物理Indexを作成しませんが、同じSDK版を既存Indexの検証・同期用としてServerless Environmentへ固定します。
 
-PDF削除専用の後継Build／Syncは`SUCCESS`です。最新の`job_common.py`と`data_preparation_job.py`をWorkspaceへ再importし、既存Job `<DATA_PREPARATION_JOB_ID>`をresetした後、新しい使い捨てProject `<RESOURCE_ID>`で2件→1件を最初から確認しました。初期runはprep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`です。1件削除後は後継prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`が`SUCCEEDED`／`READY`となりました。後継sourceとIndexは各6行、削除PDF行／検索hit 0、保持PDF行6／検索hit 1です。
+PDF削除専用の後継Build／Syncは`SUCCESS`です。最新の`job_common.py`と`data_preparation_job.py`をWorkspaceへ再importし、既存Job `<DATA_PREPARATION_JOB_ID>`をresetした後、新しい使い捨てProject `<RESOURCE_ID>`で2件→1件を最初から確認しました。初期runはprep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`です。1件削除後は後継prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`が`SUCCEEDED`／`READY`となりました。後継`project_id`＋`variant_id`のsourceとIndexは各6行、削除PDF行／検索hit 0、保持PDF行6／検索hit 1です。
 
-過去のscan ProjectではStandard／256のVariant `<RESOURCE_ID>`も作成し、source 8行、Index 8行、`ready=true`、別Project行0、App SPへの個別`SELECT`を確認済みです。実Workspaceで確認済みのprofileはStandard／256とSemantic／512の2組で、残り7組は`PENDING`です。
+旧動的Index方式のscan ProjectではStandard／256のVariant `<RESOURCE_ID>`も作成し、source 8行、Index 8行、`ready=true`、別Project行0、App SPへの個別`SELECT`を確認済みです。この履歴のStandard／256とSemantic／512は現行Appの登録済みProfileではありません。通常構成で利用できるのはStandard／512／Qwen3の1件で、256／1024やSemantic／Parent-childは別Delta Table／AI Search Indexを管理者が手動作成し、App／Job両方へProfile登録した場合だけ表示・検証します。
 
-重複防止、冪等再試行、単一poller、queue表示、Project再表示後の評価run復元、poll再接続、`job_run_id`自己回復、trial単位の進捗、Lakeflow Job取消、terminal収束、選択した評価caseだけの実行、Evaluationの同一key再送／Job冪等化／重複Phase集約、評価結果取得のtimeout／再試行、PDF削除後の後継Build、既存Index許可外Variantの一覧除外を含む現行App／Job source asset `1.4.8`は、Python 337件とUI 38件、合計375件の自動テストですべて成功しています。asset `1.4.6`の4 Notebookを同じWorkspaceディレクトリへ再importし、既存Evaluation Jobを同じID・既存設定のままresetした履歴は保持します。task timeout 14,400秒、同時実行数1も維持しています。
+重複防止、冪等再試行、単一poller、queue表示、Project再表示後の評価run復元、poll再接続、`job_run_id`自己回復、trial単位の進捗、Lakeflow Job取消、terminal収束、選択した評価caseだけの実行、Evaluationの同一key再送／Job冪等化／重複Phase集約、評価結果取得のtimeout／再試行、PDF削除後の後継Build、登録済みIndex Profile以外のVariant除外を含む現行source asset `1.7.0`は、Python 344件とUI 45件、合計389件の自動テストですべて成功しています。asset `1.4.8`でPython 337件とUI 38件、合計375件だった記録は過去の履歴です。asset `1.4.6`の4 Notebookを同じWorkspaceディレクトリへ再importし、既存Evaluation Jobを同じID・既存設定のままresetした履歴は保持します。task timeout 14,400秒、同時実行数1も維持しています。
 
 asset `1.4.7`で実行したPhase 1・1問・1回のLakeflow runは`SUCCEEDED`、total 777.125秒です。この既存runをasset `1.4.8`のremote status／results APIで取得し、1／1試行、`elapsed_seconds=774`、指標1件、改善提案1件を確認しました。評価処理そのものはasset `1.4.7`の証跡です。asset `1.4.8`の4 Notebook再importと、同Notebookで起動する新規評価runは`PENDING`のままです。選択評価run `<RESOURCE_ID>`はasset `1.4.4`でcase `figure-001`だけを処理し、Job `<DATABRICKS_RESOURCE_ID>`／task `<DATABRICKS_RESOURCE_ID>`が`TERMINATED`／`SUCCESS`、結果1行、選択外0行、error 0、MLflow run `<RESOURCE_ID>`だった履歴も保持します。
 
-同じassetのPDF削除では、後継prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`がREADYとなりsource 8行、削除PDF 0行、保持PDF 8行でした。もう一つの後継prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`もREADYとなりsource 4行、削除PDF 0行、保持PDF 4行でした。両AI Search実検索は保持document `<RESOURCE_ID>`だけを返し、削除documentを返しませんでした。
+同じassetのPDF削除では、後継prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`がREADYとなり、対象`project_id`＋`variant_id`のsource 8行、削除PDF 0行、保持PDF 8行でした。もう一つの後継prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`もREADYとなり、対象sliceのsource 4行、削除PDF 0行、保持PDF 4行でした。両AI Search実検索は保持document `<RESOURCE_ID>`だけを返し、削除documentを返しませんでした。
 
 未ラベルstarter質問をAnswer Correctnessの0点として数えず`NULL`のまま集計する最終実環境確認も、eval run `<RESOURCE_ID>`／Job run `<DATABRICKS_RESOURCE_ID>`で`TERMINATED`／`SUCCESS`になりました。Phase 1、trial 3、error rate 0、Answer Correctness `NULL`、Groundedness `0.66667`、Citation Correctness `1.0`、LLM改善提案1件を確認しました。
 

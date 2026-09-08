@@ -44,7 +44,7 @@ PDF論理削除migrationは、次を追加します。列を追加するだけ�
 | `toyota_document_registry` | `lifecycle_status`、`deletion_request_id`、`deleted_by`、`deleted_at` |
 | `toyota_index_variants` | `source_document_ids`、`lifecycle_status`、後継Variant／削除request／理由／日時 |
 
-`toyota_document_registry`の`summary`、`summary_source`、`summary_model_key`、`summary_prompt_version`、`summary_status`は、カタログ用の短い概要と生成状態を記録します。`toyota_rag_model_defaults`は、モデル検出結果とは分離して、Embeddingの推奨値と利用不可時のfallback方針を管理します。
+`toyota_document_registry`の`summary`、`summary_source`、`summary_model_key`、`summary_prompt_version`、`summary_status`は、カタログ用の短い概要と生成状態を記録します。`toyota_rag_model_defaults`は旧方式との互換と管理用の推奨値を保持しますが、現行UIのEmbeddingを切り替えたり、利用不可時に別Embeddingへfallbackしたりしません。Embeddingは登録済みIndex Profileに固定します。
 
 作成先:
 

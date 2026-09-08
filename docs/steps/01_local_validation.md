@@ -41,7 +41,7 @@ find app -maxdepth 2 \( -name '.venv' -o -name '__pycache__' -o -name '.pytest_c
 - `git diff --check`が出力なしで終了する。
 - デプロイ対象に`tests/`、`.venv`、cache、`package.json`、`package-lock.json`、`pyproject.toml`、`uv.lock`、ローカル資格情報が含まれない。
 - PDFだけのupload、タイトル自動補完、汎用メタデータ、制約超過の拒否、トヨタ互換payload、Project限定Metadata Filteringの契約testが含まれる。
-- 任意の文書情報が初期状態で閉じていること、Qwen3 Embedding 0.6Bが利用可能な場合に既定選択されること、`/api/me`のメール表示を画面testで確認する。
+- 任意の文書情報が初期状態で閉じていること、登録済みIndex Profileだけが表示され、通常構成ではStandard／512／Qwen3 Embedding 0.6Bの1件に固定されること、`/api/me`のメール表示を画面testで確認する。
 - Project／PDF／会話削除の確認、権限、実行中処理との競合、二重送信防止をAPIと画面の両方で確認する。
 - PDF単体削除はOWNER／EDITORだけに許可し、VIEWERを403で拒否する。カタログのカード／表の両方に確認付き削除があり、処理中spinner、連打防止、403／409／5xxの日本語表示を確認する。
 - backendでは`DELETING → DELETED`、影響Variantの`SUPERSEDED`、後継Buildの`activate_on_success`、最後のPDFの`EMPTY`、冪等DELETE、Project mutation lock解除を確認する。削除済みPDFが新規一覧と検索から外れる一方、過去の引用のPDF content routeは開けることもtestする。
@@ -50,7 +50,7 @@ find app -maxdepth 2 \( -name '.venv' -o -name '__pycache__' -o -name '.pytest_c
 - `ERROR` PDFの再解析は1回だけ送信され、正常なPDFには再解析操作が出ないことを確認する。
 - `retrieval.completed` SSEにexcerptがなく、live citationが検証済み`document_id`からPDF linkを作ることを確認する。
 - 過去の評価runを選ぶと保存済み指標を再表示し、未ラベルのAnswer Correctnessは`NULL`表示になることを確認する。
-- Phase advisorへ回答品質3指標とjudge rationaleが渡り、Qwen以外のfallbackモデルへ「日本語対応」を誤表示しないことを確認する。
+- Phase advisorへ回答品質3指標とjudge rationaleが渡り、Embeddingは登録済みIndex Profile由来だけが表示され、未登録モデルへfallbackしないことを確認する。
 - 評価画面で版・用途ごとの質問が初期全選択され、個別選択、すべて選択、選択解除、正解状態／詳細、選択件数／最大試行数が動くことを確認する。0件では開始できず、開始APIへ選択した`evaluation_case_ids`だけを送る。
 - 評価作成APIは`evaluation_case_ids`を1〜1000件で検証し、別Project・別version・別split、空ID、重複IDを拒否する。Jobは保存済みの選択IDだけを評価し、IDのない旧runは全件評価を維持する。
 - 精度評価のtrial既定値が1で、質問、Phase、Variant、回答LLM、採点LLMのすべてがそろうまで開始ボタンが無効であることを確認する。1問 × 5 Phase × 1回では最大5試行と表示する。
@@ -69,11 +69,11 @@ find app -maxdepth 2 \( -name '.venv' -o -name '__pycache__' -o -name '.pytest_c
 
 ## この環境の実測結果
 
-`SUCCESS`。現行source asset `1.6.0`は評価用検索データの自動選択とPDF全画面viewerを含むUIのjsdom回帰テスト42件と差分checkに合格しました。Python 344件はasset `1.4.9`の確認記録です。
+`SUCCESS`。現行source asset `1.7.0`はPython 344件、登録済みIndex Profileだけを表示する回帰を含むUIのjsdom回帰テスト45件、差分checkに合格しました。
 
-テストには、PDFだけの登録、タイトル自動補完、汎用メタデータ、Project限定Metadata Filteringに加え、FMAPIモデルによって拒否されるoptional sampling値を送らないこと、最終回答で参照した引用だけを保存すること、同一`client_request_id`を冪等化すること、停止と完了の競合を正しく閉じること、Chat Trace IDを履歴と画面へ渡すこと、MLflow Trace階層の契約が含まれます。さらに現行sourceでは、20〜30字の概要生成、Qwen3の既定値とfallback表示、ログインユーザー取得、Project／会話削除、PDFの`Range`／`ETag`、PDF原文リンク、prefetch、`ERROR` PDF再解析、評価履歴再表示、未ラベルCorrectness除外、advisorの回答品質根拠、評価質問の個別／一括選択と固定、評価runの復元／停止／終端収束、同一`Idempotency-Key`による評価開始再送、`eval_run_id`によるJob冪等化、`retry_after_ms`、一時的な`UNKNOWN`状態、確定的Job拒否の`FAILED`収束、停止APIの再試行、重複Phase集約、結果取得中spinner、結果APIの45秒timeout／最大3回再試行、評価履歴からの結果再取得、Job IDの正整数検証、AI Search GETで同期列が省略される応答、PDF単体削除の権限／競合／冪等性／後継Variant／最後のPDF、30分超の孤児Chat run回復、既存Index許可外の旧Variantを一覧から除外する回帰も対象です。remote配置と評価再表示の実測はStep 8〜9へ記録します。
+テストには、PDFだけの登録、タイトル自動補完、汎用メタデータ、Project限定Metadata Filteringに加え、FMAPIモデルによって拒否されるoptional sampling値を送らないこと、最終回答で参照した引用だけを保存すること、同一`client_request_id`を冪等化すること、停止と完了の競合を正しく閉じること、Chat Trace IDを履歴と画面へ渡すこと、MLflow Trace階層の契約が含まれます。さらに現行sourceでは、20〜30字の概要生成、登録済みIndex Profileの固定表示と未登録選択肢の除外、ログインユーザー取得、Project／会話削除、PDFの`Range`／`ETag`、PDF原文リンク、prefetch、`ERROR` PDF再解析、評価履歴再表示、未ラベルCorrectness除外、advisorの回答品質根拠、評価質問の個別／一括選択と固定、評価runの復元／停止／終端収束、同一`Idempotency-Key`による評価開始再送、`eval_run_id`によるJob冪等化、`retry_after_ms`、一時的な`UNKNOWN`状態、確定的Job拒否の`FAILED`収束、停止APIの再試行、重複Phase集約、結果取得中spinner、結果APIの45秒timeout／最大3回再試行、評価履歴からの結果再取得、Job IDの正整数検証、AI Search GETで同期列が省略される応答、PDF単体削除の権限／競合／冪等性／後継Variant／最後のPDF、30分超の孤児Chat run回復、既存Index許可外の旧Variantを一覧から除外する回帰も対象です。remote配置と評価再表示の実測はStep 8〜9へ記録します。
 
-現行source asset `1.6.0`はUI 42件を確認済みです。field-eng-eastへのremote配置も`SUCCESS`です。Python 344件はasset `1.4.9`の確認記録です。
+現行source asset `1.7.0`はPython 344件とUI 45件を確認済みです。field-eng-eastへ再配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件、asset URL version `1.7.0`を確認しました。remote画面ではStandard／512／Qwen3の1 Profileだけが表示され、256／1024の可視要素は0件でした。
 
 削除E2E helperがSQL Statement Execution APIを呼ぶときは、両helperで`ExecuteStatementRequestOnWaitTimeout`をimportし、`on_wait_timeout=ExecuteStatementRequestOnWaitTimeout.CONTINUE`を渡します。文字列`"CONTINUE"`ではSDK内部で`AttributeError: 'str' object has no attribute 'value'`となることを実環境で検出し、enumへ修正後にfresh helperがexit 0となりました。`jobs/tests/test_deployment_contract.py`の2件の契約testで、このenum指定を固定しています。
 

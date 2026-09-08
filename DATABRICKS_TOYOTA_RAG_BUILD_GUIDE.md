@@ -1,11 +1,14 @@
 # 任意PDFを使った Databricks RAG 構築・評価手順書
 
-- 更新日: 2026-09-08
+- 更新日: 2026-09-09
 - 対象: Databricksを初めて操作する方、トヨタシステムズ様向けデモの構築担当者
 - 対象環境: Databricks on Azure、`field-eng-east`（Workspace ID `<WORKSPACE_ID>`）
 
 > [!IMPORTANT]
 > この手順書は、2026-09-08時点のAzure Databricks／MLflow公式ドキュメントで仕様を確認している。BetaまたはPublic Previewの機能、モデル名、リージョン対応は変更される可能性があるため、実環境へ導入する直前にも末尾の公式リンクを確認すること。
+
+> [!IMPORTANT]
+> **現行Appは「登録済みIndex Profile専用」である。** AppやLakeflow Jobは、Delta Table、AI Search Endpoint、AI Search Indexを新規作成しない。管理者が先に作成してallow-listへ登録したsource Delta Table／AI Search Indexの組をIndex Profileとして使い、その共有Table／Index内を `project_id + variant_id` で論理分離する。通常のハンズオンで表示するProfileは **Standard／512 tokens／Qwen3 Embedding 0.6B** の1件だけである。256／1024、Semantic、Parent-child、別Embedding Modelは、それぞれに対応する物理Table／Indexを管理者が手動作成し、AppとJobの `RAG_INDEX_PROFILES_JSON` へ同じProfileを登録した場合だけUIに表示する。
 
 実行順、構築後の確認、失敗時の修正は[Step別構築手順](docs/steps/README.md)、field-eng-eastでの実測値と未完了項目は[検証記録](docs/verification/2026-09-06_field-eng-east.md)を正とする。本書の公式リンクには依頼時に指定された`docs.databricks.com/aws/en`形式も含まれる。Azure固有のリージョン、compute、認証、Preview可否は対象Workspaceで別途確認する。
 
@@ -29,7 +32,7 @@ Databricks Apps上の画面タイトルは **「RAG精度評価アプリ」** �
 - Phase 1～5では、同じPDFスナップショット、同じチャンクテーブル、同じAI Search Index、同じEmbeddingモデル、同じ回答LLM、同じプロンプト、同じ最終取得件数を使う。
 - すべての文書、チャンク、会話、評価データ、評価結果へ `project_id` を持たせる。UIでプロジェクトを切り替えても、別プロジェクトのデータを混ぜない。
 - 一度に変える主な条件は一つだけにする。
-- データ準備を比較するときは、同じIndexを上書きしない。Variantごとに別のDelta Tableと別のIndexを作る。
+- データ準備を比較するときは、Profileの物理Table／Index構成を上書きしない。現行Appでは同じProfileの共有Table／Indexへ論理Variantを追加する。別のチャンク方式・サイズ・Embeddingを比較する場合は、管理者が構成ごとに別の物理Table／Indexを手動作成し、別Profileとして登録してから使う。
 - 評価用の正解メタデータを、そのまま検索フィルタへ渡さない。これは「正解の先読み」になる。Phase 3以降でも、フィルタは質問文から抽出し、現在のProjectの文書registryまたは後方互換の車種マスタで検証する。
 - 解析結果の `VARIANT` を保存し、Phaseごとに `ai_parse_document` を再実行しない。検索方式以外の差と追加コストが混ざるためである。
 
@@ -57,17 +60,19 @@ Unity Catalog VolumeのProject別subpath
 ai_parse_document
   PDFの本文、表、図、見出し、ページ、レイアウトをVARIANTへ変換
         ↓
-┌─────────────────────────────┐
-│ ai_prep_search              │ 標準の意味チャンク
-│ またはカスタムチャンク処理 │ 256 / 512 / 1024 token比較
-└─────────────────────────────┘
+登録済みIndex Profileを選択
+  通常: Standard / 512 tokens / Qwen3 Embedding 0.6B
+  追加構成: 管理者が物理Table／Indexを手動作成・登録した場合だけ表示
         ↓
-Delta Table
+ai_prep_search またはProfileに対応するチャンク処理
+        ↓
+Profileごとの共有Delta Table（事前作成済み）
   chunk_id、本文、Embedding用テキスト、URI、ページ、
   タイトル、カテゴリ、タグ、文書日付、ソース、追加メタデータ、
-  後方互換の車種・年式・文書種別、Variant情報
+  後方互換の車種・年式・文書種別、project_id、variant_id
         ↓
-Delta Sync AI Search Index（Project × Variantごとに分離）
+Profileごとの既存Delta Sync AI Search Index
+  project_id + variant_id filterで論理分離し、Triggered sync
         ↓
 Custom Agent on Databricks Apps
   ANN / Hybrid、Filter、Reranker、Multi-queryをPhaseで切替
@@ -90,6 +95,7 @@ Databricks Appsの4画面
 | `ai_prep_search` | 解析済み文書または文字列を、検索しやすい意味単位へ分割し、Embedding用の文脈を加えるAI Function |
 | Delta Table | 検索対象チャンクとメタデータを行形式で保存するテーブル |
 | AI Search | Delta TableをANN、Hybrid、Filter、Rerankingで検索できるようにするサービス。旧称はVector Search |
+| Index Profile | 管理者が事前作成したsource Delta Table、AI Search Index、チャンク設定、Embedding Modelを一組として登録したallow-list項目 |
 | Custom Agent | 検索、回答生成、引用生成、Phase切替を制御するアプリケーション |
 | Databricks Apps | PDF登録、チャット、評価結果の画面とバックエンドを動かす場所 |
 | MLflow 3 | 各処理のTrace、オフライン評価、本番評価、ユーザーフィードバックを記録する仕組み |
@@ -114,20 +120,20 @@ Databricks Appsの4画面
 
 このデモではfield-eng-eastで実測する。別リージョンへ移す場合は、AI Functions、AI Search、Databricks Apps、選択モデル、Designated Serviceのデータ処理場所を、移行先Workspaceと公式リージョン表で確認する。
 
-### 3.2 `ai_prep_search` とチャンクサイズの関係
+### 3.2 `ai_prep_search`、Index Profile、チャンクサイズの関係
 
 `ai_prep_search` の公開オプションは `version` と、文書メタデータ抽出用の `schema` である。`chunk_size=256` のような設定はない。
 
-そのため、本デモでは次を別の実験として扱う。
+そのため、256／512／1024を `ai_prep_search` の引数として切り替えることはできない。現行Appが通常表示するのは、管理者が事前作成したStandard／512／Qwen3 Profile 1件である。次の構成は比較設計として利用できるが、各行に対応するsource Delta Table／AI Search Indexを管理者が手動作成し、Index Profileへ登録した場合に限り選択できる。
 
-| Variant family | チャンク処理 | 選べる `chunk_size` |
+| Profile family | チャンク処理 | 管理者がProfileへ固定する `chunk_size` |
 |---|---|---|
 | `aiprep_semantic` | `ai_prep_search` が作るmanagedな意味チャンク | managed / N/A |
 | `standard_{size}` | token上限で分割するStandard | 256 / 512 / 1024 |
 | `semantic_{size}` | 見出し・文境界を優先するCustom Semantic chunking | 256 / 512 / 1024（目標値） |
 | `parent_child_{size}` | 小さいchildを検索し、広いparentを回答へ渡す | 256 / 512 / 1024（child） |
 
-256、512、1024は公式Retrieval Quality Guideが実験開始値として示す値だが、同ページは単位を規定していない。本手順では再現性のため「token」と定義し、Tokenizer名とoverlapも必ず記録する。
+256、512、1024は公式Retrieval Quality Guideが実験開始値として示す値だが、同ページは単位を規定していない。本手順では再現性のため「token」と定義し、Tokenizer名とoverlapも必ず記録する。これらは自由入力値ではなく、選択したProfileの読み取り専用設定である。
 
 ### 3.3 公式ガイドと本デモの順番
 
@@ -228,7 +234,7 @@ concurrency
 4. `FILE`型のPDF解析用にX-Large Serverless SQL Warehouseを用意する。この解析だけはserverless notebook computeへ移さない。
 5. AI Functions用にProまたはServerless SQL Warehouseを用意する。
 6. `READ_FILES(..., format => 'file')` から `ai_parse_document` へ1冊を渡す処理と、`ai_prep_search` をそれぞれsmoke testする。
-7. Standard AI Search endpointを作成できる権限を確認する。
+7. Standard AI Search endpoint、source Delta Table、Delta Sync Indexを管理者が手動作成し、AppとJobの同じallow-listへIndex Profileとして登録する。
 8. 20.5節のコードで、Unity Catalog Trace保存先を指定してMLflow experimentを初回作成する。
 9. FMAPI model catalogを作り、回答用、Query Optimizer用、評価judge用の `model_key` と解決先を決める。
 
@@ -237,10 +243,10 @@ field-eng-eastでは、PDF登録から検索可能になるまでの処理を次
 | 処理 | 実行場所 | 現行設定 |
 |---|---|---|
 | PDF解析 | X-Large Serverless SQL Warehouse | `READ_FILES(..., format => 'file')`の`FILE`値を`ai_parse_document`へ渡す |
-| チャンク化・source Delta Table作成・Index同期依頼 | Lakeflow Data Preparation Job | Performance optimized Serverless、Standard Environment v5、最大同時実行2 |
-| AI Search Index作成・同期 | AI Search managed service | Jobから作成・同期を依頼し、`READY`まで状態を確認する |
+| チャンク化・既存source Delta Tableへの保存・Index同期依頼 | Lakeflow Data Preparation Job | Performance optimized Serverless、Standard Environment v5、最大同時実行2。allow-list外の物理リソースは使用しない |
+| 既存AI Search Indexの同期 | AI Search managed service | JobからTriggered syncを依頼し、`READY`まで状態を確認する。Indexは作成しない |
 
-Data Preparation Job `<DATA_PREPARATION_JOB_ID>`は`performance_target=PERFORMANCE_OPTIMIZED`、Standard Environment v5、`max_concurrent_runs=2`とし、PDF削除後などに独立した複数Variantを最大2件まで並行再構築できるようにする。taskには`environment_key=toyota_rag_serverless_v5`を設定する。ServerlessのNotebook taskはtask libraryをサポートしないため、HYBRID Index作成に必要な`IndexSubtype`を含む検証済み`databricks-sdk==0.135.0`はJob Environmentのdependencyとして固定する。Environment v5同梱SDKは`0.67.0`で必要な型を代替できないため、省略しない。構成識別用tagは`compute_profile=serverless-performance-optimized-v5`とする。
+Data Preparation Job `<DATA_PREPARATION_JOB_ID>`は`performance_target=PERFORMANCE_OPTIMIZED`、Standard Environment v5、`max_concurrent_runs=2`とし、PDF削除後などに独立した複数の論理Variantを最大2件まで並行再構築できるようにする。taskには`environment_key=toyota_rag_serverless_v5`を設定する。ServerlessのNotebook taskはtask libraryをサポートしないため、既存Indexの定義検証と同期に使う検証済み`databricks-sdk==0.135.0`はJob Environmentのdependencyとして固定する。JobはこのSDKを使ってもTable／Indexを作成せず、allow-list済みリソースの検証とTriggered syncだけを行う。構成識別用tagは`compute_profile=serverless-performance-optimized-v5`とする。
 
 Environment v5はPython 3.12.3とDatabricks Connect 18を使う。Serverless標準メモリは16 GBで、High memory 32 GBはPreviewである。現行NotebookはPDF要素を`collect()`してPython側でチャンクを組み立てるため、1 PDFのsmokeだけでなく想定最大文書数でもメモリを確認する。ServerlessはCPU architectureを固定しないので、追加dependencyはaarch64とx86_64の両方で動くものを使う。AI Search managed serviceのIndex同期はJob外の処理であり、Serverlessの起動が速くても別に待ち時間が発生する。高速化を評価するときはqueue／setup、Job内の実処理、AI Search同期を分けて記録する。
 
@@ -317,26 +323,26 @@ Job内でAppのHTTP request contextや `x-forwarded-access-token` が存在す�
 
 | 主体 | 主な権限 |
 |---|---|
-| App service principal | PDF Volumeのread/write、文書registryと共有Variant registryのread/write、Jobの `CAN_MANAGE_RUN`、動的AI Search Indexと結果Tableのread、回答model targetのquery／execute、UC Trace 4 Tableのread/write |
-| Prep Job Run as SP | 親catalog/schemaのUSE、入力Volumeのread、画像出力Volumeのwrite、parsed/chunk/variant Tableのread/write |
+| App service principal | PDF Volumeのread/write、文書registryと共有Variant registryのread/write、Jobの `CAN_MANAGE_RUN`、allow-list済み既存AI Search Indexと結果Tableのread、回答model targetのquery／execute、UC Trace 4 Tableのread/write |
+| Prep Job Run as SP | 親catalog/schemaのUSE、入力Volumeのread、画像出力Volumeのwrite、parsed/allow-list済み共有chunk/variant Tableのread/write、既存Indexの検証・同期 |
 | Eval Job Run as SP | AI Searchのread、回答・Query Optimizer・judge model targetのquery／execute、MLflow experimentの編集、評価結果TableとUC Trace 4 Tableのwrite、性能計測でAppを呼ぶための `CAN USE` |
-| Provisioning identity | schema／Table／Indexを新規作成する権限、AI Search endpointやACLを管理する権限 |
+| 管理者／Provisioning identity | Appの外でschema／Profile用Table／Indexを手動作成し、AI Search endpoint、ACL、`RAG_INDEX_PROFILES_JSON`を管理する権限 |
 
-Index作成はデプロイ時、Triggered syncは日常処理として分けると権限を小さくできる。同期に必要な権限はIndexの所有者とワークスペース設定にも依存するため、実際のRun as SPで `index.sync()` をsmoke testして確定する。
+管理者によるIndex手動作成はAppデプロイ前の基盤準備、Triggered syncは日常処理として分けると権限を小さくできる。同期に必要な権限はIndexの所有者とワークスペース設定にも依存するため、実際のRun as SPで `index.sync()` をsmoke testして確定する。
 
 UC Traceを使う場合、`ALL_PRIVILEGES` だけではTrace Tableの権限を代替できない。20.5節の4 Tableへ `SELECT` と `MODIFY` を明示的に付与する。
 
-AI SearchはIndexに対するUnity Catalog権限を持つが、Index内のrow/column単位権限はサポートしない。本手順は原則としてProject × VariantごとにIndexを分け、アプリでもProject membershipを検証する。共有Indexの `project_id` filterは検索結果の混在防止には使えるが、アクセス制御の代わりにはならない。閲覧可能なProjectが利用者ごとに異なる場合、Project別Indexとアプリ側認可を併用する。
+AI SearchはIndexに対するUnity Catalog権限を持つが、Index内のrow/column単位権限はサポートしない。現行Appは、共有Indexを `project_id + variant_id` filterで論理分離し、すべてのAPIでProject membershipを検証する。ただし、このfilterは検索結果の混在防止であり、物理的なアクセス制御境界ではない。機密区分やテナントが異なり、Index単位の分離が必要な場合は、管理者がProject群ごとに別の物理Table／Index／Profileを手動作成し、App側認可と併用する。
 
-### 5.3 FMAPIのEmbedding ModelとLLMを選べるようにする
+### 5.3 FMAPIのEmbedding ModelとLLMを安全に解決する
 
-モデル名をソースコードへ固定列挙すると、FMAPIの追加・廃止やリージョン差へ追従できない。バックエンドで、ワークスペースのModel Serving endpoint、`system.ai` model service、公式FMAPI対応情報を定期的に取得し、用途別のmodel catalogを作る。UIはcatalogに載った全候補を表示し、利用できない候補も理由付きで無効表示する。
+モデル名をソースコードへ固定列挙すると、FMAPIの追加・廃止やリージョン差へ追従できない。バックエンドで、ワークスペースのModel Serving endpoint、`system.ai` model service、公式FMAPI対応情報を定期的に取得し、用途別のmodel catalogを作る。回答LLMとjudge LLMのUIはcatalogに載った候補を表示し、利用できない候補も理由付きで無効表示する。Embedding候補はProfile登録時の管理検証に使い、現行のデータ準備UIで自由選択させない。
 
 `capability`（何に使えるか）と `target_kind`（どの経路で呼ぶか）を分ける。同じ `chat` capabilityでも、Serving endpointとUnity Gateway model serviceでは呼び出し方法と権限が異なる。
 
 | capability | target kind | UIに表示する候補 | 選択可能になる条件 |
 |---|---|---|---|
-| `embedding` | `serving_endpoint` | AI Searchで利用可能なpay-per-tokenまたはProvisioned ThroughputのFMAPI Embedding endpoint | 対象workspace／regionで利用可能、READY、Provisioning Jobに `CAN_QUERY`、AI Searchとのsmoke test合格 |
+| `embedding` | `serving_endpoint` | 登録済みIndex Profileが使用するFMAPI Embedding endpoint | 対象workspace／regionで利用可能、READY、管理者によるAI Searchとのsmoke test合格、Profile定義と完全一致 |
 | `chat` | `serving_endpoint` | FMAPIの生成LLM Serving endpoint | 対象workspace／regionで利用可能、READY、Appに `CAN_QUERY`、Chat Completions／streamingのsmoke test合格 |
 | `chat` | `model_service` | Unity Gatewayで利用する `system.ai` model service | catalogで発見可能、Appに `USE CATALOG`、`USE SCHEMA`、`EXECUTE`、model service経由のsmoke test合格 |
 | `chat_tool_calling` | 上記いずれか | `chat` 候補のうちFunction Calling対応モデル | 公式対応一覧に掲載され、実際のRetriever tool call testに合格 |
@@ -344,11 +350,11 @@ AI SearchはIndexに対するUnity Catalog権限を持つが、Index内のrow/co
 | `judge` | 上記いずれか | 評価に利用できる生成LLM | Eval Job SPにtarget kind別の権限があり、固定評価sampleのjudge testに合格 |
 | `advisor` | 上記いずれか | 改善提案に利用できる生成LLM | 構造化した提案schemaのtestに合格 |
 
-ここで「FMAPIで指定できるすべて」とは、グローバルなモデル名を無条件に実行できるという意味ではない。公式catalogにあるモデルを漏れなく発見・表示し、現在のworkspace、region、権限、endpoint状態、用途互換性に基づいて選択可否を決めるという意味である。
+ここで「FMAPIで指定できるすべて」とは、グローバルなモデル名を無条件に実行できるという意味ではない。回答LLM／judge LLMでは、公式catalogにあるモデルを発見し、現在のworkspace、region、権限、endpoint状態、用途互換性に基づいて選択可否を決める。Embeddingでは、同じ確認結果を管理者のProfile登録に使うが、Index作成後のモデルをUIから変更しない。
 
-Embedding ModelはIndex作成時の設定である。データ準備画面で別モデルを選んだら既存Indexをその場で切り替えず、新しいimmutable VariantとIndexを作る。取り込み用とquery用に別endpointを使う場合も、同一Embedding Model、同一出力dimension、同一前処理・正規化仕様であることをsmoke testする。
+Embedding ModelはIndex作成時に固定される。したがって、現行のデータ準備画面ではEmbedding Modelを単独で切り替えず、選択したIndex Profileに登録済みのモデルを読み取り専用で表示する。別モデルを比較するときは、管理者が同じモデルとdimensionで構成した別のsource Table／Indexを手動作成し、新しいProfileとしてallow-listへ登録する。取り込み用とquery用に別endpointを使う場合も、同一Embedding Model、同一出力dimension、同一前処理・正規化仕様であることを事前にsmoke testする。
 
-本環境のEmbedding既定値は、日本語を含む多言語検索に対応するQwen3 Embedding 0.6B（`emb-qwen3-0-6b`）とする。ただし、モデル検出結果の行へ固定フラグを書き込まず、次の別Tableで推奨ポリシーを管理する。対象workspaceで`READY`、region利用可、`selectable=true`の場合だけ既定選択し、利用不可なら検証済み候補へ決定的にfallbackする。
+通常のハンズオンProfileは、日本語を含む多言語検索に対応するQwen3 Embedding 0.6B（`emb-qwen3-0-6b`）へ固定する。このProfileのIndexが別モデルで作られていたり、endpointが利用不可だったりする場合は別モデルへ自動fallbackせず、設定エラーとして停止する。Embeddingのfallbackは既存Indexとの不一致を生むためである。別モデルを使うには、そのモデル用の物理Table／Index／Profileを管理者が用意する。次の既定値Tableは推奨ポリシーや管理用model catalogに利用できるが、Index Profileの固定設定を上書きしない。
 
 ```sql
 CREATE TABLE IF NOT EXISTS <catalog>.<schema>.toyota_rag_model_defaults (
@@ -609,7 +615,7 @@ CREATE TABLE IF NOT EXISTS <catalog>.<schema>.toyota_index_variants (
 USING DELTA;
 ```
 
-`variant_id` はProject内で一意にし、`project_id + variant_id` で解決する。チャンク手法、サイズ、Embedding Model、解析・クリーニング設定のどれかが変わったら新しい行と新しいIndexを作り、既存行を上書きしない。`source_document_ids`には実際に使ったPDFのUUIDを正規化して保存し、PDF単体削除の影響範囲を特定できるようにする。
+`variant_id` はProject内で一意にし、`project_id + variant_id` で解決する。現行AppのVariantは論理的な検索データの版であり、選択したIndex Profileの共有source Table／Indexを参照する。新しいVariant行を作っても物理Table／Indexは作成しない。チャンク手法、サイズ、Embedding Model、解析・クリーニング設定は選択Profileと完全一致させ、別構成が必要な場合は管理者が物理リソースを手動作成して別Profileを登録する。`source_document_ids`には実際に使ったPDFのUUIDを正規化して保存し、PDF単体削除の影響範囲を特定できるようにする。
 
 #### PDF単体削除の状態と保持ポリシー
 
@@ -624,11 +630,11 @@ project:  ACTIVE -> REBUILDING -> ACTIVE
 
 OWNERまたはEDITORだけが実行できる。Project行の`mutation_token`をcompare-and-setで確保し、同一Projectのupload、Build、Chat、Evaluation、他の削除が削除判定と競合しないようにfenceする。進行中のData Preparation、Evaluation、別mutationと、開始から30分以内のChat runがある場合は409とし、PDFやVariantを途中状態にしない。App再起動などで30分を超えて残った`QUEUED`／`STREAMING`／`CANCEL_REQUESTED` Chat runは、削除判定の直前だけguard付きUPDATEで`ERROR`へ収束し、対応する`STREAMING` assistant messageも`ERROR`へそろえる。同時完了が先に確定した終端状態は上書きしない。ロックは`finally`相当の保護処理で、自分のtokenと一致する場合だけ解除する。
 
-削除対象を含む`READY` Variantは検索選択の解決対象から先に外し、`SUPERSEDED`として、`superseded_by_variant_id`、削除request ID、理由、日時を残す。そのVariantのsourceに残るPDFがあれば、チャンク、Embedding、クリーニング、セマンティックメタデータの設定を再現したimmutableな後継Variantを作る。旧active Variantの後継だけはJob成功時にactiveにする。非active Variantの後継はserver-onlyの`activate_on_success=false`を永続化済みhashに含め、複数Jobの完了順でactive pointerが競合しないようにする。
+削除対象を含む`READY` Variantは検索選択の解決対象から先に外し、`SUPERSEDED`として、`superseded_by_variant_id`、削除request ID、理由、日時を残す。そのVariantのsourceに残るPDFがあれば、同じIndex Profileを再利用して、チャンク、Embedding、クリーニング、セマンティックメタデータの設定を再現したimmutableな後継論理Variantを作る。旧active Variantの後継だけはJob成功時にactiveにする。非active Variantの後継はserver-onlyの`activate_on_success=false`を永続化済みhashに含め、複数Jobの完了順でactive pointerが競合しないようにする。
 
 自動再構築で扱う残存PDFは100件までとし、上限を超えた場合は影響範囲を一部だけ処理せず409で拒否する。同様に、activeな旧Variantのsource lineageを`source_document_ids`または許可済みsource Tableから証明できない場合も、安全に削除できないため409とする。
 
-削除PDFだけをsourceとするVariantには空の後継Indexを作らない。Projectに残るPDFが0件なら`status='EMPTY'`、`active_variant_id=NULL`にする。PDF原本、`ai_parse_document`結果、削除前の会話／引用、評価ケース／結果、旧Delta Table／Indexの管理記録は監査用に保持する。カタログと新規検索は`lifecycle_status='ACTIVE'`だけを対象にするが、削除前の引用からのPDF content routeはProjectのVIEWER認可後に削除済み原本も開けるようにする。
+削除PDFだけをsourceとするVariantには空の後継論理Variantを作らず、共有Indexにも空Indexを新設しない。Projectに残るPDFが0件なら`status='EMPTY'`、`active_variant_id=NULL`にする。PDF原本、`ai_parse_document`結果、削除前の会話／引用、評価ケース／結果、共有Delta Table／Indexと旧論理Variantの管理記録は監査用に保持する。カタログと新規検索は`lifecycle_status='ACTIVE'`だけを対象にするが、削除前の引用からのPDF content routeはProjectのVIEWER認可後に削除済み原本も開けるようにする。
 
 ### 6.5 チャット履歴と停止状態
 
@@ -711,7 +717,7 @@ CREATE TABLE IF NOT EXISTS <catalog>.<schema>.toyota_rag_prep_runs (
 USING DELTA;
 ```
 
-`run_type` は `PARSE_ONLY` または `BUILD_VARIANT` とする。`PARSE_ONLY` はアップロード直後にDocument Parsingと概要生成だけを行うため、`target_variant_id` はNULLでよい。`BUILD_VARIANT` は保存済み解析結果からチャンク・Indexを作るため、`target_variant_id` を必須にする。
+`run_type` は `PARSE_ONLY` または `BUILD_VARIANT` とする。`PARSE_ONLY` はアップロード直後にDocument Parsingと概要生成だけを行うため、`target_variant_id` はNULLでよい。`BUILD_VARIANT` は保存済み解析結果からチャンクを作り、登録済みProfileの共有source Tableへ保存して既存Indexを同期するため、`target_variant_id` を必須にする。名前に`BUILD`を含むが、物理Table／Indexは作成しない。
 
 `status` は `QUEUED`、`RUNNING`、`CANCEL_REQUESTED`、`CANCELED`、`SUCCEEDED`、`FAILED` に限定する。AppはProject role、document所属、model keyを検証し、設定をcanonical JSONへ正規化してから行を作る。Jobへは `prep_run_id` だけを渡す。`current_step` は `upload`、`parsing`、`summary`、`chunking`、`indexing`、`sync`、`ready` の許可値だけにし、画面の工程表示へ使う。
 
@@ -755,7 +761,7 @@ USING DELTA;
 6. 旧payloadに`model`がある場合だけ、車種、年式、文書種別、車両カテゴリをマスタで検証する。汎用PDFではこの工程を要求しない。
 7. Project別のVolume subpathへ保存する。
 8. `toyota_document_registry` へ `project_id` と汎用メタデータを付けて1行追加する。
-9. `run_type='PARSE_ONLY'` の認可済みrunを `toyota_rag_prep_runs` へ保存し、現行AppではFastAPIのbackground taskからSQL WarehouseへDocument Parsing文を非同期送信する。チャンクとIndexを作る`BUILD_VARIANT`だけLakeflow Data Preparation Jobへ渡す。
+9. `run_type='PARSE_ONLY'` の認可済みrunを `toyota_rag_prep_runs` へ保存し、現行AppではFastAPIのbackground taskからSQL WarehouseへDocument Parsing文を非同期送信する。チャンクを共有source Tableへ保存し、既存Indexを同期する`BUILD_VARIANT`だけLakeflow Data Preparation Jobへ渡す。
 10. 概要が未入力なら、解析本文を使ってTool Calling対応FMAPI LLMから日本語20〜30字の概要を生成し、生成元、model key、prompt version、状態をregistryへ保存する。失敗時はタイトル／ファイル名から同じ長さのfallback概要を残し、PDF登録を失敗扱いにしない。
 
 画面とAPIの必須入力はPDFだけである。空の任意値を無理に文字列へ変換せずNULLまたは空配列として保存し、タイトルだけは必ず補完する。同じPDFを同一Projectへ再登録した場合は、別行を作らず重複として返す。
@@ -896,14 +902,17 @@ Document Parsing UIで、少なくとも次の日本語PDFサンプルを目視�
 2. 解析本文から最大4,000文字の空白正規化済み抜粋を作る。
 3. `chat_tool_calling`または`tool_calling`を持つREADY／selectableなFMAPI LLMをcatalogから選び、「文書にない内容を追加しない」「20字以上30字以内の一文」という固定promptで要約する。
 4. Chat Completionsの`choices[].message.content`、Responsesの`output_text`／`output[].content[].text`、`predictions`を共通のtextへ正規化し、20〜30字、制御文字なしを決定論的に検証する。そのまま合格した場合は`summary_source='AI_GENERATED'`、安全な文末補完・切詰めで契約へ合わせた場合は`AI_GENERATED_NORMALIZED`を保存する。どちらも`summary_model_key`、`summary_prompt_version='document-summary-ja-v1'`、`summary_status='READY'`を残す。
-5. model呼出し、形式検証が失敗した場合はfallback概要を維持し、`summary_status='READY'`とする。概要生成だけでupload、Document Parsing、Index作成を失敗扱いにしない。
+5. model呼出し、形式検証が失敗した場合はfallback概要を維持し、`summary_status='READY'`とする。概要生成だけでupload、Document Parsing、既存Index同期を失敗扱いにしない。
 6. 利用者がAPIで手入力した概要は`summary_source='MANUAL'`として最優先し、既存seedの`USER`とともにAIで上書きしない。
 
-文書内の命令文はデータとして扱い、summary promptを変更させない。概要を作り直すときは生成モデルとprompt versionを更新し、評価済みVariantのEmbedding文脈を密かに変更しない。Embeddingへ概要を反映する場合は、新しいVariantを作る。
+文書内の命令文はデータとして扱い、summary promptを変更させない。概要を作り直すときは生成モデルとprompt versionを更新し、評価済みVariantのEmbedding文脈を密かに変更しない。Embeddingへ概要を反映する場合は、対応Profileの固定設定に従って新しい論理Variantを作る。Profile自体の構成変更が必要なら管理者が別の物理Table／Indexを手動作成する。
 
 field-eng-eastではregistryが20件だった時点で概要を監査し、全20件に20〜30字の概要があり、空欄0件、長さ違反0件だった。内訳は`AI_GENERATED=10`、`AI_GENERATED_NORMALIZED=9`、`USER=1`である。その後追加された削除E2E用2件を含む最終registry 22件全体へ、このsnapshotを外挿しない。
 
-## 9. `ai_prep_search` で標準チャンクを作る
+## 9. 管理者向け拡張: `ai_prep_search` Profileを準備する
+
+> [!NOTE]
+> 通常の現行ProfileはStandard／512／Qwen3である。この章のSQLは`ai_prep_search`比較Profileを設計するための参照例であり、App runtimeから`CREATE TABLE`として実行しない。管理者が共有source Tableと既存Indexを先に作成し、Profile登録した後だけAppから利用する。
 
 ### 9.1 `chunk_to_retrieve` と `chunk_to_embed`
 
@@ -989,7 +998,7 @@ JOIN <catalog>.<schema>.toyota_document_registry r
   AND f.document_id = r.document_id;
 ```
 
-`<project_chunk_table_aiprep>` は、検証済みProjectとVariantからProvisioning Jobが決める一意なTable名である。既に存在する名前なら上書きせず処理を停止するか、新しいVariant IDを発行する。`CREATE OR REPLACE` で評価済みVariantの元Tableを置換してはいけない。ブラウザからTable名を受け取らない。チャンクは複数ページをまたぐ場合がある。正として `page_numbers ARRAY<INT>` を保持し、Retrieverとの互換用に先頭ページを `page_number` に保存する。
+このSQL例は、管理者が追加Profile用のsource Tableを準備するときの拡張例である。現行App／JobはProjectから物理Table名を生成せず、選択したIndex Profileのallow-listから共有Table名を解決する。ブラウザからTable名を受け取らず、評価済み行を`CREATE OR REPLACE`で置換しない。共有Tableでは `project_id + variant_id` を必ず保存する。チャンクは複数ページをまたぐ場合があるため、正として `page_numbers ARRAY<INT>` を保持し、Retrieverとの互換用に先頭ページを `page_number` に保存する。
 
 ### 9.3 セマンティックメタデータの比較
 
@@ -1014,7 +1023,10 @@ JOIN <catalog>.<schema>.toyota_document_registry r
 
 ON/OFF比較では、構造化filter列を消さない。検索対象本文にセマンティック文脈を加える効果だけを比較する。生成した概要・キーワードには `enrichment_prompt_version` と生成モデルをVariant情報へ追加して、後から再現できるようにする。
 
-## 10. 256 / 512 / 1024 tokenのカスタムチャンクを作る
+## 10. 管理者向け拡張: 追加Index Profile用のカスタムチャンクを作る
+
+> [!NOTE]
+> この章は、Standard／512／Qwen3以外の比較Profileを追加するときの管理者向け設計である。通常の利用者がAppから物理リソースを作る手順ではない。現行App／Jobは、ここで事前準備してallow-listへ登録したProfileだけを表示・利用する。
 
 ### 10.1 共通ルール
 
@@ -1111,9 +1123,9 @@ def pack_blocks(blocks: list[Block], max_tokens: int, overlap: int):
 
 各chunkには `element_ids`、`page_ids`、`section_path`、`actual_overlap_tokens` を保存する。TokenizerはEmbedding endpoint内部と完全に同一であることが理想だが、取得できない場合は比較専用Tokenizerとして明示し、全Variantで同じものを使う。テストでは「上限超過なし」「日本語原文を変更しない」「HTMLが有効」「ページ集合を失わない」「overlapがblock途中から始まらない」を確認する。
 
-### 10.2 UIで選ぶ3種類のチャンク手法
+### 10.2 Profileへ登録できる3種類のチャンク手法
 
-データ準備画面では次の3種類を選択できるようにする。選択内容は `chunk_method` としてVariantへ保存する。
+次の3種類をProfile定義へ登録できる。通常のUIはStandardだけを表示し、Semantic／Parent-childは対応する物理Table／Indexを管理者が作成・登録した場合に限り選択肢へ追加する。選択したProfileの値は `chunk_method` として論理Variantへ保存する。
 
 | UI表示 | 実装 | 256／512／1024の意味 |
 |---|---|---|
@@ -1121,7 +1133,7 @@ def pack_blocks(blocks: list[Block], max_tokens: int, overlap: int):
 | Semantic chunking | 解析済み要素を文・見出し・意味類似度でまとめるカスタム処理 | target tokens。意味境界を優先するため厳密値ではない |
 | Parent-child chunking | 小さいchildを検索し、回答時に対応する広いparentを返す | 検索用child tokens |
 
-`ai_prep_search` はDatabricks managed semantic baselineとして別Variant `aiprep_semantic` に残すが、256／512／1024を直接指定するAPIではない。UIのSemantic chunkingでサイズを選ぶ場合は、`ai_prep_search(chunk_size=...)` と見せかけず、カスタムSemantic chunkerとして実装する。
+`ai_prep_search` はDatabricks managed semantic baselineとして別Profile `aiprep_semantic` に残せるが、256／512／1024を直接指定するAPIではない。Custom Semantic ProfileをUIで選べるようにする場合も、`ai_prep_search(chunk_size=...)` と見せかけず、カスタムSemantic chunkerとして実装する。
 
 #### Custom Semantic chunkingの固定手順
 
@@ -1130,7 +1142,7 @@ Semantic chunkingは、同じ入力なら同じ境界になるよう、次の順
 1. heading、sentence、list item、tableを最小blockへ分ける。tableは通常1 blockとし、大きすぎる場合だけ行境界で分ける。
 2. 隣接blockの意味の近さを測るため、**chunk境界判定専用の固定Embedding Model**で各blockをvector化する。
 3. headingの直前、sectionの切替、または隣接vectorのcosine distanceが固定threshold以上の位置を境界候補にする。
-4. UIの256／512／1024を `target_tokens` とする。小さすぎる候補は隣接候補へ結合し、`hard_max_tokens` を超える候補は文・list item・table row境界で再分割する。
+4. Profileに固定した256／512／1024を `target_tokens` とする。小さすぎる候補は隣接候補へ結合し、`hard_max_tokens` を超える候補は文・list item・table row境界で再分割する。
 5. 最後に約12.5%のblock overlapを付け、元の `element_id`、`page_id`、sectionを引き継ぐ。
 
 threshold、`min_tokens`、`target_tokens`、`hard_max_tokens`、overlap、Tokenizer、chunk境界判定モデル、コードversionを `chunker_config_json` へ保存する。たとえば最初の検証値を `min=0.5 × target`、`hard_max=1.25 × target` とし、日本語PDFの少数sampleで境界を目視確認してから凍結する。数値をrunごとに自動再調整しない。
@@ -1140,7 +1152,7 @@ AI Search用Embedding Modelを比較するときも、chunk境界判定モデル
 #### Parent-child chunkingの固定手順
 
 1. 文書とmajor sectionをまたがない範囲でparentを作る。初期値は `parent_target_tokens = min(4 × child_tokens, 4096)` とし、section境界を優先する。
-2. 各parentの中だけで10.1節のStandard手順を使い、UIで選んだ256／512／1024 tokenのchildを作る。childを別parentへまたがせない。
+2. 各parentの中だけで10.1節のStandard手順を使い、Profileに固定した256／512／1024 tokenのchildを作る。childを別parentへまたがせない。
 3. parentとchildへ安定したIDを付け、すべてのchildに1個の `parent_chunk_id` を保存する。
 4. AI Searchにはchildの `chunk_to_embed` を登録する。検索後はchild scoreの最大値をparent scoreとしてparentを重複排除し、固定件数のparent contextを回答へ渡す。
 5. parent本文は物理ページごとに `[PAGE 12]` のような境界を付けて組み立てる。回答LLMがparent内の別ページを使えるため、引用は主張を実際に支えるparent内pageを指定させ、検索に一致したchild pageは「検索ヒット位置」として別表示する。
@@ -1172,18 +1184,21 @@ AI Searchはchildを順位付けし、取得後に `parent_chunk_id` で重複�
 - 見出し、表、箇条書き、captionは削除しない。
 - 一度しか出ない重要な注意書きを「定型」と誤判定しないよう、文書間・ページ間の出現率で判定する。
 
-### 10.4 作成する物理テーブル
+### 10.4 管理者がProfileごとに作成する物理テーブル
 
 ```text
-<catalog>.<schema>.<project_key>_chunks_aiprep
-<catalog>.<schema>.<project_key>_chunks_standard_256
-<catalog>.<schema>.<project_key>_chunks_semantic_512
-<catalog>.<schema>.<project_key>_chunks_parent_child_256
+<catalog>.<schema>.rag_chunks_aiprep_v1
+<catalog>.<schema>.rag_chunks_standard_512_qwen3_v1
+<catalog>.<schema>.rag_chunks_semantic_512_qwen3_v1
+<catalog>.<schema>.rag_chunks_parent_child_256_qwen3_v1
 ```
 
-実際には選択した組み合わせごとにimmutable Variant名を付ける。すべて同じ共通列を持ち、`category`、`tags`、`document_date`、`source`、`metadata_json`を含める。Parent-child固有列は他方式ではNULLにし、`delta.enableChangeDataFeed=true` を付ける。`project_key` はサーバーが生成した安全な識別子だけを使う。
+物理TableはProfileの構成ごとに一つ作り、同じ構成を使うProject／論理Variantの行を `project_id + variant_id` で分ける。すべて同じ共通列を持ち、`category`、`tags`、`document_date`、`source`、`metadata_json`を含める。Parent-child固有列は他方式ではNULLにし、`delta.enableChangeDataFeed=true` を付ける。App／Jobには`CREATE`／`ALTER`／`DROP`を許可せず、共有Tableへ行を書き込むPrep Job Run as SPにだけ必要な`SELECT`／`MODIFY`を付与する。管理者がschemaを検証してからProfileへ登録する。Index単位のセキュリティ分離が必要な場合だけ、Project群ごとに別の物理Table／Index／Profileを作る。
 
-## 11. AI Search endpointとIndexを作る
+## 11. 管理者がAI Search endpointとIndex Profileを手動作成する
+
+> [!IMPORTANT]
+> この章の作成操作はAppをデプロイする前に管理者が一度だけ行う。現行AppとLakeflow Jobは `create_endpoint()`／`create_delta_sync_index()` を呼ばず、登録済みIndexの検証、検索、Triggered syncだけを行う。
 
 ### 11.1 このデモでStandard endpointを使う理由
 
@@ -1221,7 +1236,7 @@ from databricks.ai_search.client import AISearchClient
 
 検証後は、実際に動作確認したバージョンを `requirements.txt` または`pyproject.toml`へ固定する。
 
-### 11.3 Standard endpointを作る
+### 11.3 Standard endpointを手動作成する
 
 ```python
 from databricks.ai_search.client import AISearchClient
@@ -1236,15 +1251,15 @@ client.create_endpoint(
 
 Catalog ExplorerまたはSDKでendpointがONLINE相当の利用可能状態になるまで待つ。同名endpointが既に存在するときは再作成せず、種類と所有者を確認して再利用する。
 
-### 11.4 Delta Sync Indexを作る
+### 11.4 Delta Sync Indexを手動作成し、Profileへ登録する
 
 ```python
 client = AISearchClient()
 
 index = client.create_delta_sync_index(
     endpoint_name="toyota-rag-search",
-    source_table_name="<catalog>.<schema>.<project_chunk_table>",
-    index_name="<catalog>.<schema>.<project_variant_index>",
+    source_table_name="<catalog>.<schema>.<profile_source_table>",
+    index_name="<catalog>.<schema>.<profile_index>",
     pipeline_type="TRIGGERED",
     primary_key="chunk_id",
     embedding_source_column="chunk_to_embed",
@@ -1278,7 +1293,30 @@ index = client.create_delta_sync_index(
 )
 ```
 
-`<project_chunk_table>`、`<project_variant_index>`、`<embedding-endpoint>`、`<query-embedding-endpoint>` は、`project_id + variant_id + model_key` を検証したProvisioning Jobがserver-side registryから解決する。取込とqueryに同じendpointを使う場合は `model_endpoint_name_for_query` の行を省略する。分ける場合は同一Embedding Model、同一dimension、同一前処理であることをsmoke testし、両endpointをVariantへ保存する。Appに任意Index作成権限を与えず、ブラウザから物理名を受け取らない。
+`<profile_source_table>`と`<profile_index>`には、それぞれ「Profile用の共有source Table」と「Profile用の既存Index」を指定する。管理者はTable、Index、検索endpoint、`<embedding-endpoint>`、`<query-embedding-endpoint>`、チャンク設定を一組のIndex Profileとして `RAG_INDEX_PROFILES_JSON` へ登録する。AppとData Preparation Jobへ同じJSONを設定し、内容を一致させる。取込とqueryに同じendpointを使う場合は `model_endpoint_name_for_query` の行を省略する。分ける場合は同一Embedding Model、同一dimension、同一前処理であることをsmoke testする。App／Jobはブラウザから物理名を受け取らない。
+
+通常Profileのallow-list形式は次のとおりである。値は管理者が手動作成した実リソースへ置き換える。fieldの追加・省略、同じ構成の重複、同じTable／Index組の重複はfail-closedで拒否する。
+
+```json
+[
+  {
+    "key": "baseline-standard-512-v1",
+    "source_table": "<catalog>.<schema>.<profile_source_table>",
+    "index_name": "<catalog>.<schema>.<profile_index>",
+    "search_endpoint": "<ai-search-endpoint>",
+    "chunk_method": "STANDARD",
+    "chunk_size_tokens": 512,
+    "parent_chunk_size_tokens": null,
+    "content_profile": "LAYOUT_PRESERVING",
+    "cleaning_enabled": true,
+    "semantic_metadata_enabled": true,
+    "embedding_model_key": "emb-qwen3-0-6b",
+    "embedding_endpoint": "databricks-qwen3-embedding-0-6b"
+  }
+]
+```
+
+追加Profileは同じfield一式で別の物理Table／Indexを指定する。`key`だけを変えて同じ物理リソースや同じ設定を重複登録してはいけない。
 
 `chunk_id` とEmbedding元列は常にIndexへ含まれる。`columns_to_sync` には、回答表示、引用、filter、Rerankingで必要な列を漏れなく追加する。Embeddingモデルは日本語・英語混在データで事前評価する。検索方式だけを比べるPhase 1～5では同じendpointを使い、Embedding Model自体の比較は別Variant実験にする。
 
@@ -1287,26 +1325,24 @@ AI SearchのIndex GET応答は、全source列を同期するIndexで`columns_to_
 Triggered syncを実行する。
 
 ```python
-index = client.get_index(
-    index_name="<catalog>.<schema>.<project_variant_index>"
-)
+index = client.get_index(index_name="<Profileに登録した既存Index名>")
 index.sync()
 ```
 
-Indexの作成または同期が完了し、Indexed row countとsource table row countが一致してから評価する。同期途中のIndexを評価してはいけない。
+既存Indexの同期が完了し、Indexed row countとsource table row countが一致してから評価する。同期途中のIndexを評価してはいけない。
 
-Index作成前にデータサイズも検査する。現行の主な上限は、Delta Syncの1行100 KB、Embedding元列32,764 bytes、Hybridの最大返却件数200件である。HTML tableや図説明で `chunk_to_embed` が大きくなりすぎた行は、Index同期前に検出して分割する。
+管理者によるIndex作成前と、Jobによる書込み前にデータサイズを検査する。現行の主な上限は、Delta Syncの1行100 KB、Embedding元列32,764 bytes、Hybridの最大返却件数200件である。HTML tableや図説明で `chunk_to_embed` が大きくなりすぎた行は、Index同期前に検出して分割する。
 
-### 11.5 VariantごとのIndex
+### 11.5 Profileごとの物理Indexと論理Variant
 
 ```text
-<catalog>.<schema>.<project_key>_index_aiprep
-<catalog>.<schema>.<project_key>_index_standard_256
-<catalog>.<schema>.<project_key>_index_semantic_512
-<catalog>.<schema>.<project_key>_index_parent_child_256
+<catalog>.<schema>.rag_index_aiprep_v1
+<catalog>.<schema>.rag_index_standard_512_qwen3_v1
+<catalog>.<schema>.rag_index_semantic_512_qwen3_v1
+<catalog>.<schema>.rag_index_parent_child_256_qwen3_v1
 ```
 
-AI Search Indexのschemaは作成時に固定される。元Delta Tableへ列を追加・変更しただけではIndex schemaは変わらないため、schema変更時は新しいIndexを作る。Project、Table、Index、Embedding Modelの対応をVariant管理テーブルへ保存し、membershipが異なるProjectを一つのIndexへ混在させない。
+AI Search Indexのschemaは作成時に固定される。元Delta Tableへ列を追加・変更しただけではIndex schemaは変わらないため、schema変更時は管理者が新しいProfile用Indexを手動作成する。一つの物理Indexには同じProfileを使う複数Project／論理Variantを保存できるが、検索時は必ず `project_id + variant_id` filterを適用する。これは論理的な混在防止であってIndex単位のアクセス制御ではないため、必要なセキュリティ境界が異なるProjectは同じ物理Indexへ入れない。
 
 ### 11.6 Hybrid Searchの動作
 
@@ -2416,23 +2452,17 @@ Function Callingの対応可否はモデルごとに公式一覧で確認する�
 
 ### 18.2 追加するApp resources
 
-| resource key例 | 種類 | 権限 | 用途 |
+現行デプロイのApp Resource Bindingは次の7件である。source Delta Tableやregistry TableはSQL Warehouse経由で利用し、App SPと各JobのRun as SPへUnity Catalog権限を別途付与する。追加Index Profileを登録する場合は、その既存IndexもApp Resourceへ追加するため、resource件数は7件より増える。
+
+| resource key | 種類 | 権限 | 用途 |
 |---|---|---|---|
 | `toyota-volume` | Unity Catalog Volume | Can read and write | PDFアップロード |
-| `prep-job` | Lakeflow Job | Can manage run | 解析・チャンク・同期 |
-| `provision-index-job` | Lakeflow Job | Can manage run | 検証済み設定からProject × Variant Indexを作成 |
+| `prep-job` | Lakeflow Job | Can manage run | チャンク作成、共有source Tableへの保存、既存Index同期 |
 | `eval-job` | Lakeflow Job | Can manage run | 全Phaseのオフライン評価 |
-| `project-index-*` | AI Search Index | Can select | Project × Variantの検索。作成後に追加・権限確認 |
-| `answer-llm-*` | Serving endpoint | Can query | FMAPI model catalogで選択可能な回答LLM |
+| `baseline-index` | AI Search Index | Can select | 手動作成済みのStandard／512／Qwen3 Profile |
+| `default-llm` | Serving endpoint | Can query | 既定の回答LLM。追加候補には別途権限を付与 |
 | `mlflow-experiment` | MLflow experiment | Can edit | Trace・評価 |
-| `trace-otel-*` 4個 | UC Trace Table | Select / Modify | spans、logs、metrics、annotations |
 | `app-warehouse` | SQL Warehouse | Can use | Delta Tableの読み書き |
-| `projects-table` / `members-table` | Unity Catalog table | Select / Modify | Projectとメンバー |
-| `registry-table` / `variants-table` | Unity Catalog table | Select / Modify | 文書登録情報とProject別Index解決 |
-| `chat-*-table` | Unity Catalog table | Select / Modify | 会話、メッセージ、停止状態 |
-| `prep-runs-table` / `eval-runs-table` | Unity Catalog table | Select / Modify | 認可済みJob依頼、進捗、取消状態 |
-| `eval-results-table` | Unity Catalog table | Select | Apps表示用評価結果。書込みはEval Job |
-| `eval-suggestions-table` | Unity Catalog table | Select | Phase別改善提案。書込みはEval Job |
 
 Appsはresource keyを `app.yaml` の `valueFrom` で環境変数へ解決する。
 
@@ -2458,31 +2488,33 @@ command:
   - start-app
 
 env:
-  - name: TOYOTA_VOLUME_PATH
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: app-warehouse
+  - name: UC_VOLUME
     valueFrom: toyota-volume
+  - name: VECTOR_SEARCH_ENDPOINT
+    value: <手動作成済みAI Search endpoint名>
+  - name: DEFAULT_INDEX_NAME
+    valueFrom: baseline-index
+  - name: DEFAULT_LLM_ENDPOINT
+    valueFrom: default-llm
   - name: PREP_JOB_ID
     valueFrom: prep-job
   - name: EVAL_JOB_ID
     valueFrom: eval-job
-  - name: PROJECTS_TABLE
-    valueFrom: projects-table
-  - name: VARIANTS_TABLE
-    valueFrom: variants-table
   - name: MLFLOW_EXPERIMENT_ID
     valueFrom: mlflow-experiment
   - name: MLFLOW_TRACING_SQL_WAREHOUSE_ID
     valueFrom: app-warehouse
-  - name: SQL_WAREHOUSE_ID
-    valueFrom: app-warehouse
 ```
 
-`valueFrom` は、Volumeなら `/Volumes/catalog/schema/volume`、AI Searchなら3階層Index名、Serving endpointならendpoint名、JobならJob IDへ解決される。ProjectごとのIndex名は環境変数へ一つだけ固定せず、検証済み `project_id + variant_id` をVariant Tableで解決する。`MLFLOW_TRACING_SQL_WAREHOUSE_ID` はMLflowが読む正確な環境変数名なので、汎用の `SQL_WAREHOUSE_ID` だけでは代用できない。後者はApps独自のSQL処理でも同じWarehouseを使う場合だけ残す。
+`valueFrom` は、Volumeなら `/Volumes/catalog/schema/volume`、AI Searchなら3階層Index名、Serving endpointならendpoint名、JobならJob IDへ解決される。設定が1件だけなら、上記の値からStandard／512／Qwen3のbaseline Profileを構成する。複数Profileを使う場合は、管理者が同じ物理名と固定設定を `RAG_INDEX_PROFILES_JSON` としてAppとData Preparation Jobの両方へ登録する。`MLFLOW_TRACING_SQL_WAREHOUSE_ID` はMLflowが読む正確な環境変数名であり、App独自SQL用の `DATABRICKS_WAREHOUSE_ID` と用途が異なる。
 
-App request内でPDF解析、Index作成、評価全件を同期実行しない。AppはJobを非同期起動してrun IDを返し、状態をpollする。`prep-job`、`provision-index-job`、`eval-job` のRun as SPには5.2節のデータアクセス権限を別途付ける。App resourceの `CAN_MANAGE_RUN` はJobのRun as権限を代替しない。
+App request内でPDF解析、チャンク作成、Index同期、評価全件を同期実行しない。AppはJobを非同期起動してrun IDを返し、状態をpollする。`prep-job`と`eval-job`のRun as SPには5.2節のデータアクセス権限を別途付ける。App resourceの `CAN_MANAGE_RUN` はJobのRun as権限を代替しない。物理Table／Indexを作成するProvisioning Jobは現行構成に含めない。
 
 ### 18.3 Bundleで宣言する例
 
-公式テンプレートの `databricks.yml` を基に、既存リソースをAppへ追加する。次は主要リソースだけの抜粋であり、18.2節のJob、Warehouse、各Variantも同じ公式テンプレートのresource構文で追加する。AI Search IndexはUnity Catalog上の特殊なtableであるため、Bundleでは `uc_securable` の `TABLE` として参照できる。
+公式テンプレートの `databricks.yml` を基に、手動作成済みのリソースをAppへ追加する。次は主要リソースだけの抜粋である。AI Search IndexはUnity Catalog上の特殊なtableであるため、Bundleでは `uc_securable` の `TABLE` として参照できる。App／Bundleから新しいIndexを作成しない。
 
 ```yaml
 resources:
@@ -2503,15 +2535,9 @@ resources:
             name: "<tool-calling対応endpoint>"
             permission: CAN_QUERY
 
-        - name: projects-table
+        - name: baseline-index
           uc_securable:
-            securable_full_name: "<catalog>.<schema>.toyota_rag_projects"
-            securable_type: TABLE
-            permission: SELECT
-
-        - name: variants-table
-          uc_securable:
-            securable_full_name: "<catalog>.<schema>.toyota_index_variants"
+            securable_full_name: "<catalog>.<schema>.<手動作成済みindex>"
             securable_type: TABLE
             permission: SELECT
 
@@ -2522,7 +2548,7 @@ resources:
             permission: WRITE_VOLUME
 ```
 
-上は主要リソースだけの例である。Project作成・更新用TableにはApp SPへ別途 `MODIFY` も明示する。Variantの作成、source Table／Indexのprovisioning、`READY`への更新はProvisioning Job SPが担当するが、PDF単体削除APIはApp自身が影響Variantを`SUPERSEDED`へ更新する。そのためVariant TableにはApp SPの`SELECT`に加えて`MODIFY`も必要であり、上のresource bindingだけで済ませず、必要最小限のGRANT文をSQL Editorで適用して両権限を確認する。Project IndexはProvisioning Jobが作成後にApp SPへ `SELECT` を付与し、Variant Tableへ登録する。VolumeはApps UIの **Can read and write** 相当になっていること、必要な `READ VOLUME` と `WRITE VOLUME` が両方付いたことをデプロイ後に確認する。
+上は主要リソースだけの例である。Project／文書／VariantなどのTableにはApp SPへ必要最小限の`SELECT`／`MODIFY`を別途明示する。PDF単体削除APIはApp自身が影響論理Variantを`SUPERSEDED`へ更新するため、Variant Tableにも両権限が必要である。共有source Tableへの書込みと既存Index同期はPrep Job Run as SPが担当する。管理者は作成済みIndexをApp Resourceへ追加してApp SPへ`SELECT`を付与し、同じ組をProfile allow-listへ登録する。VolumeはApps UIの **Can read and write** 相当になっていること、必要な`READ VOLUME`と`WRITE VOLUME`が両方付いたことをデプロイ後に確認する。
 
 ### 18.4 デプロイ
 
@@ -2608,7 +2634,7 @@ Project未選択時は最初に作成または選択する画面を出す。READ
 | dimension | Embeddingが返すベクトルの要素数（次元数）。Index作成後は変更できない |
 | preset | Phaseごとに決めてある変更不可の設定セット（定義済み設定） |
 | capability | そのモデルで利用できる機能。例: 文章生成、Embedding、Tool Calling |
-| Variant | チャンク、Embedding、解析条件を固定して作った比較用データ／Indexの版 |
+| Variant | Profileの共有Table／Index内で `project_id + variant_id` により分けた、上書きしない検索データの論理版 |
 | Pareto chart | 回答品質とレイテンシの両方を見比べる散布図（品質・速度バランス図） |
 
 ### 19.2 サイドバー1: データ準備
@@ -2623,26 +2649,27 @@ ProjectへPDFを追加し、Document Parsing、チャンク、Embedding、Index 
 | Document Parsing | upload後にbackground taskからSQL Warehouseへ非同期送信し、`ai_parse_document` version 2.0の結果を保存 |
 | カタログ概要 | 解析後にFMAPIで20〜30字の日本語概要を生成。失敗時は同じ長さのファイル名fallbackを保持 |
 | 解析状態 | `PARSING`、`PARSED`、`READY`、`ERROR`を表示し、PDF原文は認可付きviewerで確認 |
-| チャンクサイズ | 256／512／1024 tokensから選択 |
-| チャンク手法 | Standard／Semantic chunking／Parent-child chunkingから選択 |
-| Embedding Model | FMAPI model catalogのEmbedding候補を検索・選択。状態、dimension（次元数）、preview（試し呼び出し結果）、選択不可理由を表示 |
-| データクリーニング | header、footer、page番号、重複除去のON／OFF |
-| セマンティックメタデータ | raw本文／enriched Embedding文脈を切替 |
-| RAG検索データを作成 | 新しいDelta TableとProject × Variant Indexを作成し、Triggered sync |
+| 検索設定（Index Profile） | 管理者が登録したProfileが複数ある場合だけselectorを表示。1件の場合はselectorを隠し、その設定を自動使用 |
+| チャンクサイズ | 選択Profileの値を読み取り専用で表示。通常は512 tokens。256／1024は対応Profileの登録時だけ表示 |
+| チャンク手法 | 選択Profileの値を読み取り専用で表示。通常はStandard。Semantic／Parent-childは対応Profileの登録時だけ表示 |
+| Embedding Model | 選択Profileへ固定されたモデルを読み取り専用で表示。通常はQwen3 Embedding 0.6B。既存Indexと異なるモデルへ切り替えない |
+| データクリーニング | 選択Profileに固定。現行UIで単独のON／OFF操作は表示しない |
+| セマンティックメタデータ | 選択Profileに固定。現行UIでraw／enrichedを単独切替しない |
+| RAG検索データを作成・同期 | 論理Variantを作り、選択Profileの共有source Tableへ `project_id + variant_id` 付きで保存し、既存IndexをTriggered sync。物理Table／Indexは作成しない |
 | 進捗 | PDFを保存 → 文書を解析 → 検索データを作成 → RAG検索を有効化、の4工程を表示 |
-| Variant一覧 | method、size、Embedding、作成時刻、source snapshot、Index状態を比較。既存Index専用モードでは管理者のsource Table／Index許可リストに一致する行だけを表示 |
+| Variant一覧 | method、size、Embedding、作成時刻、source snapshot、Index状態を比較。管理者のIndex Profile allow-listに一致する論理Variantだけを表示 |
 
-セクション見出しは「02 検索する文書のチャンク化・ベクトル化」とする。Qwen3 Embedding 0.6Bが対象workspaceで利用可能なら既定値として選び、「推奨・日本語対応」と表示する。利用不可ならREADY／selectableな候補へfallbackし、利用不可モデルを選択させない。別のfallback候補へ「推奨」を付ける場合でも、「日本語対応」はQwen3 Embedding 0.6B以外へ誤表示しない。
+セクション見出しは「02 検索する文書のチャンク化・ベクトル化」とする。通常ProfileはQwen3 Embedding 0.6Bを使用し、「日本語対応」と表示する。このモデルまたは既存Indexが利用不可の場合は別モデルへ自動fallbackせず、Profile設定エラーを表示してBuildボタンを無効にする。
 
-3手法の意味は10.2節へ合わせる。
+管理者が追加Profileを用意する場合の3手法の意味は10.2節へ合わせる。未登録の手法やサイズを通常UIへ出さない。
 
-- **Standard**: 256／512／1024を最大token数とする固定token chunk。
-- **Semantic chunking**: 文、見出し、意味類似度を優先するカスタム処理。選択値はtargetであり厳密値ではない。
-- **Parent-child chunking**: 選択値は検索用childの大きさ。回答時は `parent_chunk_id` に対応する広いcontextを返す。
+- **Standard**: Profile値の256／512／1024を最大token数とする固定token chunk。
+- **Semantic chunking**: 文、見出し、意味類似度を優先するカスタム処理。Profile値はtargetであり厳密値ではない。
+- **Parent-child chunking**: Profile値は検索用childの大きさ。回答時は `parent_chunk_id` に対応する広いcontextを返す。
 
-`ai_prep_search` はmanaged semantic baselineとして別Variantに残す。画面上で256／512／1024を直接設定できるようには見せない。チャンク手法、サイズ、Embedding Modelを変えた場合は既存Indexを上書きせず、新しいimmutable Variantを作る。
+`ai_prep_search` はmanaged semantic比較Profileとして追加できるが、画面上で256／512／1024を直接設定できるようには見せない。チャンク手法、サイズ、Embedding Modelを変える場合は、管理者が対応する物理Table／Indexを手動作成して別Profileへ登録する。
 
-Embedding候補はFMAPI catalog上の全候補を表示するが、対象workspace／regionで利用不可、権限なし、READYでない、AI Search非互換の場合は無効表示し、理由を示す。選択時は `model_key` だけを送信し、物理endpoint名はバックエンドが解決する。準備完了後は「PDFカタログで確認」と「RAGチャットを開始」のリンクを表示する。
+Embeddingの物理endpoint名はブラウザへ入力させず、選択Profileの `embedding_model_key` を表示してバックエンドがallow-listから解決する。Profileのモデル、endpoint、dimension、Index定義が一致しない場合はfail-closedで停止する。準備完了後は「PDFカタログで確認」と「RAGチャットを開始」のリンクを表示する。
 
 ### 19.3 サイドバー2: PDFカタログ
 
@@ -2813,9 +2840,10 @@ MLflow Review AppをDatabricks Appsへ埋め込めるとは想定しない。独
 | `GET /api/projects` | OBOで検証した利用者が参照できるProject一覧 |
 | `POST /api/projects` | Projectを作り、作成者をOWNERとして登録 |
 | `DELETE /api/projects/{project_id}` | OWNERがProjectを論理削除。active runを取消要求へ遷移させ、物理データは監査用に保持 |
-| `GET /api/model-options?capability=embedding` | 全FMAPI Embedding候補、選択可否、理由を返す |
+| `GET /api/model-options?capability=embedding` | FMAPI Embedding候補と状態を返す。現行UIでは自由選択に使わず、Index Profileのモデル表示・整合性確認に使う |
 | `GET /api/model-options?capability=chat` | 全FMAPI生成LLM候補、capability、選択可否を返す |
 | `GET /api/model-options?capability=judge` | 評価judgeに利用可能な候補と選択不可理由を返す |
+| `GET /api/index-profiles` | 管理者が手動作成・allow-list登録したsource Table／既存AI Search Indexと固定設定だけを返す |
 | `POST /api/projects/{project_id}/documents` | PDFを登録し、自動Document Parsing用の `202`、`document_id`、`parse_run_id` を返す |
 | `GET /api/projects/{project_id}/documents` | PDFカタログ一覧 |
 | `HEAD/GET /api/projects/{project_id}/documents/{document_id}/content` | 認可済みPDFを返す。`ETag`、private cache、単一byte `Range`に対応 |
@@ -2824,7 +2852,7 @@ MLflow Review AppをDatabricks Appsへ埋め込めるとは想定しない。独
 | `GET /api/projects/{project_id}/evaluation-datasets` | 現在のProjectにある評価データ版、用途、質問数を返す |
 | `GET /api/projects/{project_id}/evaluation-cases` | 指定した評価データ版・用途の評価質問を返す |
 | `POST /api/projects/{project_id}/evaluation-cases` | 現在のProjectへ正解付き評価質問を1件登録 |
-| `POST /api/projects/{project_id}/preparation-runs` | 保存済み解析結果からmethod、size、Embedding、cleaning等を固定し、`BUILD_VARIANT` Jobを起動 |
+| `POST /api/projects/{project_id}/preparation-runs` | `index_profile_key`と完全一致する固定設定で論理Variantを作り、共有source Tableへの保存と既存Index同期を行う`BUILD_VARIANT` Jobを起動 |
 | `GET /api/projects/{project_id}/preparation-runs/active` | 画面再読込み後に実行中のBuild監視を復元 |
 | `GET /api/projects/{project_id}/preparation-runs/{run_id}` | parse、chunk、index、syncの状態 |
 | `GET/POST /api/projects/{project_id}/chat/sessions` | 会話履歴一覧と新規session |
@@ -2881,19 +2909,20 @@ PDF登録だけは `multipart/form-data` とし、`file`を必須part、`metadat
     "<DOCUMENT_ID_1>",
     "<DOCUMENT_ID_2>"
   ],
+  "index_profile_key": "baseline-standard-512-v1",
   "configuration": {
-    "chunk_method": "SEMANTIC",
+    "chunk_method": "STANDARD",
     "chunk_size_tokens": 512,
     "parent_chunk_size_tokens": null,
     "content_profile": "LAYOUT_PRESERVING",
     "cleaning_enabled": true,
     "semantic_metadata_enabled": true,
-    "embedding_model_key": "embed-model-key"
+    "embedding_model_key": "emb-qwen3-0-6b"
   }
 }
 ```
 
-`chunk_method` は `STANDARD`、`SEMANTIC`、`PARENT_CHILD`、`chunk_size_tokens` は256、512、1024だけを許可する。`content_profile` は `TEXT_ONLY` または `LAYOUT_PRESERVING` とし、保存済み解析要素のどれをチャンクへ使うかを表す。`PARENT_CHILD` の場合だけ、検証済みの `parent_chunk_size_tokens` を指定できる。文書、Embedding Model、選択条件を再検証したうえで `202 Accepted` と次を返す。
+`index_profile_key` は `GET /api/index-profiles` が返した値だけを許可する。サーバーは `chunk_method`、`chunk_size_tokens`、`parent_chunk_size_tokens`、`content_profile`、`cleaning_enabled`、`semantic_metadata_enabled`、`embedding_model_key` が選択Profileと完全一致することを検証する。通常ProfileはStandard／512／Qwen3である。未登録の256／1024、Semantic、Parent-child、別Embeddingをrequestへ直接書いても422で拒否する。source Table、Index名、検索endpoint、Embedding endpointなどの物理名はrequestに含めず、サーバー側allow-listから解決する。文書のProject所属とProfileを再検証したうえで `202 Accepted` と次を返す。
 
 ```json
 {
@@ -3092,7 +3121,7 @@ API responseも固定DTOへ射影し、Delta行をそのままJSON化しない�
 |---|---|
 | Project作成 | 認証済み利用者。作成者をOWNERにする |
 | Project削除、将来のmember／設定管理 | OWNER |
-| PDF登録、データ準備、Index Variant作成 | EDITOR以上 |
+| PDF登録、データ準備、論理Variant作成・既存Index同期 | EDITOR以上 |
 | カタログ、PDF、評価結果の参照 | VIEWER以上 |
 | 自分のchat session作成・送信・停止・削除 | VIEWER以上かつsession owner |
 | 他利用者のchat session管理 | OWNER |
@@ -4073,15 +4102,15 @@ AI Searchの **Evaluate search quality** は、Managed Delta Sync Indexから評
 
 したがって「補助的なIndex診断」として結果を残し、Phase 1～5の主比較はMLflow custom evaluationで行う。
 
-## 27. データ準備Variantを比較する
+## 27. 管理者が追加Profileを用意した場合のデータ準備比較
 
-Phase 1～5が完了したら、最も良かったオンライン検索設定を固定し、次のVariantを比較する。
+この章は任意の拡張手順であり、通常のStandard／512／Qwen3 Profile 1件だけでは実行しない。Phase 1～5が完了した後、管理者が各比較条件に対応する別の物理source Table／AI Search Indexを手動作成し、AppとJobのallow-listへIndex Profileとして登録した場合に限り、最も良かったオンライン検索設定を固定して次の論理Variantを比較する。
 
 | 比較軸 | Variant例 |
 |---|---|
-| チャンク手法 | `standard`, `semantic`, `parent_child`, `aiprep_semantic` |
-| チャンクサイズ | `256`, `512`, `1024`。`aiprep_semantic` はmanaged／N/A |
-| Embedding Model | FMAPI model catalogの検証済み `embedding_model_key` |
+| チャンク手法 | 登録済みProfileの `standard`, `semantic`, `parent_child`, `aiprep_semantic` |
+| チャンクサイズ | 登録済みProfileの `256`, `512`, `1024`。`aiprep_semantic` はmanaged／N/A |
+| Embedding Model | Profileの既存Indexと一致する、検証済み `embedding_model_key` |
 | PDF解析利用範囲 | text only / table・figure・layout保持 |
 | セマンティックメタデータ | raw `chunk_to_retrieve` / enriched `chunk_to_embed` |
 | クリーニング | OFF / ON |
@@ -4095,7 +4124,7 @@ Phase 1～5が完了したら、最も良かったオンライン検索設定を
 5. 最良構成 + セマンティックメタデータ。
 6. 最良構成 + クリーニング。
 
-各Variantで同じqrelsを使い、上位候補に未判定ページが多い場合だけqrelsを新versionへ更新して、全Variantを再評価する。
+各Profileの物理リソースはApp／Jobで作成または上書きしない。各論理Variantで同じqrelsを使い、上位候補に未判定ページが多い場合だけqrelsを新versionへ更新して、全Variantを再評価する。
 
 ## 28. User feedbackと本番Monitoring
 
@@ -4195,22 +4224,23 @@ custom production scorerには追加制約がある。`@scorer` 形式で自己�
 - [ ] `error_status` を確認した。
 - [ ] 日本語の表・図・スキャンを目視確認した。
 - [ ] `page_id + 1` をUIページ番号にした。
-- [ ] Standard／Semantic／Parent-childと256／512／1024の意味をUIに表示した。
-- [ ] 選択したEmbedding `model_key`、チャンク手法・サイズ、解析・クリーニング設定、source Delta versionをVariantへ保存した。
+- [ ] UIは登録済みIndex Profileだけを表示し、1件ならselectorを隠した。通常ProfileはStandard／512／Qwen3で、未登録の手法・サイズ・Embeddingを表示していない。
+- [ ] 選択ProfileのEmbedding `model_key`、チャンク手法・サイズ、解析・クリーニング設定、source Delta versionを論理Variantへ保存した。
 - [ ] 文書、解析結果、チャンクの全行に正しい `project_id` があることを確認した。
 - [ ] Variantに正規化した`source_document_ids`を保存し、保存済み設定から同一構成の後継Variantを再現できることを確認した。
 
 ### 29.3 Index
 
-- [ ] 全source tableでChange Data Feedを有効にした。
+- [ ] 管理者がProfile用source TableとAI Search Indexを手動作成し、App／Jobの `RAG_INDEX_PROFILES_JSON` を一致させた。App／Jobが物理Table／Indexを作成しないことを確認した。
+- [ ] 全Profile用source TableでChange Data Feedを有効にした。
 - [ ] `chunk_id` が一意かつNULLなしである。
 - [ ] 表示・filter・rerank用列をIndexへ含めた。
 - [ ] 同じPhase 1～5比較runではVariantとEmbedding Modelを固定した。
-- [ ] Embedding Modelを比較するときは新しいVariantとIndexを作り、既存Indexを変更していない。
+- [ ] Embedding Modelを比較する場合は、管理者が別モデル用の物理Table／Index／Profileを事前作成し、既存Profileを変更していない。
 - [ ] Triggered sync完了後に行数を確認した。
-- [ ] 原則としてProject × Variantごとに別Indexを作った。
+- [ ] 共有Indexへの書込みと検索に `project_id + variant_id` を使用し、別Project／Variantの行が混ざらないことを確認した。Index単位のセキュリティ分離が必要なProject群には別Profileを用意した。
 - [ ] query用Embedding endpointを分けた場合も、Index作成時と同一モデル、dimension、前処理・正規化仕様であることを確認した。
-- [ ] PDF削除で影響する旧Variantが`SUPERSEDED`で検索選択から外れ、後継Indexのsource／indexed rowに削除PDFが0件であることを確認した。
+- [ ] PDF削除で影響する旧Variantが`SUPERSEDED`で検索選択から外れ、後継論理Variantの `project_id + variant_id` 範囲と既存Indexの検索結果に削除PDFが0件であることを確認した。
 
 ### 29.4 AgentとApps
 
@@ -4286,7 +4316,7 @@ custom production scorerには追加制約がある。`@scorer` 形式で自己�
 | ページが1ずれる | 出力 `page_id` は0始まり。表示は `+1` |
 | Metadata Filteringで0件になる | 汎用値なら同じProjectの`PARSED`／`READY`文書と一致するか、異なる項目のANDで矛盾していないか、最終filterが検証済み`document_id`の辞書かを確認する。旧トヨタ4項目なら年式がINTか、canonical modelとmaster／allowlistが一致するかも確認する。0件・全件一致などの安全なfallbackはTraceの理由を確認する |
 | Rerankerが効かない | cross-Geo設定、`debug_info.warnings`、`columns_to_rerank` の順序 |
-| 追加した列が検索で返らない | Index schemaは固定。新Indexを作成したか |
+| 追加した列が検索で返らない | Index schemaは固定。管理者が必要列を含む新しい物理Index／Profileを手動作成・登録したか。App／Jobで既存Indexのschemaを変更しない |
 | Groundedness評価が失敗する | `final_retrieval` の `RETRIEVER` Spanと `Document` schema |
 | Token usageがNULL | Providerがusageを返すか、streamingのusage設定 |
 | AppsからIndexを読めない | App resource、`SELECT`、親catalog/schemaのUSE権限 |
@@ -4302,95 +4332,48 @@ custom production scorerには追加制約がある。`@scorer` 形式で自己�
 | 削除前の回答のPDF引用が404 | content routeが新規一覧用の`lifecycle_status='ACTIVE'`条件を誤用していないか。Project membershipと文書所属は検証したまま、監査用原本は返す |
 | `bundle deploy` 後も旧画面 | `databricks bundle run <app-resource-key>` を実行したか |
 
-## 31. 推奨ディレクトリ構成
+## 31. 現行リポジトリの主要ディレクトリ構成
 
 ```text
-toyota-rag/
+RAG-Accuracy-Evaluation/
   databricks.yml
   app/
     app.yaml
-    pyproject.toml
-    uv.lock
-    start_server.py
-    agent.py
-    authorization.py
-    phases.py
-    request_options.py
-    filters.py
-    citations.py
-    generation.py
-    prompts.py
-    telemetry.py
-    models/
-      catalog.py
-      profiles.py
-      clients.py
-    retrieval/
-      ai_search.py
-      factory.py
-      multi_query.py
-      schemas.py
-    routes/
-      projects.py
-      preferences.py
-      notifications.py
-      preparation.py
-      catalog.py
-      chat.py
-      evaluations.py
-      model_options.py
-    repositories/
-      projects.py
-      user_preferences.py
-      notifications.py
-      registry.py
-      conversations.py
-      chat_runs.py
-      prep_runs.py
-      eval_runs.py
-      eval_results.py
-      eval_suggestions.py
-    frontend/
-      package.json
-      package-lock.json
-      src/
-        pages/
-          DataPreparation.tsx
-          DataCatalog.tsx
-          Chat.tsx
-          Evaluation.tsx
-        components/
-          ProjectSelector.tsx
-          NotificationCenter.tsx
-          Sidebar.tsx
-          CitationLink.tsx
-  jobs/
+    main.py
+    settings.py              # Index Profile allow-list
+    schemas.py               # APIの固定schema
+    repository.py            # Project／文書／Variant／評価の永続化
+    gateway.py               # SQL／Jobs／AI Search／FMAPI接続
+    rag.py
+    responses_agent.py
+    console_links.py
     requirements.txt
-    prepare_documents.py
-    custom_chunking.py
-    provision_and_sync_indexes.py
-  evaluation/
-    dataset.py
-    scorers.py
-    runner.py
-    advisor.py
-    result_mapper.py
-    result_writer.py
-  resources/
-    prep_job.yml
-    eval_job.yml
-  notebooks/
-    01_setup.sql
-    02_parse_documents.sql
-    03_aiprep_chunks.sql
-    04_custom_chunks.py
-    05_create_indexes.py
-    06_offline_evaluation.py
-    07_production_monitoring.py
-  tests/
-    unit/
-    integration/
+    static/
+      index.html
+      app.js
+      styles.css
+    tests/
+  jobs/
+    job_common.py             # Appと同じProfile allow-list契約
+    data_preparation_job.py   # 共有Tableへの保存と既存Index同期
+    evaluation_job.py
+    index_sync_job.py
+    tests/
+  deployment/
+    ai_search_endpoint.json   # 管理者の手動作成用template
+    ai_search_index.json      # 管理者の手動作成用template
+    app_create.json
+    app_resources_update.json
+    app_user_scopes_update.json
+    app_uc_grants.sql
+    jobs/
+  sql/
+  scripts/
+  docs/
+  output/pdf/
 ```
+
+`deployment/ai_search_*.json`は管理者が初期リソースを手動作成するときのtemplateであり、App runtimeから呼び出さない。`jobs/data_preparation_job.py`は新規Table／Indexを作らず、`settings.py`／`job_common.py`のallow-listに一致する既存Profileだけを使用する。
 
 ### 31.1 依存関係を固定する
 
@@ -4456,7 +4439,7 @@ source: 情報システム部
 
 D01～D08を、トヨタPhase 1～5とIndex Variant比較の基準コーパスとする。D09には検索可能なテキスト層がなく、D05とのDocument Parsing比較だけに使う。D09は正式な評価Datasetとqrels（検索評価で使う正解文書・正解ページの一覧）へ追加しない。また、内容が重複するD05とD09を同じIndexへ登録すると検索スコアが歪むため、同時登録しない。G01もトヨタbaseline Indexと評価Datasetへ混ぜない。
 
-field-eng-eastへ登録する前のトヨタPDF QAでは、9冊45ページをrenderして文字化け、欠け、重なりがないことを目視確認した。D01～D08は全ページにtext layerがあり、D09だけは設計どおりpage image 5件、text layer 0件である。全9冊が非暗号化、5ページである。G01は実Workspaceの別Projectへ登録し、3ページのDocument Parsing、Semantic／512 Variant、チャット、引用、Phase 1〜5評価まで確認済みである。
+field-eng-eastへ登録する前のトヨタPDF QAでは、9冊45ページをrenderして文字化け、欠け、重なりがないことを目視確認した。D01～D08は全ページにtext layerがあり、D09だけは設計どおりpage image 5件、text layer 0件である。全9冊が非暗号化、5ページである。G01は旧assetで実Workspaceの別Projectへ登録し、3ページのDocument Parsing、Semantic／512 Variant、チャット、引用、Phase 1〜5評価まで確認した。このSemantic／512は過去方式の証跡であり、現行Appで再利用するには管理者による対応Profileの手動登録が必要である。
 
 ### 32.2 付属ファイル
 
@@ -4477,7 +4460,7 @@ JSONLは人が確認しやすいseed形式なので、Delta Tableへ読み込む
 2. 画面上部でそのProjectが選ばれていることを確認する。
 3. 汎用確認ではG01だけ、トヨタ評価ではD01～D08だけをアップロードする。
 4. 必要に応じてタイトル、カテゴリ、タグ、文書日付、ソース、追加メタデータを入力する。PDFだけでも登録でき、タイトルはファイル名から補完される。トヨタseedを再現する場合だけ、manifestの車種、年式、文書種別、車両カテゴリを後方互換APIへ渡す。
-5. 解析previewを確認し、基準となるIndex Variantを作成する。
+5. 解析previewを確認し、登録済みStandard／512／Qwen3 Profileで基準となる論理Variantを作成して既存Indexを同期する。
 
 Appは7章の手順に従い、各PDFを次のProject別Volume pathへ保存し、同じ `project_id` を文書registry、解析結果、チャンク、Index Variantへ引き継ぐ。
 
@@ -4498,7 +4481,7 @@ databricks fs cp \
 ### 32.4 比較結果を信頼できるものにするルール
 
 - Phase 1～5ではD01～D08のファイルを変更せず、同じcorpus snapshot、同じIndex Variant、同じ16件の評価データseedを使う。
-- 256／512／1024 tokenやStandard／Semantic／Parent-childを比較するときもD01～D08と評価セットは固定し、Variantごとに別Delta Table・別AI Search Indexを作る。既存Indexを上書きしない。
+- 256／512／1024 tokenやStandard／Semantic／Parent-childを比較する場合は、D01～D08と評価セットを固定する。管理者が構成ごとに別の物理Delta Table／AI Search Index／Profileを手動作成し、App／Jobは各Profileの共有リソース内へ論理Variantを書き込む。既存Profileを上書きしない。
 - 評価runにはProject、corpus hash、dataset version／split、選択した`evaluation_case_ids`、Index Variant、Embedding model、Phase設定を保存する。これにより、後から同じ条件で再実行できる。
 - D09の解析確認は正式なPhase比較から分離する。D05をD09へ置き換えたrunを、D01～D08用qrelsの得点として表示しない。
 - G01と利用者自身のPDFは、トヨタbaselineとは別Project、別Variant、別評価Dataset versionで扱う。
@@ -4578,22 +4561,22 @@ databricks fs cp \
 
 1. 画面タイトルが「RAG精度評価アプリ」で、サイドバーが「データ準備、PDFカタログ、RAGチャット、RAG精度評価」の順になっている。
 2. Projectを作成・切替・OWNER削除でき、文書、Index、会話、評価Dataset、結果がProjectをまたいで混ざらない。右上にはDatabricks Appsのログインメールを表示する。
-3. PDFだけでアップロードでき、任意項目パネルを閉じられる。タイトル未入力時はファイル名、概要未入力時は20〜30字のAI／fallback概要を設定する。汎用メタデータを保持したままDocument Parsing、選択した3種類のチャンク手法・3サイズ・Embedding Modelで新しいIndex Variantを作成でき、利用可能ならQwen3 Embedding 0.6Bが既定になる。Qwen以外のfallbackへ「日本語対応」を誤表示しない。
+3. PDFだけでアップロードでき、任意項目パネルを閉じられる。タイトル未入力時はファイル名、概要未入力時は20〜30字のAI／fallback概要を設定する。通常は登録済みStandard／512／Qwen3 Embedding 0.6B Profile 1件を読み取り専用で表示し、共有source Tableへ論理Variantを書き込んで既存Indexを同期する。未登録の手法・サイズ・Embeddingは表示せず、App／Jobは物理Table／Indexを作成しない。
 4. PDFカタログで各PDFのタイトル、概要、カテゴリ、タグ、文書日付、ソース、状態、Project認可済み文書リンクを確認できる。content APIはprefetch、`ETag`、`Range`、private cacheに対応し、同じPDFの再表示では読み込み済みiframeを再利用する。`ERROR` PDFだけを同じ`FILE`型経路で再解析できる。
-5. OWNER／EDITORがPDF単体を確認付きで論理削除できる。進行中処理との競合は409で拒否し、30分超の孤児Chat runだけはguard付きで`ERROR`へ収束し、同じDELETEは冪等である。削除PDFを含む旧Variantは`SUPERSEDED`となり、残存PDFだけの後継Variant／AI Search IndexがREADYになる。最後のPDFならProjectは`EMPTY`となる。原本、解析結果、過去の会話／引用／評価は保持し、削除前のPDF引用をProject認可内で開ける。
+5. OWNER／EDITORがPDF単体を確認付きで論理削除できる。進行中処理との競合は409で拒否し、30分超の孤児Chat runだけはguard付きで`ERROR`へ収束し、同じDELETEは冪等である。削除PDFを含む旧Variantは`SUPERSEDED`となり、同じIndex Profileを使った残存PDFだけの後継論理VariantがREADYになり、既存AI Search Indexの同期が完了する。最後のPDFならProjectは`EMPTY`となる。原本、解析結果、過去の会話／引用／評価は保持し、削除前のPDF引用をProject認可内で開ける。
 6. チャットでVector／Hybrid、Metadata Filtering、Reranking、Query Optimization、利用可能なFMAPI LLMを選べる。
 7. チャット履歴を高速に再表示・本人削除でき、回答を停止でき、すべての事実回答から検証済み`document_id`由来のPDF原文リンクへ移動できる。retrieval SSEと利用者画面へexcerpt／チャンク本文を出さない。
 8. 初回Data Preparation後に正解ラベルを捏造しないサンプル質問3件があり、Project／version／split内の登録済み質問を初期全選択、個別／一括で切り替え、正解状態と詳細を確認できる。0件では開始せず、trial既定値1で人が固定した選択質問だけをPhase 1～5へ実行する。Phaseは横並びの大きなカードで選べる。開始要求中からspinner、工程、試行数、経過時間を表示し、同じkeyの再送は1 run／1 Jobへ収束する。`retry_after_ms`と一時的な`UNKNOWN`を安全に再確認し、確定的な拒否は`FAILED`へ終了する。再読込後もactive runを復元し、停止APIの応答消失やJob登録との競合後もLakeflow Jobを含めてterminal状態まで確認する。Job終端後も結果取得中はspinnerを表示し、45秒timeout／最大3回再試行後も取得できなければ評価履歴から同じrunを再取得できる。Project単位で検索再現率、回答正解率、回答時間、costを比較し、未ラベルCorrectnessは`NULL`で平均から除外する。
 9. 各Phaseに対してLLMが回答品質3指標とjudge rationaleも根拠にし、優先度、副作用、再検証方法を含む改善提案を作り、自動適用せず保存できる。過去runを評価履歴から再表示できる。
 10. Phaseごとの設定と最終検索結果をMLflow Traceで再現でき、Project、quality run、performance runを安全に対応付けられる。
-11. データ準備Variantが別Delta Table・別Indexとして残り、どの変更で品質が上がり、latencyとcostがどれだけ増えたか説明できる。
+11. 論理Variantが `project_id + variant_id` で再現できる。追加Profileを使う比較では、管理者が構成ごとの物理Table／Indexを手動作成・登録しており、どの変更で品質が上がり、latencyとcostがどれだけ増えたか説明できる。
 12. 汎用filter値はProject内registryで検証して`document_id IN (...)`へ変換し、旧トヨタfilter値、引用先、Project、Variant、FMAPI modelもサーバー側registry、allowlist、masterで検証されている。
 13. 本番Traceへユーザーフィードバックとサンプリング評価を追加できる。
 14. 各ページにUnity Catalog Volume、`ai_parse_document`、Lakeflow Jobs、Delta Table、FMAPI、AI Search、MLflow 3、Index Variantなど、実際に利用するDatabricks機能名が表示される。
 
 ### 34.1 field-eng-eastでの構築・評価結果
 
-2026-09-06〜08に、Unity Catalog、汎用確認用PDF 1冊、トヨタ評価PDF 9冊、`FILE`型Document Parsing、Project別評価Dataset、baseline／動的Index、3つのLakeflow Job、MLflow Experiment、Databricks Appを構築した。トヨタの固定Phase比較と汎用化sourceでのG01の登録からPhase 1〜5評価に加え、PDF単体の論理削除と影響Variant再構築をend-to-end確認済みである。2026-09-08の最新実測は[匿名化した検証記録](docs/verification/2026-09-06_field-eng-east.md)を参照する。実IDを含むresource stateはGitへ追加せず、アクセス制御された運用台帳で管理する。
+2026-09-06〜08には、Unity Catalog、汎用確認用PDF 1冊、トヨタ評価PDF 9冊、`FILE`型Document Parsing、Project別評価Dataset、baseline／動的Index、3つのLakeflow Job、MLflow Experiment、Databricks Appを構築した。この記録には、現在は採用していない動的Index作成方式の旧検証も含まれる。**現行assetの正本は登録済みIndex Profile専用であり、App／Jobによる物理Table／Index作成を行わない。** トヨタの固定Phase比較、G01の登録からPhase 1〜5評価、PDF単体の論理削除と影響Variant再構築の過去実測は[匿名化した検証記録](docs/verification/2026-09-06_field-eng-east.md)を参照する。実IDを含むresource stateはGitへ追加せず、アクセス制御された運用台帳で管理する。
 
 Phase比較は次の固定条件で実行した。
 
@@ -4619,29 +4602,29 @@ Trial: 1
 
 このsmokeではHybrid SearchのPhase 2が検索3指標を改善した一方、Metadata Filtering以降はRecallが低下し、Query Optimizationを含むPhase 5はlatencyが増えた。改善機能を増やすこと自体を目的にせず、Phase別提案と失敗Traceから次の一変更を選んで再評価する。
 
-現行source asset `1.6.0`は評価用検索データの自動選択とPDF全画面viewerを含むUIテスト42件と差分checkに合格した。field-eng-eastへのremote配置、health、resource binding 7件も確認した。Python 344件はasset `1.4.9`の確認記録である。
+現行source asset `1.7.0`をfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件を確認した。認証付きremote画面では、登録済みProfileがStandard／512／Qwen3の1件だけであること、その場合にProfile selectorを隠すこと、未登録の256／1024要素を表示しないこと、browser consoleのwarning／errorが0件であることを確認した。実ID、メール、App URL、Workspace IDは公開記録へ含めない。
 
-同日にGitHubの`main/app`からasset `1.6.0`をfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.6.0`／`databricks_ready=true`、resource binding 7件を確認した。認証付きremote画面でProjectの検索データ未作成時に不自然な選択欄を出さず「データ準備へ」を表示すること、PDF全画面viewer、別タブ表示、ダウンロード用要素を確認した。実ID、メール、App URL、Workspace IDは公開記録へ含めない。
+asset `1.6.0`では、評価用検索データの自動選択とPDF全画面viewerを含むUIテスト42件と差分check、field-eng-eastのhealth、resource binding 7件を確認した過去記録がある。Python 344件はasset `1.4.9`の確認記録である。
 
-2026-09-09にGitHubの`main/app`からasset `1.4.8`を配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.8`／`databricks_ready=true`、resource binding 7件を確認した。asset `1.4.7`で実行済みだったPhase 1・1問・1回runをasset `1.4.8`のremote status／results APIで取得し、`SUCCEEDED`、1／1試行、`elapsed_seconds=774`、Lakeflow run total 777.125秒、指標1件、改善提案1件を確認した。Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msである。ローカルSSO代替画面では、Phase横並び、結果画面、経過時間12分54秒が3秒後も固定されることを目視確認した。評価の実行はasset `1.4.7`、状態と結果の互換性確認はasset `1.4.8`の証跡であり、asset `1.4.8`による新規評価実行とは扱わない。SSO済みremoteブラウザ手操作、TTFT、残り7 profileは`PENDING`である。
+2026-09-09にGitHubの`main/app`からasset `1.4.8`を配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.8`／`databricks_ready=true`、resource binding 7件を確認した。asset `1.4.7`で実行済みだったPhase 1・1問・1回runをasset `1.4.8`のremote status／results APIで取得し、`SUCCEEDED`、1／1試行、`elapsed_seconds=774`、Lakeflow run total 777.125秒、指標1件、改善提案1件を確認した。Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msである。ローカルSSO代替画面では、Phase横並び、結果画面、経過時間12分54秒が3秒後も固定されることを目視確認した。評価の実行はasset `1.4.7`、状態と結果の互換性確認はasset `1.4.8`の証跡であり、asset `1.4.8`による新規評価実行とは扱わない。当時の「残り7 profile」は旧全組合せ計画であり、現行の1件Profileモードでは必須条件ではない。
 
 asset `1.4.5`では許可済み既存Index Variant 1件、AI Search 10件取得、回答、Trace、PDFリンク引用、`run.completed`まで認証付きremote APIで確認した履歴を保持する。PDF viewerはローカルで初回3,057 ms、同一Project・PDF・pageの再表示296 msを確認し、Project切替時に保持iframeを破棄した。旧asset `1.4.1`のremote content APIではPDF 200、byte Range 206、ETag再検証304、private cacheを確認した履歴を保持する。
 
 asset `1.4.4`では評価画面にProject／version／split内の質問一覧、初期全選択、個別／一括選択、正解状態／詳細、選択件数／最大試行数、0件開始禁止、折りたたみ追加フォームを実装した。作成APIは1〜1000件の`evaluation_case_ids`を所属検証して`config_json`／`config_hash`へ固定し、Evaluation Jobは選択IDだけを処理する。fieldを持たない旧runの全件評価は後方互換として維持する。選択評価run `<RESOURCE_ID>`はcase `figure-001`だけを処理し、Job `<DATABRICKS_RESOURCE_ID>`／task `<DATABRICKS_RESOURCE_ID>`が`TERMINATED`／`SUCCESS`となった。結果1行、選択外0行、error 0、MLflow run `<RESOURCE_ID>`を確認した。
 
-同じassetで、Project `<RESOURCE_ID>`の30分超の孤児Chat run 2件と対応assistant messageをguard付きで`ERROR`へ収束し、document `<RESOURCE_ID>`のDELETEがHTTP 202となることを確認した。deletion requestは`<RESOURCE_ID>`、残存documentは`<RESOURCE_ID>`である。影響旧Variant 4件は同一設定をまとめて後継2件となった。prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`は`READY`でsource 8行、prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`も`READY`でsource 4行だった。両方で削除PDF 0行、保持PDFだけが残り、AI Searchも保持documentだけを返した。SQL Warehouseによる回復UPDATEのno-op構文検証も成功した。
+同じassetで、Project `<RESOURCE_ID>`の30分超の孤児Chat run 2件と対応assistant messageをguard付きで`ERROR`へ収束し、document `<RESOURCE_ID>`のDELETEがHTTP 202となることを確認した。deletion requestは`<RESOURCE_ID>`、残存documentは`<RESOURCE_ID>`である。影響旧Variant 4件は同一設定をまとめて後継2件となった。prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`は`READY`で論理Variant範囲のsource 8行、prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`も`READY`で同範囲のsource 4行だった。これらは共有Table／Index全体の件数ではない。両方で削除PDF 0行、保持PDFだけが残り、AI Searchも `project_id + variant_id` 範囲で保持documentだけを返した。SQL Warehouseによる回復UPDATEのno-op構文検証も成功した。
 
-PDF 2件→1件の論理削除は、fresh Project `<RESOURCE_ID>`を作るhelperがexit 0になるまで一続きで確認した。document `<RESOURCE_ID>`のDELETEはHTTP 202で、旧Variant `<RESOURCE_ID>`を期待理由付きで`SUPERSEDED`にし、registryへ削除request `<RESOURCE_ID>`のtombstoneを残した。後継prep `<RESOURCE_ID>`／Job run `<DATABRICKS_RESOURCE_ID>`、Variant `<RESOURCE_ID>`、Indexは`READY`で、source／Index各6行、削除PDFの行／検索hitは0、保持PDFの行は6／検索hitは1である。同じDELETEの再送、削除前引用、後継回答とTrace `<TRACE_ID>`も確認した。
+PDF 2件→1件の論理削除は、fresh Project `<RESOURCE_ID>`を作るhelperがexit 0になるまで一続きで確認した。document `<RESOURCE_ID>`のDELETEはHTTP 202で、旧Variant `<RESOURCE_ID>`を期待理由付きで`SUPERSEDED`にし、registryへ削除request `<RESOURCE_ID>`のtombstoneを残した。後継prep `<RESOURCE_ID>`／Job run `<DATABRICKS_RESOURCE_ID>`、論理Variant `<RESOURCE_ID>`、既存Indexは`READY`で、`project_id + variant_id` 範囲のsource／検索対象は各6行、削除PDFの行／検索hitは0、保持PDFの行は6／検索hitは1である。同じDELETEの再送、削除前引用、後継回答とTrace `<TRACE_ID>`も確認した。
 
-最後の1件→0件は別の検証Project `<RESOURCE_ID>`でread-only preflight後に明示確認付きhelperを実行した。最後のdocument `<RESOURCE_ID>`をHTTP 202で削除し、Project `EMPTY`、`active_variant_id=NULL`、READY Variant 0へ収束した。prep runは4→4で空Indexを作らず、mutation lockを解除し、2件のPDF原本、2件の解析結果、削除前の両引用を保持した。最終状態のStatementは`<STATEMENT_ID>`である。
+最後の1件→0件は別の検証Project `<RESOURCE_ID>`でread-only preflight後に明示確認付きhelperを実行した。最後のdocument `<RESOURCE_ID>`をHTTP 202で削除し、Project `EMPTY`、`active_variant_id=NULL`、READY Variant 0へ収束した。prep runは4→4のままで空の後継論理Variantを作らず、共有の物理Indexは維持し、mutation lockを解除した。2件のPDF原本、2件の解析結果、削除前の両引用を保持した。最終状態のStatementは`<STATEMENT_ID>`である。
 
 削除E2E helperのSQL Statement Executionでは、`on_wait_timeout="CONTINUE"`という文字列を渡すとSDK版によって`AttributeError: 'str' object has no attribute 'value'`になる。両helperを`ExecuteStatementRequestOnWaitTimeout.CONTINUE`へ修正し、契約testを追加した後に上記fresh E2Eを完走した。AI Searchの`query_type="HYBRID"`はSDKの文字列契約どおりであり、この修正対象ではない。
 
 asset `1.4.4`の削除後aggregateはStatement `<STATEMENT_ID>`で確認した。非ARCHIVED Project 11、document 22（`ACTIVE=18`、`DELETING=0`、`DELETED=4`）、Variant 20（`READY=13`、`SUPERSEDED=7`）、評価case 44、active mutation lock 0である。asset `1.4.3`のfresh E2E直後のStatement `<STATEMENT_ID>`は、Project 13、document 22（`ACTIVE=19`、`DELETED=3`）、Variant 18（`READY=15`、`SUPERSEDED=3`）だった過去snapshotとして保持する。
 
-asset `1.4.4`の追加回帰では、評価質問の選択UI／API／Job、30分超Chat runのguard付き回復に加え、従来の評価履歴再表示、`ERROR` PDF再解析、live citation、未ラベルAnswer Correctness除外、advisor根拠、Qwen fallback、PDF／Project削除の競合防止を確認した。概要監査はregistry 20件時点で空欄0件、20〜30字違反0件、`AI_GENERATED=10`、`AI_GENERATED_NORMALIZED=9`、`USER=1`であり、後続のregistry全体へは外挿しない。
+asset `1.4.4`の追加回帰では、評価質問の選択UI／API／Job、30分超Chat runのguard付き回復に加え、従来の評価履歴再表示、`ERROR` PDF再解析、live citation、未ラベルAnswer Correctness除外、advisor根拠、旧model catalogのQwen fallback、PDF／Project削除の競合防止を確認した。このfallbackは過去の候補選択テストであり、現行Index ProfileのEmbeddingを実行時fallbackする仕様ではない。概要監査はregistry 20件時点で空欄0件、20〜30字違反0件、`AI_GENERATED=10`、`AI_GENERATED_NORMALIZED=9`、`USER=1`であり、後続のregistry全体へは外挿しない。
 
-G01はProject `<RESOURCE_ID>`へ登録した。document `<RESOURCE_ID>`、parse run `<RESOURCE_ID>`で3ページを解析し、タイトル自動補完、汎用メタデータ保持、旧車両値NULLを確認した。prep run `<RESOURCE_ID>`、Job run `<DATABRICKS_RESOURCE_ID>`、Semantic／512 Variant `<RESOURCE_ID>`は成功し、sourceとIndexは各6行、別Project行0、IndexはREADYである。
+G01はProject `<RESOURCE_ID>`へ登録した。document `<RESOURCE_ID>`、parse run `<RESOURCE_ID>`で3ページを解析し、タイトル自動補完、汎用メタデータ保持、旧車両値NULLを確認した。旧assetでのprep run `<RESOURCE_ID>`、Job run `<DATABRICKS_RESOURCE_ID>`、Semantic／512 Variant `<RESOURCE_ID>`は成功し、sourceとIndexは各6行、別Project行0、IndexはREADYだった。このSemantic／512実測は過去方式の証跡であり、現行UIへ表示するには管理者が対応する既存Table／IndexをProfile登録する必要がある。
 
 G01のremote Chat E2Eは旧asset `1.4.1`のdeployment `<DEPLOYMENT_ID>`でsession `<RESOURCE_ID>`、request `<RESOURCE_ID>`、Trace `<TRACE_ID>`を実行した。期待回答`30分`と一致し、引用1件、PDF／Trace linkを確認した。評価case `<RESOURCE_ID>`、Dataset `security-policy-v1`、run `<RESOURCE_ID>`ではPhase 1〜5の5結果、エラー0、Correctness／Groundedness／Citation Correctness各5件、Trace 5件、改善提案5件を確認した。未ラベルstarter質問だけを使ったeval run `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`も成功し、Answer Correctnessは`NULL`、error rate 0、改善提案1件だった。これらのIDは旧asset `1.4.1`の履歴証跡として維持し、現行PDF削除deploymentのIDへ置き換えない。
 
@@ -4652,5 +4635,5 @@ App SPの`toyota_rag_eval_cases`に不足していた`SELECT`／`MODIFY`を追�
 残る`PENDING`は次の領域である。
 
 - ストリーミング性能runによるserver／client TTFT。品質runのE2Eから推測しない。
-- Standard／256とSemantic／512以外の7つのchunk profileを実Workspaceでsmokeすること。
+- **任意拡張:** Standard／256、Semantic／512など追加Profileを管理者が手動作成・登録した場合は、各Profileを実Workspaceでsmokeすること。通常のStandard／512／Qwen3 1件モードの完了条件には含めない。
 - Microsoft Entra IDへサインイン済みのブラウザで、新しいdeploymentの4ページ、ログインメール、削除、概要、PDF再表示を手操作すること。

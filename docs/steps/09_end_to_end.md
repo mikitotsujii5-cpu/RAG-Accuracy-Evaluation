@@ -25,10 +25,10 @@
 - PDF upload後、`FILE`型のDocument Parsingが完了する。
 - 必須入力はPDFだけで、「文書情報を追加」は初期状態で閉じている。開閉でき、タイトル、カテゴリ、タグ、文書日付、ソース、追加メタデータを毎回入力しなくてもよい。
 - タイトル未入力時はファイル名から補完され、概要未入力時は解析後にFMAPIで20〜30字の概要、または同じ長さのfallback概要が入る。
-- 256／512／1024とStandard／Semantic／Parent-childを選べる。
+- 管理者が登録した既存Index Profileだけが表示される。現行field-eng-eastではStandard／512／Qwen3の1件だけが固定表示され、未登録の256／1024や別手法は表示されない。
 - 「02 検索する文書のチャンク化・ベクトル化」と表示される。
-- READYなFMAPI Embedding候補だけを選べ、利用可能ならQwen3 Embedding 0.6Bが既定で「推奨・日本語対応」と表示される。利用不可時の別fallbackへ「日本語対応」を誤表示しない。
-- 新しいVariantは別Table／Indexとして残り、既存Variantを上書きしない。
+- Index Profileに登録されたEmbeddingだけを表示する。現行field-eng-eastではQwen3 Embedding 0.6Bで固定される。
+- 新しい論理Variantは、選択したIndex Profileの共有Delta Table／AI Search Indexへ`project_id`と`variant_id`で分離して保存され、既存の論理Variantを上書きしない。
 - カタログにタイトル、概要、リンクが表示され、認可済みPDFを開ける。
 - 「PDFを開く」をhoverまたはfocusした時点でprefetchする。全画面viewerで全ページをスクロールでき、ページ幅表示、別タブ表示、ダウンロード、Esc終了を確認する。content APIは`ETag`、byte `Range`、private cacheに対応し、同じProject・PDF・pageを閉じて再表示すると読み込み済みiframeを再利用し、Project切替時は破棄する。
 - 状態が`ERROR`のPDFだけに「再解析」が表示され、同じ登録ファイルを`FILE`型で再処理する。連打しても再解析要求は1件だけである。
@@ -38,7 +38,7 @@
 
 本番利用中のProjectではなく、削除検証専用の使い捨てProjectで行います。
 
-次のhelperは、2件のPDFを持つ隔離Projectの作成、初期Variant、削除前引用、1件の論理削除、後継Variant／Delta Table／AI Search、過去引用、冪等DELETEを一続きで検証します。`--cleanup-project`は成功後に検証Projectを論理削除する場合だけ付けます。初回は証跡を目視で確認できるよう、付けずに実行します。
+次のhelperは、2件のPDFを持つ隔離Projectの作成、初期Variant、削除前引用、1件の論理削除、登録済みProfile内の後継論理Variant書き込み／既存AI Search同期、過去引用、冪等DELETEを一続きで検証します。物理Delta Table／Indexは作成しません。`--cleanup-project`は成功後に検証Projectを論理削除する場合だけ付けます。初回は証跡を目視で確認できるよう、付けずに実行します。
 
 ```bash
 app/.venv/bin/python scripts/smoke_test_document_deletion.py \
@@ -54,7 +54,7 @@ helperが出力するProject、document、旧／後継Variant、prep／Job run�
 
 両helperのSQL待機設定は、Databricks SDKのenum `ExecuteStatementRequestOnWaitTimeout.CONTINUE`を使います。`on_wait_timeout="CONTINUE"`のような文字列は、SDK内部で`AttributeError: 'str' object has no attribute 'value'`となるため使いません。現行sourceはenumへ修正済みで、契約testとfresh helperのexit 0を確認しています。
 
-1件目の削除と後継Indexの確認が成功したら、helperの最終JSONにある値を作業用変数へ入れます。最初にread-only preflightを実行し、対象が`PDF単体削除E2E-`で始まる使い捨てProject、表示中PDFが1件、READY Variantが1件、実行中runが0件であることを確認します。
+1件目の削除と後継論理Variant／既存Index同期の確認が成功したら、helperの最終JSONにある値を作業用変数へ入れます。最初にread-only preflightを実行し、対象が`PDF単体削除E2E-`で始まる使い捨てProject、表示中PDFが1件、READY Variantが1件、実行中runが0件であることを確認します。
 
 ```bash
 DELETE_E2E_PROJECT_ID="<1件目helperのproject_id>"
@@ -92,12 +92,12 @@ app/.venv/bin/python scripts/smoke_test_last_document_deletion.py \
 3. PDF Aの「削除」を押し、確認画面を取り消したときは何も変わらないことを確認する。再度開き、「PDFを削除」で確定する。
 4. API応答が`202 Accepted`、PDF Aがカタログとデータ準備の対象から消えること、同じDELETEを再送しても新しい後継runが増えないことを確認する。
 5. 元Variantが`SUPERSEDED`となり、チャット／評価の選択肢から外れることを確認する。
-6. 後継Data Preparation runが`SUCCEEDED`、AI Search IndexがREADYとなるまで待つ。後継Variantの`source_document_ids`はPDF Bだけで、source TableとIndexにPDF Aのchunkが0件、PDF Bのchunkが1件以上であることを確認する。
+6. 後継Data Preparation runが`SUCCEEDED`、登録済みProfileのAI Search Index同期がREADYとなるまで待つ。後継Variantの`source_document_ids`はPDF Bだけで、共有source TableとIndexを後継の`project_id`＋`variant_id`で絞るとPDF Aのchunkが0件、PDF Bのchunkが1件以上であることを確認する。
 7. 後継VariantでPDF Aの内容が検索結果へ出ないこと、PDF Bは検索できることを確認する。
 8. 削除前の回答、評価結果、PDF Aの引用リンクが残り、ProjectのVIEWER以上でPDF原本を開けることを確認する。registryの状態は`DELETED`で、Volume原本と解析行は保持する。
 9. 30分以内の実行中Chat、Data Preparation、Evaluation、別mutationがあるテストでは、PDF削除が409となり、PDF、Variant、Project mutation lockが安全な状態へ戻ることを確認する。
 10. App再起動などで開始から30分を超えた`QUEUED`／`STREAMING`／`CANCEL_REQUESTED` Chat runを用意したテストでは、削除前にrunが`ERROR`、対応する`STREAMING` assistant messageも`ERROR`へ収束し、PDF削除が続行できることを確認する。同時に完了したrunの終端状態は上書きしない。
-11. PDF Bも削除し、Projectが`EMPTY`、`active_variant_id=NULL`、カタログが空、利用可能Variantが0件となることを確認する。空の後継Indexは作らない。
+11. PDF Bも削除し、Projectが`EMPTY`、`active_variant_id=NULL`、カタログが空、利用可能Variantが0件となることを確認する。後継の論理Variant／chunk sliceは作らず、共有Profileの物理Indexは維持する。
 
 ### 3. チャット
 
@@ -140,7 +140,7 @@ app/.venv/bin/python scripts/smoke_test_last_document_deletion.py \
 
 - まずブラウザに出たerror code、Project ID、画面名、操作時刻、Job run IDを記録します。tokenやauthorization headerは記録しません。
 - `RESOURCE_NOT_READY`はhealthの`missing`とApp resource／権限を照合します。
-- 別Projectの検索結果が1件でも出た場合は、その評価結果を採用せず、Variant registryとIndex sourceを修正します。
+- 別Projectの検索結果が1件でも出た場合は、その評価結果を採用せず、Index Profile設定、Variant registry、`project_id`＋`variant_id` filter、active pointerを修正します。App／Jobから物理Indexを作り直して回避しません。
 - 引用リンクが検索結果にない場合は、LLM出力をそのままリンク化せず、citation検証処理を修正します。
 - 引用欄へチャンク本文が表示された場合は正式結果として扱わず、PDF content URL生成と画面renderを修正します。
 - `retrieval.completed`にexcerptが含まれる、またはlive citationに検証済み`document_id`がない場合は、そのrunを正式結果に使わずSSE payloadを修正します。
@@ -158,25 +158,25 @@ app/.venv/bin/python scripts/smoke_test_last_document_deletion.py \
 
 確認済み項目は`SUCCESS`です。
 
-- 現行source asset `1.6.0`は評価用検索データの自動選択とPDF全画面viewerを含むUI 42件と差分checkが成功しました。Python 344件はasset `1.4.9`の確認記録です。
-- 現行asset `1.6.0`はGitHubの`main/app`からfield-eng-eastへ配置済みです。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.6.0`／`databricks_ready=true`、resource binding 7件を確認しました。認証付きremote画面で、検索データ未作成時の「データ準備へ」、通常時の自動選択、複数候補時だけの変更操作を確認しました。実ID、メール、App URL、Workspace IDは公開記録へ含めていません。
+- 現行source asset `1.7.0`はPython 344件、登録済みIndex Profileだけを表示する回帰を含むUI 45件、差分checkが成功しました。
+- 現行asset `1.7.0`はGitHubの`main/app`からfield-eng-eastへ配置済みです。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件、asset URL version `1.7.0`を確認しました。認証付きremote画面ではStandard／512／Qwen3の1 Profileだけが表示され、Profile selector、256／1024の可視要素、console warning／errorは0件でした。`/api/health`は今回直接再確認していないためversion値を推測していません。実ID、メール、App URL、Workspace IDは公開記録へ含めていません。
 - asset `1.4.7`で実行済みだったPhase 1・1問・1回runを、asset `1.4.8`のremote status／results APIで取得しました。状態は`SUCCEEDED`、1／1試行、`elapsed_seconds=774`、Lakeflow run totalは777.125秒、指標1件、改善提案1件、Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msです。asset `1.4.8`で新しい評価runを起動した証跡ではありません。
 - Phase横並び、結果画面、経過時間「12分54秒」が3秒後も固定されることは、ローカルSSO代替画面で目視確認しました。asset `1.4.5`の既存Index、実RAGチャット、Trace、PDFリンク引用は過去のremote履歴として保持します。
 - baseline Projectの使用中Variantを`baseline-standard-512-v1`へ復元し、UPDATE Statement `<STATEMENT_ID>`と検証SELECT `<STATEMENT_ID>`で確認しました。
 - 非車両Project `<RESOURCE_ID>`へPDFを登録し、タイトル自動補完、汎用metadata、旧車両値NULL、3ページの`FILE`型解析を確認しました。documentは`<RESOURCE_ID>`、parse runは`<RESOURCE_ID>`です。
-- 「RAG検索データを作成」はprep run `<RESOURCE_ID>`、Job run `<DATABRICKS_RESOURCE_ID>`、Semantic／512 Variant `<RESOURCE_ID>`で`SUCCEEDED`です。sourceとIndexは各6行、別Project行0、Indexは`READY`です。
+- 旧動的Index方式の「RAG検索データを作成」はprep run `<RESOURCE_ID>`、Job run `<DATABRICKS_RESOURCE_ID>`、Semantic／512 Variant `<RESOURCE_ID>`で`SUCCEEDED`です。sourceとIndexは各6行、別Project行0、Indexは`READY`でした。この履歴は現行AppでSemantic／512 Profileが利用できることを示しません。
 - 旧asset `1.4.1`の非車両PDF remote Chat E2Eは期待回答`30分`と一致しました。session `<RESOURCE_ID>`、request `<RESOURCE_ID>`、Trace `<TRACE_ID>`、引用1件、PDF／Trace linkを履歴として保持しています。
 - 旧asset `1.4.1`では、同じrequestを再送しても保存messageはuser／assistantの2件だけでした。別session `<RESOURCE_ID>`では停止API `CANCEL_REQUESTED`、terminal `run.cancelled`、履歴 `CANCELLED`を確認しました。
-- 過去評価runの再表示、`ERROR` PDF再解析の多重送信防止、live citationの`document_id`、retrieval SSEからのexcerpt除去、advisorへの回答品質／rationale入力、Qwen fallback表示を現行sourceで回帰確認しました。旧asset `1.4.1`で開始した未ラベルstarter質問だけのeval run `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`も`SUCCESS`で、Phase 1のAnswer Correctnessは`NULL`、error rate 0、改善提案1件です。未ラベル回答を0点として平均へ入れていません。
+- 過去評価runの再表示、`ERROR` PDF再解析の多重送信防止、live citationの`document_id`、retrieval SSEからのexcerpt除去、advisorへの回答品質／rationale入力、登録済みProfileだけの表示と未登録Embeddingへのfallback禁止を現行sourceで回帰確認しました。旧asset `1.4.1`で開始した未ラベルstarter質問だけのeval run `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`も`SUCCESS`で、Phase 1のAnswer Correctnessは`NULL`、error rate 0、改善提案1件です。未ラベル回答を0点として平均へ入れていません。
 - PDF概要はregistry 20件のsnapshotで空欄0件、20〜30字違反0件です。内訳は`AI_GENERATED=10`、`AI_GENERATED_NORMALIZED=9`、`USER=1`で、Statementは`<STATEMENT_ID>`です。fresh helper後の最新registry 22件全体の監査値ではありません。
 - 旧asset `1.4.1`では、評価case `<RESOURCE_ID>`、Dataset `security-policy-v1`、run `<RESOURCE_ID>`でPhase 1〜5を完走しました。5結果、エラー0、Correctness／Groundedness／Citation Correctness各5件、Trace 5件、改善提案5件です。
 - 旧asset `1.4.1`のトヨタ互換回帰でも期待回答`60`と一致し、session `<RESOURCE_ID>`、request `<RESOURCE_ID>`、Trace `<TRACE_ID>`、引用2件を確認しました。
 - 直前のnpm失敗deployment `<DEPLOYMENT_ID>`は失敗履歴として現行deploymentと分けています。
-- PDF単体の2件→1件削除E2Eは`SUCCESS`です。新しい使い捨てProject `<RESOURCE_ID>`でdocument `<RESOURCE_ID>`をDELETE `202`で論理削除しました。初期prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`、初期Variant `<RESOURCE_ID>`は`SUPERSEDED`となり、document `<RESOURCE_ID>`だけを持つ後継Variant `<RESOURCE_ID>`が`READY`になりました。後継prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`、source／Index各6行、削除PDF行／検索hit 0、保持PDF行6／検索hit 1を確認しました。
+- 旧動的Index方式のPDF単体2件→1件削除E2Eは`SUCCESS`です。新しい使い捨てProject `<RESOURCE_ID>`でdocument `<RESOURCE_ID>`をDELETE `202`で論理削除しました。初期prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`、初期Variant `<RESOURCE_ID>`は`SUPERSEDED`となり、document `<RESOURCE_ID>`だけを持つ後継Variant `<RESOURCE_ID>`が`READY`になりました。後継prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`、対象`project_id`＋`variant_id`のsource／Index各6行、削除PDF行／検索hit 0、保持PDF行6／検索hit 1を確認しました。これは現行Profile構成の物理Index件数ではありません。
 - 同じDELETEの再送は冪等でした。削除前のsession `<RESOURCE_ID>`／request `<RESOURCE_ID>`／Trace `<TRACE_ID>`の引用と、後継session `<RESOURCE_ID>`／request `<RESOURCE_ID>`／Trace `<TRACE_ID>`の回答・PDF引用を確認しました。
-- 最後の1件→0件は別の既存検証Project `<RESOURCE_ID>`だけをEMPTY証跡に使いました。最後のdocument `<RESOURCE_ID>`をDELETE `202`で論理削除し、Project `EMPTY`、active Variantなし、READY Variant 0件、prep run数4→4、空の後継Indexなし、mutation lock解除、PDF原本・解析行・過去引用の保持を確認しました。
+- 旧動的Index方式の最後の1件→0件は別の既存検証Project `<RESOURCE_ID>`だけをEMPTY証跡に使いました。最後のdocument `<RESOURCE_ID>`をDELETE `202`で論理削除し、Project `EMPTY`、active Variantなし、READY Variant 0件、prep run数4→4、空の後継物理Indexなし、mutation lock解除、PDF原本・解析行・過去引用の保持を確認しました。現行方式では共有Profileの物理Indexを維持し、後継論理sliceを作りません。
 - asset `1.4.4`ではProject `<RESOURCE_ID>`で開始から30分を超えた孤児Chat run 2件と対応assistant messageを`ERROR`へ整合し、document `<RESOURCE_ID>`のDELETEがHTTP 202になることを確認しました。deletion requestは`<RESOURCE_ID>`、影響旧Variant 4件、残存documentは`<RESOURCE_ID>`です。SQL Warehouseによる回復UPDATEのno-op構文検証も成功しています。
-- 後継prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`はREADY、source 8行、削除0／保持8行です。後継prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`もREADY、source 4行、削除0／保持4行です。両AI Search実検索は保持documentだけ、削除document 0件でした。
+- 旧動的Index方式の後継prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`はREADY、対象sliceのsource 8行、削除0／保持8行です。もう一つの後継prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`もREADY、対象sliceのsource 4行、削除0／保持4行です。両AI Search実検索は保持documentだけ、削除document 0件でした。
 - 選択評価run `<RESOURCE_ID>`では、case `figure-001`だけを固定し、Job `<DATABRICKS_RESOURCE_ID>`／task `<DATABRICKS_RESOURCE_ID>`が`TERMINATED`／`SUCCESS`、結果1行、選択外0行、error 0で完了しました。MLflow runは`<RESOURCE_ID>`、確認Statementは`<STATEMENT_ID>`です。
 - 最新aggregateはStatement `<STATEMENT_ID>`で、非ARCHIVED Project 11、documents 22（`ACTIVE=18`／`DELETING=0`／`DELETED=4`）、Variants 20（`READY=13`／`SUPERSEDED=7`）、評価ケース44、mutation lock 0です。
 - Evaluation Job run `<DATABRICKS_RESOURCE_ID>`で、同一条件のPhase 1〜5を完走しました。各Phase 12結果、合計60結果、エラー0、Trace 60件、Phase別LLM改善提案5件です。
@@ -187,7 +187,7 @@ app/.venv/bin/python scripts/smoke_test_last_document_deletion.py \
 
 - Microsoft Entra IDへサインイン済みのremoteブラウザによる、デプロイ画面4ページの手操作。認証付きremote read APIとローカルSSO代替画面は成功していますが、これを代替証拠にはしません。
 - ストリーミング性能runによるserver／client TTFT。非ストリーミング品質runのE2Eから推測しません。
-- 全9 profileのうち未実施の7種類。実WorkspaceではStandard／256とSemantic／512をsmoke済みです。
+- 追加のチャンク比較Profile。256／1024やSemantic／Parent-childを比較する場合は、別Delta Table／AI Search Indexを手動作成し、AppとJobの許可リストへ登録してから確認します。旧方式のsmoke履歴は現行Appの利用可能Profileには含めません。
 
 ## 公式ドキュメント
 

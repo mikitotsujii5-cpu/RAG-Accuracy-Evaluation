@@ -27,7 +27,7 @@
   "tasks": [
     {
       "task_key": "prepare_index_variant",
-      "description": "Verify prep_run_id, build the selected chunk profile, create/register its isolated Variant, sync AI Search, and seed starter evaluation questions.",
+      "description": "Verify prep_run_id, build the selected chunk profile, register its logical Variant in a pre-created profile, sync AI Search, and seed starter evaluation questions.",
       "environment_key": "toyota_rag_serverless_v5",
       "timeout_seconds": 7200,
       "max_retries": 1,
