@@ -99,6 +99,16 @@ def build_console_links(settings: Settings) -> dict[str, str]:
 
 def _workspace_target(settings: Settings) -> tuple[str, str | None] | None:
     raw = settings.workspace_ui_host or settings.databricks_host
+    if not raw:
+        # DATABRICKS_HOST is a documented Apps system variable. Keep a SDK
+        # fallback because some runtime/build combinations expose the same
+        # resolved host only through the SDK configuration provider.
+        try:
+            from databricks.sdk import WorkspaceClient
+
+            raw = WorkspaceClient().config.host
+        except Exception:
+            return None
     if not isinstance(raw, str) or not raw.strip():
         return None
     try:

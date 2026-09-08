@@ -16,7 +16,7 @@
 | `MLFLOW_EXPERIMENT_ID` | AppのTraceを書き込むMLflow Experiment |
 | `MLFLOW_TRACKING_URI` | Databricks Appsでは`databricks`を指定し、WorkspaceのMLflow Trackingを使用 |
 | `MLFLOW_TRACING_SQL_WAREHOUSE_ID` | MLflow 3 Tracingが使用するSQL Warehouse |
-| `DATABRICKS_WORKSPACE_UI_HOST` | ブラウザで開くWorkspace URL。`databricks.yml`の`${workspace.host}`から設定し、未設定時はDatabricksが提供する`DATABRICKS_HOST`へfallback |
+| `DATABRICKS_WORKSPACE_UI_HOST` | 任意の明示的なWorkspace URL。未設定時はAppsの`DATABRICKS_HOST`、さらにSDKが解決した同一Workspace hostへfallback |
 
 次の2つは、対応する非同期Jobを使う場合に必要です。
 

@@ -158,7 +158,7 @@ app/.venv/bin/python scripts/smoke_test_last_document_deletion.py \
 
 確認済み項目は`SUCCESS`です。
 
-- 現行source asset `1.4.9`はPython 342件とUI 40件、合計382件が成功し、差分checkも成功しました。機能リンク、質問例9件、「比較条件を選択」、個人固有名を固定しないResource Binding解決を含みます。
+- 現行source asset `1.4.9`はPython 343件とUI 40件、合計383件が成功し、差分checkも成功しました。機能リンク、質問例9件、「比較条件を選択」、個人固有名を固定しないResource Binding解決を含みます。
 - 現行asset `1.4.8`はGitHubの`main/app`から配置済みです。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.8`／`databricks_ready=true`、resource binding 7件を確認しました。実ID、メール、App URL、Workspace IDは公開記録へ含めていません。
 - asset `1.4.7`で実行済みだったPhase 1・1問・1回runを、asset `1.4.8`のremote status／results APIで取得しました。状態は`SUCCEEDED`、1／1試行、`elapsed_seconds=774`、Lakeflow run totalは777.125秒、指標1件、改善提案1件、Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msです。asset `1.4.8`で新しい評価runを起動した証跡ではありません。
 - Phase横並び、結果画面、経過時間「12分54秒」が3秒後も固定されることは、ローカルSSO代替画面で目視確認しました。asset `1.4.5`の既存Index、実RAGチャット、Trace、PDFリンク引用は過去のremote履歴として保持します。

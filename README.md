@@ -47,7 +47,7 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 
 ## 現在の構築状態
 
-現行source asset `1.4.9`はPython 342件とUI 40件、合計382件の自動テストに合格しています。Databricks機能リンク、質問例9件、「比較条件を選択」、個人固有のCatalog名を持たないResource Binding解決を含みます。remote配置はこの変更のデプロイ完了後に更新します。直前のremote asset `1.4.8`はGitHubの`main/app`から配置済みで、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health `databricks_ready=true`、resource binding 7件を確認しています。公開用Markdownには実測ID、メール、App URL、Workspace IDを含めません。
+現行source asset `1.4.9`はPython 343件とUI 40件、合計383件の自動テストに合格しています。Databricks機能リンク、質問例9件、「比較条件を選択」、個人固有のCatalog名を持たないResource Binding解決を含みます。remote配置はこの変更のデプロイ完了後に更新します。直前のremote asset `1.4.8`はGitHubの`main/app`から配置済みで、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health `databricks_ready=true`、resource binding 7件を確認しています。公開用Markdownには実測ID、メール、App URL、Workspace IDを含めません。
 
 | 項目 | 状態 | 実測 |
 |---|---|---|
@@ -74,7 +74,7 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 | RAG検索データ作成E2E | `SUCCESS` | Semantic／512のsource 6行、Index 6行、別Project行0、Index READY |
 | 汎用RAG migration／再デプロイ／非車両PDF E2E | `SUCCESS` | migration、汎用化source、登録・解析・Variant・チャット・引用・評価を実環境で確認 |
 | Chat多重送信・停止 | `SUCCESS` | 旧asset `1.4.1`のremote履歴。同一request再送後も保存message 2件、停止API `CANCEL_REQUESTED`、terminal `run.cancelled`、履歴 `CANCELLED` |
-| 現行sourceの回帰テスト | `SUCCESS` | asset `1.4.9`、Python 342件、UI 40件、合計382件、差分check成功 |
+| 現行sourceの回帰テスト | `SUCCESS` | asset `1.4.9`、Python 343件、UI 40件、合計383件、差分check成功 |
 | 評価質問の選択 | `SUCCESS` | Project／評価データ版／用途内の登録済み質問を初期全選択。個別選択、すべて選択、選択解除、正解状態・期待回答・正解PDF／ページ、選択件数・最大試行数を表示し、0件では開始不可。API／Jobは選択IDだけを凍結・評価 |
 | PDF viewer | `SUCCESS` | 旧assetのremote content APIでPDF 200、Range 206、ETag 304、private cacheを確認。現行assetは削除前後のPDF 200を確認。ローカル再表示296 ms、Project切替時は保持iframeを破棄 |
 | PDF単体の論理削除 | `SUCCESS` | asset `1.4.4`でProject `<RESOURCE_ID>`のPDF `<RESOURCE_ID>`をDELETE 202。孤児Chat run 2件とassistant messageを`ERROR`へ整合後、影響旧Variant 4件から後継Variant 2件をREADY化。両Indexで削除PDF hit 0、保持PDFだけを検索 |

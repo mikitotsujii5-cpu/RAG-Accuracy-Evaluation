@@ -4619,7 +4619,7 @@ Trial: 1
 
 このsmokeではHybrid SearchのPhase 2が検索3指標を改善した一方、Metadata Filtering以降はRecallが低下し、Query Optimizationを含むPhase 5はlatencyが増えた。改善機能を増やすこと自体を目的にせず、Phase別提案と失敗Traceから次の一変更を選んで再評価する。
 
-現行source asset `1.4.9`はPython 342件とUI 40件、合計382件の自動テストと差分checkに合格し、Workspace機能リンク、質問例9件、「比較条件を選択」、個人固有名を固定しないResource Binding解決を回帰確認した。同一`Idempotency-Key`再送、`eval_run_id`によるJob冪等化、`retry_after_ms`、一時的な`UNKNOWN`再確認、確定的Job拒否の`FAILED`収束、評価履歴からの初回status GETの25秒timeout／最大3回再接続、停止POST待機中のterminal検知とPOST中止・結果保持、停止回復、重複Phase集約、結果取得の45秒timeout／最大3回再試行、Job ID正整数検証も回帰対象である。
+現行source asset `1.4.9`はPython 343件とUI 40件、合計383件の自動テストと差分checkに合格し、Workspace機能リンク、質問例9件、「比較条件を選択」、個人固有名を固定しないResource Binding解決を回帰確認した。同一`Idempotency-Key`再送、`eval_run_id`によるJob冪等化、`retry_after_ms`、一時的な`UNKNOWN`再確認、確定的Job拒否の`FAILED`収束、評価履歴からの初回status GETの25秒timeout／最大3回再接続、停止POST待機中のterminal検知とPOST中止・結果保持、停止回復、重複Phase集約、結果取得の45秒timeout／最大3回再試行、Job ID正整数検証も回帰対象である。
 
 2026-09-09にGitHubの`main/app`からasset `1.4.8`を配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.8`／`databricks_ready=true`、resource binding 7件を確認した。asset `1.4.7`で実行済みだったPhase 1・1問・1回runをasset `1.4.8`のremote status／results APIで取得し、`SUCCEEDED`、1／1試行、`elapsed_seconds=774`、Lakeflow run total 777.125秒、指標1件、改善提案1件を確認した。Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msである。ローカルSSO代替画面では、Phase横並び、結果画面、経過時間12分54秒が3秒後も固定されることを目視確認した。評価の実行はasset `1.4.7`、状態と結果の互換性確認はasset `1.4.8`の証跡であり、asset `1.4.8`による新規評価実行とは扱わない。SSO済みremoteブラウザ手操作、TTFT、残り7 profileは`PENDING`である。
 

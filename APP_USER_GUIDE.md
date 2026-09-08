@@ -7,7 +7,7 @@
 対象Workspaceは`field-eng-east`（ID `<WORKSPACE_ID>`）です。Databricksへサインインし、このAppの利用権限を持つアカウントで開いてください。
 
 > [!NOTE]
-> 現行sourceはasset version `1.4.9`です。Python 342件とUI 40件、合計382件の自動テストに合格しています。Databricks機能リンク、質問例9件、「比較条件を選択」を含みます。remote配置結果はデプロイ後に更新します。
+> 現行sourceはasset version `1.4.9`です。Python 343件とUI 40件、合計383件の自動テストに合格しています。Databricks機能リンク、質問例9件、「比較条件を選択」を含みます。remote配置結果はデプロイ後に更新します。
 
 > [!CAUTION]
 > 付属のトヨタ車種関連PDFはすべて架空の評価データです。内容を実車の操作、整備、救助、購入判断に使わないでください。これらは同梱シナリオであり、アプリは車両以外のPDFにも使えます。
