@@ -53,6 +53,11 @@ find app -maxdepth 2 \( -name '.venv' -o -name '__pycache__' -o -name '.pytest_c
 - Phase advisorへ回答品質3指標とjudge rationaleが渡り、Qwen以外のfallbackモデルへ「日本語対応」を誤表示しないことを確認する。
 - 評価画面で版・用途ごとの質問が初期全選択され、個別選択、すべて選択、選択解除、正解状態／詳細、選択件数／最大試行数が動くことを確認する。0件では開始できず、開始APIへ選択した`evaluation_case_ids`だけを送る。
 - 評価作成APIは`evaluation_case_ids`を1〜1000件で検証し、別Project・別version・別split、空ID、重複IDを拒否する。Jobは保存済みの選択IDだけを評価し、IDのない旧runは全件評価を維持する。
+- 精度評価のtrial既定値が1で、質問、Phase、Variant、回答LLM、採点LLMのすべてがそろうまで開始ボタンが無効であることを確認する。1問 × 5 Phase × 1回では最大5試行と表示する。
+- 開始APIの応答前からspinnerと進捗カードが表示され、工程、全体／Phase別の`completed_trials`、割合、経過時間が更新されることを確認する。Phaseカードの横スクロールと、狭い画面で設定・工程・指標が1列になることも確認する。
+- 画面再読込、ページ移動、Project再表示でactiveな評価runを復元し、poll timeout／一時失敗の後も監視を継続する。実行中に別の履歴runへ切り替えて結果を混ぜない。
+- 評価停止はDeltaの`CANCEL_REQUESTED`とLakeflow Jobs APIのcancelを両方試行し、terminal状態まで監視する。JobがNotebook開始前に失敗／取消になった場合も、評価行を`FAILED`／`CANCELED`へ収束して無限待ちにしない。
+- providerの生メッセージをブラウザへ返さず、Job linkは設定済みWorkspaceと一致するHTTPS URLだけを表示する。検索再現率、回答正解率、回答時間を主要3指標として表示する。
 - PDF削除の競合確認では、開始から30分超の`QUEUED`／`STREAMING`／`CANCEL_REQUESTED` Chat runと対応する途中のassistant messageだけをguard付きで`ERROR`へ収束する。30分以内のrunは409を維持し、同時完了した終端状態を上書きしない。
 
 ## 失敗時の修正
@@ -64,11 +69,11 @@ find app -maxdepth 2 \( -name '.venv' -o -name '__pycache__' -o -name '.pytest_c
 
 ## この環境の実測結果
 
-`SUCCESS`。2026-09-08に現行source asset `1.4.5`の`app/tests`と`jobs/tests`を統合実行し、Python 306件すべてが合格しました。加えてChat UIのjsdom回帰テスト27件が合格しています。差分checkも合格しました。ローカルBrowserの既存実測ではEnter連打、spinner、停止、履歴切替、下書き、390 px表示を確認し、console errorは0件でした。PDF viewerは初回3,057 ms、同じProject・PDF・pageの再表示296 msを確認しました。
+`SUCCESS`。2026-09-08に現行source asset `1.4.6`の`app/tests`と`jobs/tests`を統合実行し、Python 311件すべてが合格しました。加えてChat UIのjsdom回帰テスト32件が合格しています。差分checkも合格しました。ローカル画面では評価開始直後のspinner、進捗、完了、停止、Phase横並びを確認しました。既存のChat実測ではEnter連打、spinner、停止、履歴切替、下書き、390 px表示、console error 0件、PDF viewer初回3,057 ms、同じProject・PDF・pageの再表示296 msを確認しています。
 
-テストには、PDFだけの登録、タイトル自動補完、汎用メタデータ、Project限定Metadata Filteringに加え、FMAPIモデルによって拒否されるoptional sampling値を送らないこと、最終回答で参照した引用だけを保存すること、同一`client_request_id`を冪等化すること、停止と完了の競合を正しく閉じること、Chat Trace IDを履歴と画面へ渡すこと、MLflow Trace階層の契約が含まれます。さらに現行sourceでは、20〜30字の概要生成、Qwen3の既定値とfallback表示、ログインユーザー取得、Project／会話削除、PDFの`Range`／`ETag`、PDF原文リンク、prefetch、`ERROR` PDF再解析、評価履歴再表示、未ラベルCorrectness除外、advisorの回答品質根拠、評価質問の個別／一括選択と固定、PDF単体削除の権限／競合／冪等性／後継Variant／最後のPDF、30分超の孤児Chat run回復、既存Index許可外の旧Variantを一覧から除外する回帰も対象です。現行asset `1.4.5`は新規Appへ配置し、Step 8〜9でremote RAGチャットまで確認しました。
+テストには、PDFだけの登録、タイトル自動補完、汎用メタデータ、Project限定Metadata Filteringに加え、FMAPIモデルによって拒否されるoptional sampling値を送らないこと、最終回答で参照した引用だけを保存すること、同一`client_request_id`を冪等化すること、停止と完了の競合を正しく閉じること、Chat Trace IDを履歴と画面へ渡すこと、MLflow Trace階層の契約が含まれます。さらに現行sourceでは、20〜30字の概要生成、Qwen3の既定値とfallback表示、ログインユーザー取得、Project／会話削除、PDFの`Range`／`ETag`、PDF原文リンク、prefetch、`ERROR` PDF再解析、評価履歴再表示、未ラベルCorrectness除外、advisorの回答品質根拠、評価質問の個別／一括選択と固定、評価runの復元／停止／終端収束、PDF単体削除の権限／競合／冪等性／後継Variant／最後のPDF、30分超の孤児Chat run回復、既存Index許可外の旧Variantを一覧から除外する回帰も対象です。直前のremote実測asset `1.4.5`はStep 8〜9で確認済みです。
 
-現行sourceは、上記284件の自動テストとdeployment `<DEPLOYMENT_ID>`のremote E2Eを別々の根拠として確認済みです。旧asset `1.4.1`の240件成功とasset `1.4.3`の277件成功は履歴であり、現行機能の合格件数へ混ぜません。
+現行sourceは、上記311件のPython自動テストと32件のChat UIテストを確認済みです。直前のdeployment `<DEPLOYMENT_ID>`によるremote E2Eはasset `1.4.5`の別証跡です。旧asset `1.4.1`の240件成功とasset `1.4.3`の277件成功は履歴であり、現行機能の合格件数へ混ぜません。
 
 削除E2E helperがSQL Statement Execution APIを呼ぶときは、両helperで`ExecuteStatementRequestOnWaitTimeout`をimportし、`on_wait_timeout=ExecuteStatementRequestOnWaitTimeout.CONTINUE`を渡します。文字列`"CONTINUE"`ではSDK内部で`AttributeError: 'str' object has no attribute 'value'`となることを実環境で検出し、enumへ修正後にfresh helperがexit 0となりました。`jobs/tests/test_deployment_contract.py`の2件の契約testで、このenum指定を固定しています。
 

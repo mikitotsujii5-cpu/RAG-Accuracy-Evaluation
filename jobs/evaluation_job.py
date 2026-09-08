@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.core import Config
 from databricks.sdk.service.serving import ChatMessage
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
@@ -27,7 +28,13 @@ from pyspark.sql import types as T
 
 dbutils.widgets.text("eval_run_id", "", "Evaluation run ID")
 EVAL_RUN_ID = require_uuid(dbutils.widgets.get("eval_run_id").strip(), "eval_run_id")
-workspace = WorkspaceClient()
+EVALUATION_API_TIMEOUT_SECONDS = 180
+workspace = WorkspaceClient(
+    config=Config(
+        http_timeout_seconds=EVALUATION_API_TIMEOUT_SECONDS,
+        retry_timeout_seconds=EVALUATION_API_TIMEOUT_SECONDS,
+    )
+)
 
 
 RETRIEVED_ITEM_TYPE = T.StructType(
@@ -1022,7 +1029,7 @@ try:
         vehicle_rows = [deep_dict(row) for row in spark.table(VEHICLE_MASTER_TABLE).where(F.col("active") == True).collect()]
         expected_trials = len(cases) * int(batch["trial_count"])
         update_batch(
-            "status='RUNNING', expected_trials=" + str(expected_trials) + ", "
+            "expected_trials=" + str(expected_trials) + ", "
             "started_at=coalesce(started_at,current_timestamp()), completed_at=NULL, "
             "error_message=NULL"
         )
@@ -1064,6 +1071,23 @@ try:
         for phase_id in batch["phases"]:
             phase = PHASE_PRESETS[phase_id]
             phase_payloads: list[dict[str, Any]] = []
+            completed_keys = {
+                (str(row["eval_case_id"]), int(row["trial_no"]))
+                for row in (
+                    spark.table(EVAL_RESULTS_TABLE)
+                    .where(F.col("project_id") == project_id)
+                    .where(F.col("eval_run_id") == EVAL_RUN_ID)
+                    .where(F.col("phase_id") == phase_id)
+                    .select("eval_case_id", "trial_no")
+                    .distinct()
+                    .collect()
+                )
+            }
+            update_batch(
+                f"status='RUNNING', completed_trials={min(len(completed_keys), expected_trials)}, "
+                "completed_at=NULL, error_message=NULL",
+                phase_id,
+            )
             for case in cases:
                 for trial_no in range(1, int(batch["trial_count"]) + 1):
                     cancellation = (
@@ -1341,6 +1365,11 @@ try:
                         root_span.set_outputs(evaluation_trace_output(payload))
                     mlflow.flush_trace_async_logging()
                     persist_result(payload)
+                    completed_keys.add((str(case["eval_case_id"]), trial_no))
+                    update_batch(
+                        f"status='RUNNING', completed_trials={min(len(completed_keys), expected_trials)}",
+                        phase_id,
+                    )
                     phase_payloads.append(payload)
 
                 if success_output and success_output.get("status") == "CANCELED":

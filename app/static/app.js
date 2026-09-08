@@ -54,6 +54,10 @@ const state = {
   evaluationPoll: null,
   evaluationController: null,
   evaluationOperation: 0,
+  evaluationSubmitting: false,
+  evaluationRunStartedAt: null,
+  evaluationElapsedTimer: null,
+  evaluationPollFailures: 0,
   catalogView: "cards",
   pdfPrefetches: new Set(),
 };
@@ -70,6 +74,11 @@ const PREPARATION_TERMINAL_STATUSES = new Set(["SUCCEEDED", "FAILED", "CANCELED"
 const PREPARATION_POLL_INTERVAL_MS = 3000;
 const PREPARATION_RETRY_MAX_MS = 30000;
 const PREPARATION_STORAGE_PREFIX = "rag-eval-active-preparation-run:";
+const EVALUATION_ACTIVE_STATUSES = new Set(["QUEUED", "RUNNING", "CANCEL_REQUESTED"]);
+const EVALUATION_TERMINAL_STATUSES = new Set(["SUCCEEDED", "PARTIAL", "FAILED", "CANCELED"]);
+const EVALUATION_POLL_INTERVAL_MS = 4000;
+const EVALUATION_RETRY_INTERVAL_MS = 8000;
+const EVALUATION_REQUEST_TIMEOUT_MS = 25000;
 const BUILD_BUTTON_LABEL = "RAG検索データを作成・同期";
 const MAX_CUSTOM_METADATA_FIELDS = 20;
 const MAX_BUILD_DOCUMENTS = 100;
@@ -232,7 +241,9 @@ function installEventHandlers() {
   });
 
   $("#start-evaluation").addEventListener("click", startEvaluation);
-  $("#evaluation-variant").addEventListener("change", updateRuntimeIndexDetails);
+  $("#evaluation-variant").addEventListener("change", () => { updateRuntimeIndexDetails(); updateEvaluationSelectionUi(); });
+  $("#evaluation-model").addEventListener("change", updateEvaluationSelectionUi);
+  $("#judge-model").addEventListener("change", updateEvaluationSelectionUi);
   $("#cancel-evaluation").addEventListener("click", cancelEvaluation);
   $("#refresh-evaluation-runs").addEventListener("click", () => loadEvaluationRuns());
   $("#evaluation-case-form").addEventListener("submit", createEvaluationCase);
@@ -934,16 +945,32 @@ function resetEvaluationUi() {
   state.evaluationPoll = null;
   state.evaluationController?.abort();
   state.evaluationController = null;
+  stopEvaluationElapsedTimer();
   state.evaluationOperation += 1;
   state.evaluationRunId = null;
+  state.evaluationSubmitting = false;
+  state.evaluationRunStartedAt = null;
+  state.evaluationPollFailures = 0;
   state.lastMetrics = [];
   setEvaluationRunningUi(false);
   $("#cancel-evaluation").classList.add("hidden");
   $("#evaluation-progress-card").classList.add("hidden");
-  $("#evaluation-progress-label").textContent = "0 / 0";
+  $("#evaluation-progress-card").setAttribute("aria-busy", "false");
+  $("#evaluation-progress-spinner").classList.add("hidden");
+  $("#evaluation-progress-label").textContent = "0 / 0 試行";
+  $("#evaluation-progress-percent").textContent = "0%";
   $("#evaluation-progress-bar").style.width = "0%";
+  $("#evaluation-progress-track").setAttribute("aria-valuenow", "0");
   $("#phase-run-status").replaceChildren();
-  $("#evaluation-progress-title").textContent = "Phase比較を実行中";
+  $("#evaluation-progress-title").textContent = "評価の準備中";
+  $("#evaluation-progress-description").textContent = "実行状況を確認しています。";
+  $("#evaluation-overall-status").textContent = "準備中";
+  $("#evaluation-overall-status").className = "status-pill info";
+  $("#evaluation-elapsed").textContent = "経過 0秒";
+  const jobLink = $("#evaluation-job-link");
+  jobLink.href = "#";
+  jobLink.classList.add("hidden");
+  updateEvaluationStages("idle");
   renderMetrics([]);
   renderSuggestions([]);
 }
@@ -1693,6 +1720,10 @@ async function loadEvaluationRuns(scope = currentProjectScope()) {
     if (!isCurrentProjectScope(scope)) return;
     state.evaluationRuns = result.items || [];
     renderEvaluationRuns();
+    const active = state.evaluationRuns.find((run) => EVALUATION_ACTIVE_STATUSES.has(String(run.status || "").toUpperCase()));
+    if (active && !state.evaluationRunId && !state.evaluationSubmitting && !state.evaluationPoll && !state.evaluationController) {
+      void openEvaluationRun(active.eval_run_id, { restored: true });
+    }
   } catch (error) {
     if (!isCurrentProjectScope(scope)) return;
     state.evaluationRuns = [];
@@ -1715,6 +1746,9 @@ function renderEvaluationRuns() {
     const button = node("button", "evaluation-run-item");
     button.type = "button";
     button.classList.toggle("active", run.eval_run_id === state.evaluationRunId);
+    const anotherRunIsActive = isEvaluationRunning() && run.eval_run_id !== state.evaluationRunId;
+    button.disabled = anotherRunIsActive;
+    if (anotherRunIsActive) button.title = "実行中の評価が完了または停止してから表示できます。";
     button.setAttribute("aria-label", `${formatDate(run.created_at)}の評価結果を表示`);
     const phases = (run.phases || []).map((item) => PHASES[item.phase_id]?.label || item.phase_id).join("、");
     const copy = node("span");
@@ -1728,32 +1762,51 @@ function renderEvaluationRuns() {
   });
 }
 
-async function openEvaluationRun(runId) {
+async function openEvaluationRun(runId, { restored = false } = {}) {
   const scope = currentProjectScope();
   if (!isCurrentProjectScope(scope) || !runId) return;
+  if (isEvaluationRunning() && state.evaluationRunId && state.evaluationRunId !== runId) {
+    toast("実行中の評価が完了してから、別の履歴を表示してください。", true);
+    return;
+  }
   clearTimeout(state.evaluationPoll);
   state.evaluationPoll = null;
   state.evaluationController?.abort();
   state.evaluationController = null;
   const operation = ++state.evaluationOperation;
   state.evaluationRunId = runId;
+  state.evaluationSubmitting = true;
+  state.evaluationPollFailures = 0;
   const context = { ...scope, runId, operation };
-  renderEvaluationRuns();
+  setEvaluationRunningUi(true, "状態を確認中…");
   $("#evaluation-progress-card").classList.remove("hidden");
-  $("#evaluation-progress-title").textContent = "評価結果を読み込み中";
+  setEvaluationProgressPending(restored ? "実行中の評価を再接続中" : "評価結果を読み込み中", "保存された実行状態を確認しています。");
   try {
     const run = await api(`/api/projects/${scope.projectId}/evaluation-runs/${runId}`);
     if (!isCurrentEvaluationContext(context)) return;
+    state.evaluationSubmitting = false;
+    setEvaluationRunStartTime(run.created_at);
     renderEvaluationProgress(run);
-    const active = ["RUNNING", "QUEUED", "CANCEL_REQUESTED"].includes(run.status);
-    $("#evaluation-progress-title").textContent = active ? "Phase比較を実行中" : "保存済みの評価結果";
+    const active = EVALUATION_ACTIVE_STATUSES.has(String(run.status || "").toUpperCase());
     setEvaluationRunningUi(active, active ? "評価を実行中…" : "RAG精度を比較");
     $("#cancel-evaluation").classList.toggle("hidden", !active);
-    if (active) pollEvaluation(context);
-    else await loadEvaluationResults(context);
+    if (active) {
+      startEvaluationElapsedTimer();
+      if (restored) toast("実行中の評価へ再接続しました。");
+      pollEvaluation(context);
+    }
+    else {
+      if (!restored && String(run.status || "").toUpperCase() === "SUCCEEDED") {
+        $("#evaluation-progress-title").textContent = "保存済みの評価結果";
+        $("#evaluation-progress-description").textContent = "この実行の指標とAI改善提案を読み込みました。";
+      }
+      await loadEvaluationResults(context);
+    }
   } catch (error) {
     if (!isCurrentEvaluationContext(context)) return;
+    state.evaluationSubmitting = false;
     setEvaluationRunningUi(false);
+    setEvaluationProgressFailure("評価状態を読み込めませんでした。", error?.message);
     showError(error);
   }
 }
@@ -1980,8 +2033,22 @@ function updateEvaluationSelectionUi() {
     ? `${selectedCount}問を評価に使用します。期待する回答の登録: ${answerReady}/${selectedCount}問。`
     : "質問を1件以上選択してください。選択した質問だけがPhase比較に使われます。";
   const start = $("#start-evaluation");
+  const expectedTrials = selectedCount * phases * trials;
+  const estimate = $("#evaluation-run-estimate");
+  if (estimate) {
+    estimate.replaceChildren();
+    if (expectedTrials) {
+      estimate.append(
+        node("strong", "", `${expectedTrials}試行`),
+        document.createTextNode("を順番に実行します。コンピュート起動中も、この画面に工程を表示します。"),
+      );
+    } else {
+      estimate.textContent = "質問とPhaseを選択すると実行数を表示します。";
+    }
+  }
   if (start && !running) {
-    start.disabled = selectedCount === 0;
+    const configurationReady = Boolean(phases && $("#evaluation-variant").value && $("#evaluation-model").value && $("#judge-model").value);
+    start.disabled = selectedCount === 0 || !configurationReady;
     start.textContent = selectedCount ? `選択した${selectedCount}問でRAG精度を比較` : "質問を選択してください";
   }
 }
@@ -3499,11 +3566,13 @@ function syncEvaluationSelects() {
   copySelect($("#chat-variant"), $("#evaluation-variant"));
   copySelect($("#chat-model"), $("#evaluation-model"));
   updateRuntimeIndexDetails();
+  updateEvaluationSelectionUi();
 }
 
 async function startEvaluation() {
   const scope = currentProjectScope();
   if (!isCurrentProjectScope(scope)) return openProjectModal();
+  if (isEvaluationRunning()) return;
   const phases = $$('input[name="eval-phase"]:checked').map((input) => input.value);
   const evaluationCaseIds = selectedEvaluationCaseIds();
   const payload = {
@@ -3513,35 +3582,57 @@ async function startEvaluation() {
     answer_model_key: $("#evaluation-model").value, judge_model_key: $("#judge-model").value, final_k: 10,
   };
   if (!phases.length || !payload.dataset_version || !evaluationCaseIds.length || !payload.variant_id || !payload.answer_model_key || !payload.judge_model_key) return showError(new Error("評価質問、Phase、検索データ、回答モデル、採点モデルを選択してください。"));
+  if (!Number.isInteger(payload.trial_count) || payload.trial_count < 1 || payload.trial_count > 10) return showError(new Error("繰り返し回数は1〜10で指定してください。"));
   clearTimeout(state.evaluationPoll);
   state.evaluationPoll = null;
   state.evaluationController?.abort();
   state.evaluationController = null;
   const operation = ++state.evaluationOperation;
   state.evaluationRunId = null;
-  $("#evaluation-progress-card").classList.add("hidden");
-  $("#evaluation-progress-label").textContent = "0 / 0";
-  $("#evaluation-progress-bar").style.width = "0%";
-  $("#phase-run-status").replaceChildren();
-  $("#evaluation-progress-title").textContent = "Phase比較を実行中";
+  state.evaluationSubmitting = true;
+  state.evaluationPollFailures = 0;
+  state.evaluationRunStartedAt = Date.now();
   renderMetrics([]);
   renderSuggestions([]);
-  setEvaluationRunningUi(true, "Jobを開始中…");
+  setEvaluationRunningUi(true, "評価を受け付けています…");
+  $("#cancel-evaluation").classList.add("hidden");
+  setEvaluationProgressPending("評価を受け付けています", "選択した条件を保存し、Lakeflow Jobを開始します。");
+  startEvaluationElapsedTimer();
+  const expectedPerPhase = evaluationCaseIds.length * payload.trial_count;
+  renderEvaluationProgress({
+    status: "SUBMITTING",
+    phases: phases.map((phaseId) => ({
+      phase_id: phaseId,
+      status: "QUEUED",
+      expected_trials: expectedPerPhase,
+      completed_trials: 0,
+    })),
+  });
   try {
     const run = await api(`/api/projects/${scope.projectId}/evaluation-runs`, {
       method: "POST", headers: { "Idempotency-Key": crypto.randomUUID().replaceAll("-", "") }, body: JSON.stringify(payload),
     });
     if (!isCurrentProjectScope(scope) || operation !== state.evaluationOperation) return;
+    state.evaluationSubmitting = false;
     state.evaluationRunId = run.eval_run_id;
     void loadEvaluationRuns(scope);
     setEvaluationRunningUi(true, "評価を実行中…");
-    $("#evaluation-progress-card").classList.remove("hidden");
     $("#cancel-evaluation").classList.remove("hidden");
     toast("RAG精度の比較を開始しました。");
-    renderEvaluationProgress({ phases: run.phases });
+    renderEvaluationProgress({
+      ...run,
+      phases: (run.phases || []).map((phase) => ({
+        expected_trials: expectedPerPhase,
+        completed_trials: 0,
+        ...phase,
+      })),
+    });
     pollEvaluation({ ...scope, runId: run.eval_run_id, operation });
   } catch (error) {
     if (!isCurrentProjectScope(scope) || operation !== state.evaluationOperation) return;
+    state.evaluationSubmitting = false;
+    stopEvaluationElapsedTimer();
+    setEvaluationProgressFailure("評価を開始できませんでした", error?.message);
     showError(error);
     setEvaluationRunningUi(false);
   }
@@ -3553,16 +3644,39 @@ function isCurrentEvaluationContext(context) {
     && state.evaluationRunId === context.runId);
 }
 
+function isEvaluationRunning() {
+  return Boolean(state.evaluationSubmitting
+    || $("#page-evaluation").dataset.running === "true"
+    || state.evaluationPoll
+    || state.evaluationController);
+}
+
 function setEvaluationRunningUi(active, startLabel = "RAG精度を比較") {
   $("#page-evaluation").dataset.running = String(Boolean(active));
-  $$("#page-evaluation .evaluation-config input, #page-evaluation .evaluation-config select, #page-evaluation .evaluation-mutating-control, #page-evaluation .evaluation-case-item input")
+  $$("#page-evaluation .evaluation-config input, #page-evaluation .evaluation-config select, #page-evaluation .phase-selector input, #page-evaluation .evaluation-mutating-control, #page-evaluation .evaluation-case-item input")
     .forEach((control) => { control.disabled = active; });
-  if (active) setBusy($("#start-evaluation"), true, startLabel);
+  if (active) setEvaluationStartButtonBusy(true, startLabel);
   else updateEvaluationSelectionUi();
+  $("#evaluation-progress-card").setAttribute("aria-busy", String(Boolean(active)));
+  $("#evaluation-progress-spinner").classList.toggle("hidden", !active);
   if (!active) {
     $("#cancel-evaluation").disabled = false;
     $("#cancel-evaluation").textContent = "評価を停止";
   }
+  renderEvaluationRuns();
+}
+
+function setEvaluationStartButtonBusy(active, label) {
+  const button = $("#start-evaluation");
+  if (!active) {
+    button.disabled = false;
+    button.textContent = label || "RAG精度を比較";
+    return;
+  }
+  button.disabled = true;
+  const content = node("span", "button-content");
+  content.append(node("span", "button-spinner"), node("span", "", label));
+  button.replaceChildren(content);
 }
 
 function pollEvaluation(context) {
@@ -3572,36 +3686,181 @@ function pollEvaluation(context) {
     if (!isCurrentEvaluationContext(context)) return;
     state.evaluationPoll = null;
     const controller = new AbortController();
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, EVALUATION_REQUEST_TIMEOUT_MS);
     state.evaluationController?.abort();
     state.evaluationController = controller;
     try {
       const run = await api(`/api/projects/${context.projectId}/evaluation-runs/${context.runId}`, { signal: controller.signal });
       if (!isCurrentEvaluationContext(context) || state.evaluationController !== controller) return;
+      clearTimeout(timeout);
       state.evaluationController = null;
+      state.evaluationPollFailures = 0;
       renderEvaluationProgress(run);
-      if (["SUCCEEDED", "PARTIAL", "FAILED", "CANCELED"].includes(run.status)) {
+      const status = String(run.status || "").toUpperCase();
+      if (EVALUATION_TERMINAL_STATUSES.has(status)) {
+        state.evaluationSubmitting = false;
+        stopEvaluationElapsedTimer();
         setEvaluationRunningUi(false);
         $("#cancel-evaluation").classList.add("hidden");
-        $("#evaluation-progress-title").textContent = "保存済みの評価結果";
         await loadEvaluationResults(context);
         return;
       }
-      state.evaluationPoll = setTimeout(poll, 4000);
+      state.evaluationPoll = setTimeout(poll, EVALUATION_POLL_INTERVAL_MS);
     } catch (error) {
-      if (error?.name === "AbortError" || !isCurrentEvaluationContext(context)) return;
+      clearTimeout(timeout);
+      if (!isCurrentEvaluationContext(context)) return;
+      if (error?.name === "AbortError" && !timedOut) return;
       if (state.evaluationController === controller) state.evaluationController = null;
-      showError(error, false);
-      state.evaluationPoll = setTimeout(poll, 8000);
+      state.evaluationPollFailures += 1;
+      $("#evaluation-progress-description").textContent = timedOut
+        ? "状態確認に時間がかかっています。評価は継続したまま自動で再接続します。"
+        : "状態を一時的に取得できません。評価は継続したまま自動で再確認します。";
+      if (state.evaluationPollFailures === 1 && !timedOut) showError(error, false);
+      state.evaluationPoll = setTimeout(poll, EVALUATION_RETRY_INTERVAL_MS);
     }
   };
   poll();
 }
 
 function renderEvaluationProgress(run) {
-  const phases = run.phases || []; const expected = phases.reduce((sum, item) => sum + Number(item.expected_trials || 0), 0); const completed = phases.reduce((sum, item) => sum + Number(item.completed_trials || 0), 0);
-  const percent = expected ? Math.round(completed / expected * 100) : 0; $("#evaluation-progress-label").textContent = `${completed} / ${expected || "準備中"}`; $("#evaluation-progress-bar").style.width = `${percent}%`;
-  const container = $("#phase-run-status"); container.replaceChildren();
-  phases.forEach((phase) => { const item = node("div", "phase-run-item"); item.append(node("strong", "", PHASES[phase.phase_id]?.label || phase.phase_id), node("span", "", formatStatus(phase.status))); container.append(item); });
+  $("#evaluation-progress-card").classList.remove("hidden");
+  const status = String(run.status || "RUNNING").toUpperCase();
+  const phases = run.phases || [];
+  const expected = phases.reduce((sum, item) => sum + Number(item.expected_trials || 0), 0);
+  const completed = phases.reduce((sum, item) => sum + Number(item.completed_trials || 0), 0);
+  const ratio = expected ? Math.min(1, completed / expected) : 0;
+  const terminal = EVALUATION_TERMINAL_STATUSES.has(status);
+  const jobWaiting = ["PENDING", "QUEUED", "BLOCKED", "WAITING_FOR_RETRY"].includes(String(run.job_state || "").toUpperCase());
+  let visualPercent = terminal ? 100 : status === "SUBMITTING" ? 3 : jobWaiting || !expected ? 8 : Math.min(94, Math.round(12 + ratio * 82));
+  if (status === "CANCEL_REQUESTED") visualPercent = Math.max(visualPercent, 8);
+  $("#evaluation-progress-label").textContent = expected ? `${completed} / ${expected} 試行` : "Jobの開始待ち";
+  $("#evaluation-progress-percent").textContent = terminal
+    ? (status === "SUCCEEDED" ? "完了" : formatStatus(status))
+    : `${visualPercent}%`;
+  $("#evaluation-progress-bar").style.width = `${visualPercent}%`;
+  $("#evaluation-progress-track").setAttribute("aria-valuenow", String(visualPercent));
+
+  const overall = $("#evaluation-overall-status");
+  overall.textContent = formatStatus(status);
+  overall.className = `status-pill ${statusClass(status)}`;
+  const jobLink = $("#evaluation-job-link");
+  const safeHref = safeJobHref(run.job_run_url);
+  jobLink.classList.toggle("hidden", safeHref === "#");
+  jobLink.href = safeHref;
+
+  let activeStage = "trials";
+  if (status === "SUBMITTING") activeStage = "accepted";
+  else if (jobWaiting || !expected) activeStage = "job";
+  else if (ratio >= 1 && !terminal) activeStage = "advice";
+  if (terminal && ["SUCCEEDED", "PARTIAL"].includes(status)) activeStage = "complete";
+  updateEvaluationStages(activeStage, status);
+
+  const currentPhase = phases.find((phase) => ["RUNNING", "CANCEL_REQUESTED"].includes(String(phase.status || "").toUpperCase()))
+    || phases.find((phase) => String(phase.status || "").toUpperCase() === "QUEUED");
+  if (status === "SUBMITTING") {
+    $("#evaluation-progress-title").textContent = "評価を受け付けています";
+    $("#evaluation-progress-description").textContent = "設定を保存し、Lakeflow Jobへ登録しています。";
+  } else if (status === "CANCEL_REQUESTED") {
+    $("#evaluation-progress-title").textContent = "評価を停止しています";
+    $("#evaluation-progress-description").textContent = "現在の処理を安全に終了しています。完了状態まで自動で確認します。";
+  } else if (terminal) {
+    const terminalCopy = {
+      SUCCEEDED: ["評価が完了しました", "指標とAI改善提案を表示しました。"],
+      PARTIAL: ["一部のPhaseが完了しました", "取得できた結果を表示しています。失敗したPhaseはJobログを確認してください。"],
+      FAILED: ["評価を完了できませんでした", phases.find((phase) => phase.error_message)?.error_message || "Lakeflow Jobログで失敗した工程を確認してください。"],
+      CANCELED: ["評価を停止しました", "停止前に完了した結果がある場合は、下に表示します。"],
+    }[status] || ["評価を終了しました", "結果を確認してください。"];
+    $("#evaluation-progress-title").textContent = terminalCopy[0];
+    $("#evaluation-progress-description").textContent = terminalCopy[1];
+  } else if (jobWaiting || !expected) {
+    $("#evaluation-progress-title").textContent = "コンピュートを準備しています";
+    $("#evaluation-progress-description").textContent = run.job_state_message || "Lakeflow Jobの開始を待っています。初回は数分かかることがあります。";
+  } else {
+    const phaseName = currentPhase ? PHASES[currentPhase.phase_id]?.label || currentPhase.phase_id : "Phase";
+    $("#evaluation-progress-title").textContent = `${phaseName}を評価中`;
+    $("#evaluation-progress-description").textContent = "検索、回答生成、採点、改善提案を順番に処理しています。";
+  }
+
+  const container = $("#phase-run-status");
+  container.replaceChildren();
+  phases.forEach((phase) => {
+    const phaseStatus = String(phase.status || "QUEUED").toUpperCase();
+    const phaseExpected = Number(phase.expected_trials || 0);
+    const phaseCompleted = Number(phase.completed_trials || 0);
+    const item = node("div", `phase-run-item${["RUNNING", "CANCEL_REQUESTED"].includes(phaseStatus) ? " current" : ""}${phaseStatus === "FAILED" ? " failed" : ""}`);
+    if (["RUNNING", "CANCEL_REQUESTED"].includes(phaseStatus)) item.append(node("span", "mini-spinner"));
+    else item.append(node("span", `status-dot ${statusClass(phaseStatus)}`));
+    const copy = node("span", "phase-run-copy");
+    copy.append(
+      node("strong", "", PHASES[phase.phase_id]?.label || phase.phase_id),
+      node("small", "", phaseExpected ? `${phaseCompleted}/${phaseExpected} 試行 · ${formatStatus(phaseStatus)}` : formatStatus(phaseStatus)),
+    );
+    item.append(copy);
+    container.append(item);
+  });
+}
+
+function setEvaluationProgressPending(title, description) {
+  $("#evaluation-progress-card").classList.remove("hidden");
+  $("#evaluation-progress-card").setAttribute("aria-busy", "true");
+  $("#evaluation-progress-spinner").classList.remove("hidden");
+  $("#evaluation-progress-title").textContent = title;
+  $("#evaluation-progress-description").textContent = description;
+  const status = $("#evaluation-overall-status");
+  status.textContent = "進行中";
+  status.className = "status-pill info";
+}
+
+function setEvaluationProgressFailure(title, description = null) {
+  $("#evaluation-progress-card").classList.remove("hidden");
+  $("#evaluation-progress-card").setAttribute("aria-busy", "false");
+  $("#evaluation-progress-spinner").classList.add("hidden");
+  $("#evaluation-progress-title").textContent = title;
+  $("#evaluation-progress-description").textContent = description || "設定と権限を確認して、もう一度実行してください。";
+  const status = $("#evaluation-overall-status");
+  status.textContent = "失敗";
+  status.className = "status-pill error";
+  updateEvaluationStages("accepted", "FAILED");
+}
+
+function updateEvaluationStages(activeStage = "idle", status = "") {
+  const order = ["accepted", "job", "trials", "metrics", "advice"];
+  const activeIndex = order.indexOf(activeStage);
+  const terminalStatus = String(status || "").toUpperCase();
+  $$("#evaluation-stage-list [data-evaluation-stage]").forEach((item, index) => {
+    item.classList.remove("active", "done", "error");
+    if (activeStage === "complete") item.classList.add("done");
+    else if (activeIndex >= 0 && index < activeIndex) item.classList.add("done");
+    else if (activeIndex >= 0 && index === activeIndex) item.classList.add(["FAILED", "CANCELED"].includes(terminalStatus) ? "error" : "active");
+  });
+}
+
+function setEvaluationRunStartTime(value) {
+  const parsed = value ? new Date(value).valueOf() : NaN;
+  state.evaluationRunStartedAt = Number.isFinite(parsed) ? parsed : state.evaluationRunStartedAt || Date.now();
+  updateEvaluationElapsed();
+}
+
+function startEvaluationElapsedTimer() {
+  stopEvaluationElapsedTimer();
+  if (!state.evaluationRunStartedAt) state.evaluationRunStartedAt = Date.now();
+  updateEvaluationElapsed();
+  state.evaluationElapsedTimer = setInterval(updateEvaluationElapsed, 1000);
+}
+
+function stopEvaluationElapsedTimer() {
+  clearInterval(state.evaluationElapsedTimer);
+  state.evaluationElapsedTimer = null;
+  updateEvaluationElapsed();
+}
+
+function updateEvaluationElapsed() {
+  const elapsed = state.evaluationRunStartedAt ? Math.max(0, Date.now() - state.evaluationRunStartedAt) : 0;
+  $("#evaluation-elapsed").textContent = `経過 ${formatElapsed(elapsed)}`;
 }
 
 async function loadEvaluationResults(context) {
@@ -3651,14 +3910,37 @@ function drawPhaseChart(metrics) {
   const previousContext = canvas.getContext("2d");
   previousContext.clearRect(0, 0, canvas.width, canvas.height);
   if (!metrics.length) return;
-  const width = canvas.clientWidth || 900; const height = 280; const ratio = window.devicePixelRatio || 1; canvas.width = width * ratio; canvas.height = height * ratio;
+  const width = canvas.clientWidth || 900; const height = 320; const ratio = window.devicePixelRatio || 1; canvas.width = width * ratio; canvas.height = height * ratio;
   const ctx = canvas.getContext("2d"); ctx.scale(ratio, ratio); ctx.clearRect(0, 0, width, height);
-  const styles = getComputedStyle(document.documentElement); const ink = styles.getPropertyValue("--ink").trim(); const muted = styles.getPropertyValue("--muted").trim(); const line = styles.getPropertyValue("--line").trim(); const accent = styles.getPropertyValue("--accent").trim(); const blue = styles.getPropertyValue("--blue").trim();
-  const left = 42, right = 38, top = 22, bottom = 38, plotW = width-left-right, plotH = height-top-bottom;
+  const styles = getComputedStyle(document.documentElement); const ink = styles.getPropertyValue("--ink").trim(); const muted = styles.getPropertyValue("--muted").trim(); const line = styles.getPropertyValue("--line").trim(); const accent = styles.getPropertyValue("--accent").trim(); const green = styles.getPropertyValue("--green").trim(); const blue = styles.getPropertyValue("--blue").trim();
+  const left = 48, right = 58, top = 24, bottom = 45, plotW = width-left-right, plotH = height-top-bottom;
   ctx.font = "11px system-ui"; ctx.strokeStyle = line; ctx.fillStyle = muted;
-  for (let i=0;i<=4;i++) { const y=top+plotH*i/4; ctx.beginPath(); ctx.moveTo(left,y); ctx.lineTo(width-right,y); ctx.stroke(); ctx.fillText(`${100-i*25}%`, 4, y+4); }
-  const slot = plotW/metrics.length; const maxLatency = Math.max(...metrics.map((m) => Number(m.latency_p50_ms)||0), 1); const points=[];
-  metrics.forEach((metric,index) => { const x=left+slot*(index+.5), value=Number(metric.recall_at_10)||0, barW=Math.min(48,slot*.45); ctx.fillStyle=accent; ctx.fillRect(x-barW/2,top+plotH*(1-value),barW,plotH*value); ctx.fillStyle=ink; ctx.textAlign="center"; ctx.fillText(PHASES[metric.phase_id]?.label||metric.phase_id,x,height-12); points.push([x,top+plotH*(1-(Number(metric.latency_p50_ms)||0)/maxLatency)]); });
+  const maxLatency = Math.max(...metrics.map((metric) => Number(metric.latency_p50_ms) || 0), 1000);
+  for (let index = 0; index <= 4; index += 1) {
+    const y = top + plotH * index / 4;
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(width - right, y); ctx.stroke();
+    ctx.textAlign = "left"; ctx.fillText(`${100 - index * 25}%`, 3, y + 4);
+    ctx.textAlign = "right"; ctx.fillText(duration(maxLatency * (1 - index / 4)), width - 2, y + 4);
+  }
+  const slot = plotW / metrics.length;
+  const points = [];
+  metrics.forEach((metric, index) => {
+    const x = left + slot * (index + .5);
+    const recall = Math.max(0, Math.min(1, Number(metric.recall_at_10) || 0));
+    const correctness = metric.answer_correctness === null || metric.answer_correctness === undefined
+      ? null : Math.max(0, Math.min(1, Number(metric.answer_correctness) || 0));
+    const barWidth = Math.min(28, slot * .22);
+    ctx.fillStyle = accent;
+    ctx.fillRect(x - barWidth - 2, top + plotH * (1 - recall), barWidth, plotH * recall);
+    if (correctness !== null) {
+      ctx.fillStyle = green;
+      ctx.fillRect(x + 2, top + plotH * (1 - correctness), barWidth, plotH * correctness);
+    }
+    ctx.fillStyle = ink; ctx.textAlign = "center";
+    ctx.fillText(PHASES[metric.phase_id]?.label || metric.phase_id, x, height - 13);
+    const latency = Math.max(0, Number(metric.latency_p50_ms) || 0);
+    points.push([x, top + plotH * (1 - latency / maxLatency)]);
+  });
   ctx.strokeStyle=blue; ctx.lineWidth=2; ctx.beginPath(); points.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y)); ctx.stroke(); points.forEach(([x,y])=>{ctx.fillStyle=blue;ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.fill();}); ctx.textAlign="left"; ctx.fillStyle=muted;
 }
 
@@ -3681,7 +3963,16 @@ async function cancelEvaluation() {
   };
   if (!isCurrentEvaluationContext(context)) return;
   const button = $("#cancel-evaluation");
-  setBusy(button, true, "停止を要求中…");
+  if (button.disabled) return;
+  button.disabled = true;
+  const busy = node("span", "button-content");
+  busy.append(node("span", "button-spinner"), node("span", "", "停止を要求中…"));
+  button.replaceChildren(busy);
+  $("#evaluation-progress-title").textContent = "評価を停止しています";
+  $("#evaluation-progress-description").textContent = "Lakeflow Jobへ停止を要求しています。完了状態まで自動で確認します。";
+  const status = $("#evaluation-overall-status");
+  status.textContent = "停止処理中";
+  status.className = "status-pill warning";
   try {
     await api(`/api/projects/${context.projectId}/evaluation-runs/${context.runId}:cancel`, { method: "POST", body: "{}" });
     if (!isCurrentEvaluationContext(context)) return;
@@ -3732,6 +4023,11 @@ function stopActiveStreams() {
   state.chatCancelRequests.clear();
   state.chatSubmission = null;
   clearTimeout(state.evaluationPoll);
+  state.evaluationPoll = null;
+  state.evaluationController?.abort();
+  state.evaluationController = null;
+  state.evaluationSubmitting = false;
+  stopEvaluationElapsedTimer();
   clearInterval(state.streamTimer);
   state.streamTimer = null;
   stopPreparationMonitor({ resetRun: true });
@@ -3752,14 +4048,15 @@ function setBusy(button, busy, text) { button.disabled = busy; button.textConten
 function node(tag, className = "", text = null) { const element = document.createElement(tag); if (className) element.className = className; if (text !== null && text !== undefined) element.textContent = String(text); return element; }
 function emptyNode(text) { return node("p", "empty-inline", text); }
 function statusPill(status = "UNKNOWN") { return node("span", `status-pill ${statusClass(status)}`, formatStatus(status)); }
-function statusClass(status) { const value = String(status || "").toUpperCase(); if (["READY", "SUCCEEDED", "PARSED", "ACTIVE"].includes(value)) return "success"; if (["ERROR", "FAILED"].includes(value)) return "error"; if (["PARSING", "RUNNING", "PREPARING", "EVALUATING"].includes(value)) return "info"; return "muted"; }
-function formatStatus(status) { const value = String(status || "UNKNOWN").toUpperCase(); return ({ READY: "利用可能", SUCCEEDED: "完了", PARSED: "解析済み", ACTIVE: "有効", EMPTY: "未準備", ERROR: "エラー", FAILED: "失敗", NOT_READY: "利用不可", PARSING: "解析中", RUNNING: "実行中", PREPARING: "準備中", EVALUATING: "評価中", QUEUED: "待機中", CANCELED: "停止", PARTIAL: "一部完了", UNKNOWN: "未確認" })[value] || String(status); }
+function statusClass(status) { const value = String(status || "").toUpperCase(); if (["READY", "SUCCEEDED", "PARSED", "ACTIVE"].includes(value)) return "success"; if (["ERROR", "FAILED"].includes(value)) return "error"; if (["PARSING", "RUNNING", "PREPARING", "EVALUATING", "SUBMITTING"].includes(value)) return "info"; if (["PARTIAL", "CANCEL_REQUESTED"].includes(value)) return "warning"; return "muted"; }
+function formatStatus(status) { const value = String(status || "UNKNOWN").toUpperCase(); return ({ READY: "利用可能", SUCCEEDED: "完了", PARSED: "解析済み", ACTIVE: "有効", EMPTY: "未準備", ERROR: "エラー", FAILED: "失敗", NOT_READY: "利用不可", PARSING: "解析中", RUNNING: "実行中", PREPARING: "準備中", EVALUATING: "評価中", SUBMITTING: "受付中", QUEUED: "待機中", CANCEL_REQUESTED: "停止処理中", CANCELED: "停止", PARTIAL: "一部完了", UNKNOWN: "未確認" })[value] || String(status); }
 function formatCapability(value) { return ({ embedding: "ベクトル化", chat: "回答生成", judge: "採点", tool_calling: "ツール連携" })[String(value)] || String(value); }
 function formatChunkMethod(value) { const key = String(value || "").split(".").at(-1).toUpperCase(); return ({ STANDARD: "均等（Standard）", SEMANTIC: "意味単位（Semantic）", PARENT_CHILD: "親子（Parent-child）", CONFIGURED: "既定の検索データ" })[key] || value || "検索データ"; }
 function formatDocumentType(value) { return ({ owners_guide: "取扱ガイド", equipment_spec: "グレード別装備表", safety_operation_guide: "安全支援操作ガイド", emergency_response_guide: "緊急時対応ガイド", model_change_report: "モデル変更レポート", glossary: "用語集", emergency_response_scan: "緊急時対応ガイド（スキャン）" })[String(value)] || String(value || "—"); }
 function formatSuggestionTarget(value) { return ({ retrieval: "検索", metadata: "条件絞り込み", reranking: "検索順位", query_optimization: "質問最適化", chunking: "文章の分け方", embedding: "ベクトル化", prompt: "回答指示", evaluation_data: "評価データ" })[String(value)] || String(value || "改善"); }
 function formatPriority(value) { return ({ high: "優先度 高", medium: "優先度 中", low: "優先度 低" })[String(value)] || "優先度 中"; }
 function formatDate(value) { if (!value) return "日時なし"; const date = new Date(value); return Number.isNaN(date.valueOf()) ? String(value) : new Intl.DateTimeFormat("ja-JP", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date); }
+function formatElapsed(milliseconds) { const seconds = Math.max(0, Math.floor(Number(milliseconds || 0) / 1000)); if (seconds < 60) return `${seconds}秒`; const minutes = Math.floor(seconds / 60); const rest = seconds % 60; if (minutes < 60) return `${minutes}分${rest}秒`; const hours = Math.floor(minutes / 60); return `${hours}時間${minutes % 60}分`; }
 function formatBytes(bytes) { if (bytes < 1024) return `${bytes} B`; if (bytes < 1024**2) return `${(bytes/1024).toFixed(1)} KB`; return `${(bytes/1024**2).toFixed(1)} MB`; }
 function onOff(value) { return value ? "ON" : "OFF"; }
 function percent(value) { return value === null || value === undefined ? "—" : `${(Number(value)*100).toFixed(1)}%`; }

@@ -115,6 +115,10 @@ python3 scripts/smoke_test_app.py \
 - Phase presetでは検索設定をサーバー側で解決します。正式比較では同じVariant、Dataset、回答LLM、Judge LLMを固定します。
 - 評価質問はProject、評価データ版、`development`／`holdout`用途で分離します。作成APIは`EDITOR`以上に限定し、正解PDFが同じProjectの`PARSED`／`READY`文書であること、1始まりの正解ページがPDFの範囲内であること、同じ版・用途に同じ質問がないことをサーバー側で検証します。画面は対象の登録済み質問を初期全選択し、個別／一括選択、正解状態、期待回答、正解PDF／ページ、選択件数と最大試行数を表示します。追加フォームは初期状態で閉じます。
 - Evaluation作成APIの`evaluation_case_ids`は1〜1000件、空文字・重複なしです。サーバーは全IDが指定Project・評価データ版・用途に属することを検証し、選択IDを含むcanonicalな`config_json`／`config_hash`をPhase行へ固定します。画面は0件選択時に開始を無効化し、Jobは固定済みIDだけを評価します。`evaluation_case_ids`のない既存runは同じProject・版・用途の全件を処理する後方互換を維持します。
+- 精度評価のtrial既定値は1です。開始ボタンは質問、Phase、既存Indexに対応するVariant、回答LLM、採点LLMがそろった場合だけ有効です。Phase 1〜5は全幅の横並びカードで、狭い画面はPhase領域を横スクロールし、設定、工程、指標群は1列へ切り替えます。
+- 評価開始要求中からspinnerと進捗カードを表示し、`expected_trials`／`completed_trials`を全体とPhaseごとに更新します。画面は受付、Job起動、Phase評価、指標集計、改善提案、進捗割合、経過時間を示します。Projectを再表示した場合は最近のactive runを復元し、status pollのtimeoutや一時的失敗後も同じrunを監視します。
+- status APIはPhase行と一つのLakeflow runの対応を検証し、queue、compute起動、environment準備、実行、terminal状態を利用者向け文言へ変換します。JobがNotebook開始前に失敗／取消になっても、Jobs APIを基準に評価行を終端状態へ収束します。providerの生メッセージは返しません。Job linkは設定済みWorkspaceと一致する安全なURLだけを返します。
+- 評価停止は、まずDelta Tableへ`CANCEL_REQUESTED`を永続化し、対応するLakeflow Job runへも取消を要求します。Jobs APIが一時失敗してもJob側のcheckpointは永続フラグを確認します。画面は停止要求後もterminal状態までpollを続け、完了済みPhaseを停止へ上書きしません。
 - Metadata Filteringは、現在のProjectで`PARSED`／`READY`の文書registryだけを照合します。`category`、`tags`、`document_date`、`source`、custom metadataを検証し、customは質問にkeyとvalueの両方がある場合だけ採用します。任意JSON pathをAI Search filterへ直接渡さず、検証済み`document_id IN (...)`へ変換します。矛盾、0件、全件一致、100件超では安全のためフィルタなしへ戻します。
 - 回答内の引用IDを検索結果と照合し、最終回答で実際に参照した引用だけを保存します。live `citation.added`には検証済み`document_id`と物理ページを含め、ブラウザはその値から認可付きPDF content routeを再構築します。`retrieval.completed` SSEにはexcerpt／チャンク本文を含めず、画面にも表示しません。
 - PDF content routeはProjectと文書所属を再認可し、`ETag`、`If-None-Match`、単一byte `Range`、`HEAD`、`Cache-Control: private`を扱います。画面はPDF操作のhover／focus／pointerdownでprefetchし、同じProjectで読み込み済みの同じPDF・ページはiframeを保持します。Project切替時は必ず破棄します。
@@ -128,6 +132,7 @@ python3 scripts/smoke_test_app.py \
 - `ERROR`の文書だけを`POST /documents/{document_id}:parse`で再解析できます。古いactive parse runを閉じ、新しい`PARSE_ONLY` runを作り、同じVolume上のPDFを`FILE`型で再処理します。正常文書の再解析と画面の多重送信は拒否します。
 - Projectごとの最近の評価runを一覧取得し、選択した過去runのPhase状態、集計指標、改善提案を保存済みTableから再表示します。新規runでは選択した評価case IDも再現条件の一部として固定します。
 - 期待回答・期待事実がないケースは`answer_correctness=NULL`にし、SQLの平均から除外します。0点へ変換しません。Phase advisorには検索指標に加え、Answer Correctness、Groundedness、Citation Correctnessと各judge rationaleを渡します。
+- 精度評価の主表示は検索再現率（Recall@10）、回答正解率、回答時間です。詳細表と比較chartでPrecision@10、nDCG@10、Groundedness、Citation Correctness、TTFT、E2E p50／p95、token、cost、error rateも確認します。
 - 各ページのfeature stripに、Unity Catalog Volume、`ai_parse_document`、Lakeflow Jobs、Delta Table、FMAPI、AI Search、MLflow 3、Index Variantなど、裏側で使うDatabricks機能名を表示します。
 - AI SearchのRerankingは`databricks-ai-search`の`DatabricksReranker`を使用します。
 - SQL Statement Executionは公開Databricks SDKを使い、複数result chunkを回収し、timeout時はstatementを取り消します。

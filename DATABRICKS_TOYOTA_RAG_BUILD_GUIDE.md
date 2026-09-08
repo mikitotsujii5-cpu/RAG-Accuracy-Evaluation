@@ -2724,15 +2724,25 @@ idle → submitting → streaming → stopping → cancelled
 | サンプル質問 | Data Preparation成功後に`starter-v1`／`development`へ概要、重要点3つ、手順／条件の3件を登録。期待回答と正解ページは空 |
 | 正解情報 | 質問ごとに回答正解／検索正解の登録状態を表示。「正解を確認」で期待回答、正解PDF、正解ページ、認可済みPDFリンクを表示 |
 | 評価質問の追加 | 初期状態で閉じたフォームを必要なときだけ開き、質問、正解PDF、正解ページ、データ版、用途を登録。期待回答は任意。回答可能な質問では解析済みPDFとPDF内のページ番号を必須にする |
-| 実行設定 | Phase 1～5、trial数、Variant、回答LLM、judge LLM、dataset version／split、選択case ID。選択件数と`case × Phase × trial`の最大試行数を表示し、0件では開始不可 |
-| 進捗 | Phase × case × trialの完了数、失敗数、残り、cancel |
+| 実行設定 | Phase 1～5、trial数、Variant、回答LLM、judge LLM、dataset version／split、選択case ID。trialの既定値は1。選択件数と`case × Phase × trial`の最大試行数を表示し、質問、Phase、Variant、両LLMのいずれかが未選択なら開始不可 |
+| 進捗 | 開始要求中からspinnerを表示し、受付、Job起動、Phase評価、指標集計、改善提案の5工程、全体とPhase別の完了試行数、割合、経過時間、cancelを表示 |
 | 評価履歴 | Projectごとの最近のrunを新しい順に表示し、選択した過去runのPhase状態、指標、改善提案を再表示 |
 | 検索品質 | Page Recall@k、Precision@k、DCG@k、nDCG@k |
 | 回答品質 | Answer Correctness、Groundedness、Citation Correctness。期待回答・期待事実がないケースのCorrectnessは`NULL`で平均から除外 |
 | 運用指標 | TTFT、E2E latencyのp50／p95、エラー率、token使用量 |
-| 比較 | Phase 1または直前Phaseからの差分、95%信頼区間、品質／latencyのPareto chart（品質・速度バランス図） |
+| 比較 | 検索再現率、回答正解率、回答時間p50を同じPhase chartへ表示し、詳細表でPrecision、nDCG、Groundedness、Citation Correctness、TTFT、p95、token、cost、error rateを確認 |
 | ケース詳細 | 質問、回答、PDF引用、検索結果メタデータ、judge rationale、品質／性能Traceリンク。チャンク本文は画面へ露出しない |
 | 改善提案 | Phaseごとの診断、優先変更、期待効果、trade-off、再評価方法 |
+
+Phase 1〜5は全幅カード内へ横並びで置く。デスクトップでもカード幅が足りなければこの領域だけを横スクロールし、Phaseの追加順を崩さない。狭い画面では実行条件、工程、指標群を1列へ切り替え、結果表には横スクロールの案内を表示する。
+
+開始ボタンは、評価質問、1つ以上のPhase、既存Indexに対応するVariant、回答LLM、judge LLMがそろった場合だけ有効にする。たとえば1問、Phase 1〜5、trial 1なら最大5試行である。送信直後はJob run作成APIの応答前でも`SUBMITTING`として進捗カードを表示し、利用者が二重に開始しないよう設定と開始ボタンを無効化する。
+
+進捗APIはPhaseごとの`expected_trials`と`completed_trials`、全体状態に加え、Lakeflow Jobsから取得したqueue／compute／environment／task／terminal状態を返す。画面はProjectを再表示したときに最近のactive runを自動復元し、pollのtimeoutや一時的なAPI失敗後も同じrun IDで監視を再開する。JobがNotebook開始前に失敗または取消になった場合は、Jobs APIの終端状態を評価Tableへ収束させ、`QUEUED`のまま無限に待たせない。
+
+取消APIは評価Tableへ`CANCEL_REQUESTED`を保存したうえで、server-sideで確認したLakeflow Job runにも取消を要求する。Jobs APIが一時的に利用できない場合も、Jobが試行間で永続フラグを確認する経路を残す。画面は取消要求だけでidleへ戻さず、`CANCELED`、`FAILED`、`PARTIAL`、`SUCCEEDED`のいずれかへ確定するまで監視する。providerの生の状態メッセージは表示せず、利用者向けの固定文言へ変換する。Jobへのリンクは設定済みWorkspace hostと一致するHTTPS URLだけを表示し、実run IDを本文や公開記録へ転記しない。
+
+主表示は初心者向けに「検索再現率」「回答正解率」「回答時間」とし、詳細表ではそれぞれRecall@10、Answer Correctness、E2E p50／p95などの技術名を併記する。
 
 各Phaseの完了後、診断用LLMへ実測設定、検索指標、Answer Correctness／Groundedness／Citation Correctness、失敗ケース、retrieval結果、各judge rationaleを渡し、「どのように修正すれば精度が向上するか」を構造化出力で生成する。`NULL`指標を0へ変換せず、根拠のない数値を作らせない。
 
@@ -3020,7 +3030,7 @@ Phase 1～5をまとめて実行するときは、同じDataset／Variant／モ�
   "phase_ids": [
     "phase_01", "phase_02", "phase_03", "phase_04", "phase_05"
   ],
-  "trial_count": 3,
+  "trial_count": 1,
   "dataset_version": "toyota_eval_v1",
   "dataset_split": "development",
   "evaluation_case_ids": [
@@ -3042,11 +3052,11 @@ Phase 1～5をまとめて実行するときは、同じDataset／Variant／モ�
   "config_hash": "sha256-hex",
   "selected_case_count": 3,
   "phases": [
-    {"phase_id": "phase_01", "status": "QUEUED"},
-    {"phase_id": "phase_02", "status": "QUEUED"},
-    {"phase_id": "phase_03", "status": "QUEUED"},
-    {"phase_id": "phase_04", "status": "QUEUED"},
-    {"phase_id": "phase_05", "status": "QUEUED"}
+    {"phase_id": "phase_01", "status": "QUEUED", "expected_trials": 3, "completed_trials": 0},
+    {"phase_id": "phase_02", "status": "QUEUED", "expected_trials": 3, "completed_trials": 0},
+    {"phase_id": "phase_03", "status": "QUEUED", "expected_trials": 3, "completed_trials": 0},
+    {"phase_id": "phase_04", "status": "QUEUED", "expected_trials": 3, "completed_trials": 0},
+    {"phase_id": "phase_05", "status": "QUEUED", "expected_trials": 3, "completed_trials": 0}
   ],
   "status_url": "/api/projects/prj_01J.../evaluation-runs/eval_01R..."
 }
@@ -4223,6 +4233,11 @@ custom production scorerには追加制約がある。`@scorer` 形式で自己�
 - [ ] 同じProjectの凍結Datasetだけを使い、別Projectのqrelsを混ぜていない。
 - [ ] 評価質問一覧の初期全選択、個別選択、すべて選択、選択解除、正解状態／詳細、選択件数／最大試行数を確認し、0件では開始できないようにした。
 - [ ] `evaluation_case_ids`を1〜1000件、空・重複なし、同じProject／version／split所属で検証し、`config_json`／`config_hash`へ固定した。Jobは選択IDだけを処理し、fieldのない旧runだけ全件互換を維持した。
+- [ ] trialの既定値を1にし、質問、Phase、既存Index Variant、回答LLM、judge LLMがそろうまで開始ボタンを無効にした。
+- [ ] 開始要求中からspinner、5工程、全体／Phase別の完了試行数、割合、経過時間を表示し、再読込、ページ移動、一時的なpoll失敗後もactive runを復元した。
+- [ ] JobがNotebook開始前に失敗／停止しても評価行を終端状態へ収束し、取消時はDeltaの永続フラグとLakeflow Jobs API cancelを併用してterminal状態まで監視した。
+- [ ] Job linkを同一WorkspaceのHTTPS URLに限定し、providerの生メッセージと実DatabricksリソースIDを利用者画面や公開記録へ出していない。
+- [ ] 検索再現率、回答正解率、回答時間を主要3指標として表示し、詳細表に他の検索・回答・運用指標を残した。
 - [ ] Phase 1～5で選択質問、Variant、Embedding、回答LLM、prompt、kを固定した。
 - [ ] warm-upを集計から除外した。
 - [ ] Page Recall、Page Precision、Page DCG、Page nDCGの単位を明示して保存した。
@@ -4539,7 +4554,7 @@ databricks fs cp \
 5. OWNER／EDITORがPDF単体を確認付きで論理削除できる。進行中処理との競合は409で拒否し、30分超の孤児Chat runだけはguard付きで`ERROR`へ収束し、同じDELETEは冪等である。削除PDFを含む旧Variantは`SUPERSEDED`となり、残存PDFだけの後継Variant／AI Search IndexがREADYになる。最後のPDFならProjectは`EMPTY`となる。原本、解析結果、過去の会話／引用／評価は保持し、削除前のPDF引用をProject認可内で開ける。
 6. チャットでVector／Hybrid、Metadata Filtering、Reranking、Query Optimization、利用可能なFMAPI LLMを選べる。
 7. チャット履歴を高速に再表示・本人削除でき、回答を停止でき、すべての事実回答から検証済み`document_id`由来のPDF原文リンクへ移動できる。retrieval SSEと利用者画面へexcerpt／チャンク本文を出さない。
-8. 初回Data Preparation後に正解ラベルを捏造しないサンプル質問3件があり、Project／version／split内の登録済み質問を初期全選択、個別／一括で切り替え、正解状態と詳細を確認できる。0件では開始せず、人が固定した選択質問だけをPhase 1～5へ実行してProject単位で品質、latency、costを比較できる。未ラベルCorrectnessは`NULL`で平均から除外する。
+8. 初回Data Preparation後に正解ラベルを捏造しないサンプル質問3件があり、Project／version／split内の登録済み質問を初期全選択、個別／一括で切り替え、正解状態と詳細を確認できる。0件では開始せず、trial既定値1で人が固定した選択質問だけをPhase 1～5へ実行する。開始要求中から工程、試行数、経過時間を表示し、再読込後もactive runを復元し、停止はLakeflow Jobを含めてterminal状態まで確認する。Project単位で検索再現率、回答正解率、回答時間、costを比較し、未ラベルCorrectnessは`NULL`で平均から除外する。
 9. 各Phaseに対してLLMが回答品質3指標とjudge rationaleも根拠にし、優先度、副作用、再検証方法を含む改善提案を作り、自動適用せず保存できる。過去runを評価履歴から再表示できる。
 10. Phaseごとの設定と最終検索結果をMLflow Traceで再現でき、Project、quality run、performance runを安全に対応付けられる。
 11. データ準備Variantが別Delta Table・別Indexとして残り、どの変更で品質が上がり、latencyとcostがどれだけ増えたか説明できる。
@@ -4575,7 +4590,7 @@ Trial: 1
 
 このsmokeではHybrid SearchのPhase 2が検索3指標を改善した一方、Metadata Filtering以降はRecallが低下し、Query Optimizationを含むPhase 5はlatencyが増えた。改善機能を増やすこと自体を目的にせず、Phase別提案と失敗Traceから次の一変更を選んで再評価する。
 
-現行asset `1.4.5`はGitHubの`main/app`から新規Appへ配置し、`SUCCEEDED`／`RUNNING`／`ACTIVE`、health HTTP 200、resource binding 7件を確認した。Python 306件、Chat UI 27件、差分checkに合格している。許可済み既存Index Variant 1件だけを一覧表示し、AI Search 10件取得、回答、Trace、PDFリンク引用、`run.completed`まで認証付きremote APIで確認した。PDF viewerはローカルで初回3,057 ms、同一Project・PDF・pageの再表示296 msを確認し、Project切替時に保持iframeを破棄した。旧asset `1.4.1`のremote content APIではPDF 200、byte Range 206、ETag再検証304、private cacheを確認した履歴を保持する。
+現行source asset `1.4.6`はPython 311件、Chat UI 32件、差分checkに合格し、ローカル画面でPhase横並び、評価開始直後のspinner、進捗、完了、停止を確認した。直前のremote実測asset `1.4.5`はGitHubの`main/app`から新規Appへ配置し、`SUCCEEDED`／`RUNNING`／`ACTIVE`、health HTTP 200、resource binding 7件を確認した。許可済み既存Index Variant 1件だけを一覧表示し、AI Search 10件取得、回答、Trace、PDFリンク引用、`run.completed`まで認証付きremote APIで確認した。asset `1.4.6`のremote実測はデプロイ後に追記する。PDF viewerはローカルで初回3,057 ms、同一Project・PDF・pageの再表示296 msを確認し、Project切替時に保持iframeを破棄した。旧asset `1.4.1`のremote content APIではPDF 200、byte Range 206、ETag再検証304、private cacheを確認した履歴を保持する。
 
 asset `1.4.4`では評価画面にProject／version／split内の質問一覧、初期全選択、個別／一括選択、正解状態／詳細、選択件数／最大試行数、0件開始禁止、折りたたみ追加フォームを実装した。作成APIは1〜1000件の`evaluation_case_ids`を所属検証して`config_json`／`config_hash`へ固定し、Evaluation Jobは選択IDだけを処理する。fieldを持たない旧runの全件評価は後方互換として維持する。選択評価run `<RESOURCE_ID>`はcase `figure-001`だけを処理し、Job `<DATABRICKS_RESOURCE_ID>`／task `<DATABRICKS_RESOURCE_ID>`が`TERMINATED`／`SUCCESS`となった。結果1行、選択外0行、error 0、MLflow run `<RESOURCE_ID>`を確認した。
 

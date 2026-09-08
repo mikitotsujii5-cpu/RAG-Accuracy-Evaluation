@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="DatabricksでPDFを検索するRAGを作り、検索精度・回答品質・応答時間を比べるアプリ">
   <title>RAG精度評価アプリ</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=1.4.5">
+  <link rel="stylesheet" href="/assets/styles.css?v=1.4.6">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f3e58'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='Arial' font-weight='700' font-size='18' fill='%23a8e6cf'%3ER%3C/text%3E%3C/svg%3E">
 </head>
 <body>
@@ -398,64 +398,120 @@
             </div>
           </details>
         </article>
+        <article class="card evaluation-phase-card">
+          <div class="card-header compact">
+            <div><p class="eyebrow">STEP 2 · 比較する構成</p><h2>Phaseを横並びで選択</h2></div>
+            <span class="lock-label">実行中は変更できません</span>
+          </div>
+          <p class="subtle">左から順にRAGの改善機能が追加されます。比較したいPhaseを1つ以上選んでください。</p>
+          <fieldset class="phase-fieldset">
+            <legend class="sr-only">評価するPhase</legend>
+            <div class="phase-selector" role="group" aria-label="評価するPhase">
+              <label><input type="checkbox" name="eval-phase" value="phase_01" checked><span><b>1</b><span class="phase-copy"><strong>Vector Search</strong><small>ベクトル検索の基準</small></span><i aria-hidden="true">✓</i></span></label>
+              <label><input type="checkbox" name="eval-phase" value="phase_02" checked><span><b>2</b><span class="phase-copy"><strong>Hybrid Search</strong><small>キーワード検索を追加</small></span><i aria-hidden="true">✓</i></span></label>
+              <label><input type="checkbox" name="eval-phase" value="phase_03" checked><span><b>3</b><span class="phase-copy"><strong>Metadata Filtering</strong><small>対象文書を条件で絞る</small></span><i aria-hidden="true">✓</i></span></label>
+              <label><input type="checkbox" name="eval-phase" value="phase_04" checked><span><b>4</b><span class="phase-copy"><strong>Reranking</strong><small>関連度で順位を整える</small></span><i aria-hidden="true">✓</i></span></label>
+              <label><input type="checkbox" name="eval-phase" value="phase_05" checked><span><b>5</b><span class="phase-copy"><strong>Query Optimization</strong><small>検索質問を展開・最適化</small></span><i aria-hidden="true">✓</i></span></label>
+            </div>
+          </fieldset>
+        </article>
+
+        <article class="card evaluation-config evaluation-launch-card">
+          <div class="card-header compact">
+            <div><p class="eyebrow">STEP 3 · 実行条件</p><h2>同じ条件でRAGを比較</h2></div>
+            <div id="evaluation-selection-summary" class="evaluation-selection-summary"><strong>0問</strong><span>評価する質問を選択してください</span></div>
+          </div>
+          <div class="evaluation-config-grid">
+            <label>繰り返し回数<input id="trial-count" type="number" min="1" max="10" value="1"></label>
+            <label>比較する検索データ<select id="evaluation-variant"><option value="">読み込み中…</option></select></label>
+            <label>回答用LLM<select id="evaluation-model"><option value="">読み込み中…</option></select></label>
+            <label>採点用LLM<select id="judge-model"><option value="">読み込み中…</option></select></label>
+            <div id="evaluation-index-detail" class="model-detail muted-panel evaluation-index-detail">使用するIndexを選択してください。</div>
+          </div>
+          <div class="evaluation-launch-actions">
+            <p id="evaluation-run-estimate" class="evaluation-run-estimate">質問とPhaseを選択すると実行数を表示します。</p>
+            <div class="evaluation-action-buttons">
+              <button id="start-evaluation" class="primary-button" type="button" disabled>質問を選択してください</button>
+              <button id="cancel-evaluation" class="danger-button hidden" type="button">評価を停止</button>
+            </div>
+          </div>
+        </article>
+
+        <article id="evaluation-progress-card" class="card evaluation-progress-card hidden" role="status" aria-live="polite" aria-busy="false">
+          <div class="evaluation-progress-header">
+            <div class="evaluation-progress-heading">
+              <span id="evaluation-progress-spinner" class="evaluation-spinner hidden" aria-hidden="true"></span>
+              <div><p class="eyebrow">STEP 4 · 評価実行</p><h2 id="evaluation-progress-title">評価の準備中</h2><p id="evaluation-progress-description">実行状況を確認しています。</p></div>
+            </div>
+            <span id="evaluation-overall-status" class="status-pill info">準備中</span>
+          </div>
+          <div class="evaluation-progress-summary">
+            <strong id="evaluation-progress-label">0 / 0 試行</strong>
+            <span id="evaluation-progress-percent">0%</span>
+          </div>
+          <div id="evaluation-progress-track" class="progress-track large" role="progressbar" aria-label="評価の進捗" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="evaluation-progress-bar" style="width:0%"></span></div>
+          <ol id="evaluation-stage-list" class="evaluation-stage-list" aria-label="評価工程">
+            <li data-evaluation-stage="accepted"><span>1</span><div><strong>受付</strong><small>設定を保存</small></div></li>
+            <li data-evaluation-stage="job"><span>2</span><div><strong>Job起動</strong><small>コンピュートを準備</small></div></li>
+            <li data-evaluation-stage="trials"><span>3</span><div><strong>Phase評価</strong><small>検索・回答・採点</small></div></li>
+            <li data-evaluation-stage="metrics"><span>4</span><div><strong>指標集計</strong><small>精度と速度を比較</small></div></li>
+            <li data-evaluation-stage="advice"><span>5</span><div><strong>改善提案</strong><small>LLMが次の施策を提案</small></div></li>
+          </ol>
+          <div id="phase-run-status" class="phase-run-status"></div>
+          <div class="evaluation-progress-footer">
+            <span id="evaluation-elapsed">経過 0秒</span>
+            <a id="evaluation-job-link" class="text-link hidden" href="#" target="_blank" rel="noopener noreferrer">Lakeflow Jobを開く ↗</a>
+          </div>
+        </article>
+
+        <section class="evaluation-results" aria-label="RAG精度評価の結果">
+          <div class="evaluation-metric-groups">
+            <section class="metric-group" aria-labelledby="retrieval-metrics-title">
+              <div><p class="eyebrow">検索品質</p><h2 id="retrieval-metrics-title">必要な根拠を見つけたか</h2></div>
+              <div class="metric-grid retrieval-metrics">
+                <article class="metric-card"><span>検索再現率（Recall@10）</span><strong id="metric-recall">—</strong><small>関連ページを見つけた割合</small></article>
+              </div>
+            </section>
+            <section class="metric-group" aria-labelledby="answer-metrics-title">
+              <div><p class="eyebrow">回答品質</p><h2 id="answer-metrics-title">正しく根拠に沿って答えたか</h2></div>
+              <div class="metric-grid">
+                <article class="metric-card"><span>回答正解率</span><strong id="metric-correctness">—</strong><small>期待する内容と合う割合</small></article>
+                <article class="metric-card"><span>根拠一致率</span><strong id="metric-groundedness">—</strong><small>PDFの根拠に基づく割合</small></article>
+                <article class="metric-card"><span>引用正解率</span><strong id="metric-citation-correctness">—</strong><small>引用リンクが回答を支える割合</small></article>
+              </div>
+            </section>
+            <section class="metric-group" aria-labelledby="operation-metrics-title">
+              <div><p class="eyebrow">速度・利用量</p><h2 id="operation-metrics-title">どれだけ速く、効率よく答えたか</h2></div>
+              <div class="metric-grid">
+                <article class="metric-card"><span>初回表示時間</span><strong id="metric-ttft">—</strong><small>回答が出始めるまでの中央値</small></article>
+                <article class="metric-card"><span>回答時間（中央値）</span><strong id="metric-latency-p50">—</strong><small>回答完了までの中央値</small></article>
+                <article class="metric-card"><span>回答時間（95%）</span><strong id="metric-latency-p95">—</strong><small>遅いケースを含む応答時間</small></article>
+                <article class="metric-card"><span>使用トークン</span><strong id="metric-tokens">—</strong><small>全試行で使ったトークンの合計</small></article>
+                <article class="metric-card"><span>推定コスト</span><strong id="metric-cost">未取得</strong><small>価格情報がある場合のみ表示</small></article>
+              </div>
+            </section>
+          </div>
+
+          <article class="card evaluation-comparison-card">
+            <div class="card-header"><div><p class="eyebrow">Phase比較</p><h2>精度と応答時間</h2></div><span class="subtle">同じ質問・検索データ・LLMで比較</span></div>
+            <div class="chart-legend" aria-hidden="true"><span class="recall">検索再現率</span><span class="correctness">回答正解率</span><span class="latency">回答時間 p50（右軸）</span></div>
+            <div class="chart-wrap"><canvas id="phase-chart" width="900" height="320" aria-label="Phase別の検索再現率、回答正解率、回答時間の比較"></canvas><div id="chart-empty" class="chart-empty">評価が完了するとPhaseごとの違いを表示します。</div></div>
+            <div class="table-wrap borderless evaluation-table-wrap"><table><thead><tr><th>Phase</th><th>検索再現率</th><th>検索適合率</th><th>検索順位</th><th>回答正解率</th><th>根拠一致率</th><th>引用正解率</th><th>初回表示</th><th>回答 p50</th><th>回答 p95</th><th>トークン</th><th>コスト</th><th>エラー率</th></tr></thead><tbody id="metrics-table-body"><tr><td colspan="13" class="empty-cell">まだ評価結果がありません。</td></tr></tbody></table></div>
+          </article>
+          <article class="card evaluation-advice-card">
+            <div class="card-header"><div><p class="eyebrow">AIアドバイス</p><h2>次に試す精度改善</h2></div><span class="status-pill info">LLMが分析</span></div>
+            <div id="suggestion-list" class="suggestion-list"><p class="empty-inline">評価後、低精度の原因と次に試す設定をPhaseごとに表示します。</p></div>
+          </article>
+        </section>
+
         <article class="card evaluation-history-card">
           <div class="card-header compact">
             <div><p class="eyebrow">評価履歴</p><h2>過去のPhase比較</h2></div>
             <button id="refresh-evaluation-runs" class="text-button" type="button">更新</button>
           </div>
-          <p class="subtle">過去の実行を選ぶと、同じProjectの指標とAI改善提案を再表示します。</p>
+          <p class="subtle">過去の実行を選ぶと、同じプロジェクトの指標とAI改善提案を再表示します。</p>
           <div id="evaluation-run-list" class="evaluation-run-list"><p class="empty-inline">評価履歴はまだありません。</p></div>
         </article>
-        <div class="evaluation-layout">
-          <aside class="card evaluation-config">
-            <div class="card-header compact"><div><p class="eyebrow">STEP 2</p><h2>比較条件</h2></div><span class="lock-label">🔒 実行中は変更不可</span></div>
-            <div id="evaluation-selection-summary" class="evaluation-selection-summary"><strong>0問</strong><span>評価する質問を選択してください</span></div>
-            <fieldset>
-              <legend>評価するPhase</legend>
-              <div class="phase-selector">
-                <label><input type="checkbox" name="eval-phase" value="phase_01" checked><span><b>1</b><strong>Vector</strong><small>基準</small></span></label>
-                <label><input type="checkbox" name="eval-phase" value="phase_02" checked><span><b>2</b><strong>Hybrid</strong><small>Keyword併用</small></span></label>
-                <label><input type="checkbox" name="eval-phase" value="phase_03" checked><span><b>3</b><strong>+ 絞り込み</strong><small>条件で絞る</small></span></label>
-                <label><input type="checkbox" name="eval-phase" value="phase_04" checked><span><b>4</b><strong>+ 並べ替え</strong><small>順位を調整</small></span></label>
-                <label><input type="checkbox" name="eval-phase" value="phase_05" checked><span><b>5</b><strong>+ 質問最適化</strong><small>質問を展開</small></span></label>
-              </div>
-            </fieldset>
-            <label>繰り返し回数<input id="trial-count" type="number" min="1" max="10" value="3"></label>
-            <label>比較する検索データ<select id="evaluation-variant"><option value="">読み込み中…</option></select></label>
-            <div id="evaluation-index-detail" class="model-detail muted-panel">使用するIndexを選択してください。</div>
-            <label>回答用LLM<select id="evaluation-model"><option value="">読み込み中…</option></select></label>
-            <label>採点用LLM<select id="judge-model"><option value="">読み込み中…</option></select></label>
-            <button id="start-evaluation" class="primary-button full-width" type="button" disabled>質問を選択してください</button>
-            <button id="cancel-evaluation" class="danger-button full-width hidden" type="button">評価を停止</button>
-          </aside>
-          <div class="stack evaluation-results">
-            <article id="evaluation-progress-card" class="card hidden">
-              <div class="card-header compact"><div><p class="eyebrow">評価実行</p><h2 id="evaluation-progress-title">Phase比較を実行中</h2></div><span id="evaluation-progress-label">0 / 0</span></div>
-              <div class="progress-track large"><span id="evaluation-progress-bar" style="width:0%"></span></div>
-              <div id="phase-run-status" class="phase-run-status"></div>
-            </article>
-            <div class="metric-grid">
-              <article class="metric-card"><span>検索再現率（Recall@10）</span><strong id="metric-recall">—</strong><small>関連ページを見つけた割合</small></article>
-              <article class="metric-card"><span>回答正解率</span><strong id="metric-correctness">—</strong><small>期待する内容と合う割合</small></article>
-              <article class="metric-card"><span>根拠一致率</span><strong id="metric-groundedness">—</strong><small>PDFの根拠に基づく割合</small></article>
-              <article class="metric-card"><span>引用正解率</span><strong id="metric-citation-correctness">—</strong><small>引用リンクが回答を支える割合</small></article>
-              <article class="metric-card"><span>初回表示時間</span><strong id="metric-ttft">—</strong><small>回答が出始めるまでの中央値</small></article>
-              <article class="metric-card"><span>回答時間（中央値）</span><strong id="metric-latency-p50">—</strong><small>回答完了までの中央値</small></article>
-              <article class="metric-card"><span>回答時間（95%）</span><strong id="metric-latency-p95">—</strong><small>遅いケースを含む応答時間</small></article>
-              <article class="metric-card"><span>使用トークン</span><strong id="metric-tokens">—</strong><small>全試行で使ったトークンの合計</small></article>
-              <article class="metric-card"><span>コスト</span><strong id="metric-cost">未取得</strong><small>モデル利用コスト</small></article>
-            </div>
-            <article class="card">
-              <div class="card-header"><div><p class="eyebrow">Phase比較</p><h2>精度と応答時間</h2></div><span class="subtle">同じ質問・検索データ・LLM</span></div>
-              <div class="chart-wrap"><canvas id="phase-chart" width="900" height="290" aria-label="Phase別の精度とレイテンシ比較"></canvas><div id="chart-empty" class="chart-empty">評価完了後に比較グラフを表示します。</div></div>
-              <div class="table-wrap borderless"><table><thead><tr><th>Phase</th><th>検索再現率</th><th>検索適合率</th><th>検索順位</th><th>回答正解率</th><th>根拠一致率</th><th>引用正解率</th><th>初回表示</th><th>回答 p50</th><th>回答 p95</th><th>トークン</th><th>コスト</th><th>エラー率</th></tr></thead><tbody id="metrics-table-body"><tr><td colspan="13" class="empty-cell">まだ評価結果がありません。</td></tr></tbody></table></div>
-            </article>
-            <article class="card">
-              <div class="card-header"><div><p class="eyebrow">AIアドバイス</p><h2>RAG精度を上げる提案</h2></div><span class="status-pill info">LLMが分析</span></div>
-              <div id="suggestion-list" class="suggestion-list"><p class="empty-inline">評価後、低精度の原因と次に試す設定をPhaseごとに表示します。</p></div>
-            </article>
-          </div>
-        </div>
       </section>
     </main>
   </div>
@@ -480,6 +536,6 @@
     </div>
   </div>
 
-  <script src="/assets/app.js?v=1.4.5" defer></script>
+  <script src="/assets/app.js?v=1.4.6" defer></script>
 </body>
 </html>

@@ -155,7 +155,7 @@ PDF削除専用の後継Build／Syncは`SUCCESS`です。最新の`job_common.py
 
 過去のscan ProjectではStandard／256のVariant `<RESOURCE_ID>`も作成し、source 8行、Index 8行、`ready=true`、別Project行0、App SPへの個別`SELECT`を確認済みです。実Workspaceで確認済みのprofileはStandard／256とSemantic／512の2組で、残り7組は`PENDING`です。
 
-重複防止、冪等再試行、単一poller、無期限監視、queue表示、Project切替後の復元、`job_run_id`自己回復、選択した評価caseだけの実行、PDF削除後の後継Build、既存Index許可外Variantの一覧除外を含む現行App／Job sourceは、Python 306件とChat UI 27件の自動テストですべて成功しています。Data Preparation Job `<DATA_PREPARATION_JOB_ID>`とEvaluation Job `<EVALUATION_JOB_ID>`は最新Notebookを再importして同じJob IDへreset済みです。現行asset `1.4.5`はGitHubの`main/app`から新規Appへ配置済みです。選択評価run `<RESOURCE_ID>`はasset `1.4.4`でcase `figure-001`だけを処理し、Job `<DATABRICKS_RESOURCE_ID>`／task `<DATABRICKS_RESOURCE_ID>`が`TERMINATED`／`SUCCESS`、結果1行、選択外0行、error 0で完了しました。MLflow runは`<RESOURCE_ID>`です。
+重複防止、冪等再試行、単一poller、queue表示、Project再表示後の評価run復元、poll再接続、`job_run_id`自己回復、trial単位の進捗、Lakeflow Job取消、terminal収束、選択した評価caseだけの実行、PDF削除後の後継Build、既存Index許可外Variantの一覧除外を含む現行App／Job sourceは、Python 311件とChat UI 32件の自動テストですべて成功しています。評価中runが0件であることを確認し、asset `1.4.6`の4 Notebookを同じWorkspaceディレクトリへ再importし、既存Evaluation Jobを同じID・既存設定のままresetしました。task timeout 14,400秒、同時実行数1も維持しています。直前のremote Appはasset `1.4.5`で、asset `1.4.6`のremote評価結果はStep 8〜9へ追記します。選択評価run `<RESOURCE_ID>`はasset `1.4.4`でcase `figure-001`だけを処理し、Job `<DATABRICKS_RESOURCE_ID>`／task `<DATABRICKS_RESOURCE_ID>`が`TERMINATED`／`SUCCESS`、結果1行、選択外0行、error 0、MLflow run `<RESOURCE_ID>`でした。
 
 同じassetのPDF削除では、後継prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`がREADYとなりsource 8行、削除PDF 0行、保持PDF 8行でした。もう一つの後継prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`もREADYとなりsource 4行、削除PDF 0行、保持PDF 4行でした。両AI Search実検索は保持document `<RESOURCE_ID>`だけを返し、削除documentを返しませんでした。
 

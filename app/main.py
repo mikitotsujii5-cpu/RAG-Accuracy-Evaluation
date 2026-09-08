@@ -51,7 +51,7 @@ LOGGER = logging.getLogger("rag_accuracy_app")
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 MAX_PDF_BYTES = 100 * 1024 * 1024
-APP_VERSION = "1.4.5"
+APP_VERSION = "1.4.6"
 
 Authenticator = Callable[[Request], str | Awaitable[str]]
 

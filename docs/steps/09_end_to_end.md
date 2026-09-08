@@ -118,7 +118,12 @@ app/.venv/bin/python scripts/smoke_test_last_document_deletion.py \
 - Project／評価データ版／用途に登録済みの質問が初回全選択され、個別選択、すべて選択、選択解除が動く。正解状態、期待回答、正解PDF／ページ、選択件数、最大試行数を確認でき、0件では開始できない。
 - 開始APIへ選択した`evaluation_case_ids`だけが渡り、同じProject・version・splitへの所属検証後に`config_json`／`config_hash`へ固定される。Evaluation JobはそのIDだけを各Phaseで評価する。
 - 同じ質問集合、Dataset、Variant、回答LLM、Judge LLM、final kでPhase 1〜5を実行する。
-- Recall@10、Precision@10、nDCG@10、Correctness、Groundedness、Citation Correctness、TTFT、E2E、error rate、tokenを表示する。
+- trialの初期値は1である。質問、Phase、既存Indexに対応するVariant、回答LLM、Judge LLMのいずれかが不足すると開始できない。1問 × 5 Phase × 1回では最大5試行と表示する。
+- 開始クリック直後からspinnerと進捗カードを表示し、受付、Job起動、Phase評価、指標集計、改善提案、完了試行数／全試行数、割合、経過時間、Phase別状態を確認できる。
+- Lakeflow Jobの待機、compute起動、environment準備、実行を区別して表示する。Job linkは同一WorkspaceのURLと検証できた場合だけ表示し、providerの生メッセージを出さない。
+- 実行中に再読込または別ページへ移動して戻っても同じrunを復元する。状態取得が一時失敗しても自動で再確認し、Notebook開始前にJobが失敗／停止した場合は終端状態へ確定する。
+- `評価を停止`はDeltaの取消要求とLakeflow Job取消を実行し、画面はterminal状態まで監視する。停止要求済みrunを完了runとして扱わない。
+- 主表示に検索再現率（Recall@10）、回答正解率、回答時間があり、詳細表にPrecision@10、nDCG@10、Groundedness、Citation Correctness、TTFT、E2E p50／p95、error rate、tokenがある。
 - 各Phaseに、失敗ケースを根拠にしたLLM改善提案を表示する。
 - 評価履歴から過去runを選択し、保存済みPhase状態、指標、改善提案を再表示できる。
 - 期待回答・期待事実がないケースのAnswer Correctnessは`NULL`／`—`で、平均から除外される。
@@ -140,13 +145,15 @@ app/.venv/bin/python scripts/smoke_test_last_document_deletion.py \
 - 30分超のChat runが残っているのに削除が409のままなら、`started_at`、run状態、対応assistant message、回復UPDATEのguardを確認します。時刻や状態を手動変更しません。30分以内のrunに対する409は正常です。
 - Phase比較の途中で固定条件が変わった場合は、そのrunを正式比較へ使わず新しいrunを作ります。
 - 評価質問を登録できない場合は、正解PDFの解析状態、ページ範囲、同じ版・用途での質問重複を確認します。
+- 評価が待機中のままなら、対応するLakeflow Jobのlifecycle／result stateと、status APIが終端状態を評価Tableへ反映できる権限を確認します。状態を手動で成功へ変更しません。
+- 停止要求後もJobが動く場合は、App SPのEvaluation Jobに対する`CAN MANAGE RUN`を確認します。取消フラグを削除せず、Job側checkpointとJobs API cancelの両方を確認します。
 
 ## この環境の実測結果
 
 確認済み項目は`SUCCESS`です。
 
-- 現行source asset `1.4.5`はPython 306件、Chat UI 27件が成功し、差分checkも成功しました。ローカルBrowserの既存実測ではEnter 5連打時の質問1件、思考中spinner、停止直後の入力復帰、会話履歴の往復277／284 ms、下書き保持、390 px表示、console error 0件を確認しました。
-- 現行asset `1.4.5`はGitHubの`main/app`から新規Appへ配置済みです。`SUCCEEDED`／`RUNNING`／`ACTIVE`、health HTTP 200、resource binding 7件、既存Index Variant一覧1件を確認しました。実RAGチャットはAI Search 10件、回答、Trace、PDFリンク引用、`run.completed`まで成功しています。
+- 現行source asset `1.4.6`はPython 311件、Chat UI 32件が成功し、差分checkも成功しました。ローカル画面でPhase横並び、評価開始直後のspinner、進捗、完了、停止を確認しました。既存のChat実測ではEnter 5連打時の質問1件、思考中spinner、停止直後の入力復帰、会話履歴の往復277／284 ms、下書き保持、390 px表示、console error 0件を確認しています。
+- 直前のremote実測asset `1.4.5`はGitHubの`main/app`から新規Appへ配置済みです。`SUCCEEDED`／`RUNNING`／`ACTIVE`、health HTTP 200、resource binding 7件、既存Index Variant一覧1件を確認しました。実RAGチャットはAI Search 10件、回答、Trace、PDFリンク引用、`run.completed`まで成功しています。asset `1.4.6`はデプロイ後にremote欄を更新します。
 - baseline Projectの使用中Variantを`baseline-standard-512-v1`へ復元し、UPDATE Statement `<STATEMENT_ID>`と検証SELECT `<STATEMENT_ID>`で確認しました。
 - 非車両Project `<RESOURCE_ID>`へPDFを登録し、タイトル自動補完、汎用metadata、旧車両値NULL、3ページの`FILE`型解析を確認しました。documentは`<RESOURCE_ID>`、parse runは`<RESOURCE_ID>`です。
 - 「RAG検索データを作成」はprep run `<RESOURCE_ID>`、Job run `<DATABRICKS_RESOURCE_ID>`、Semantic／512 Variant `<RESOURCE_ID>`で`SUCCEEDED`です。sourceとIndexは各6行、別Project行0、Indexは`READY`です。

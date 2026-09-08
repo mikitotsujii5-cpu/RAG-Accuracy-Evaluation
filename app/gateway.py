@@ -257,6 +257,18 @@ class DatabricksGateway:
                 "Lakeflow Jobの状態を取得できませんでした。Job権限を確認してください。"
             ) from exc
 
+    def cancel_job_run(self, run_id: int) -> None:
+        """Request cancellation for one validated Lakeflow Job run."""
+
+        if isinstance(run_id, bool) or not isinstance(run_id, int) or run_id <= 0:
+            raise ValueError("run_id must be a positive integer")
+        try:
+            self.workspace.jobs.cancel_run(run_id=run_id)
+        except Exception as exc:
+            raise DatabricksCallError(
+                "Lakeflow Jobへ停止を要求できませんでした。Job権限を確認してください。"
+            ) from exc
+
     def similarity_search(
         self,
         *,

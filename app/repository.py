@@ -40,6 +40,10 @@ PREP_ACTIVE_STATUSES = frozenset(
     {"QUEUED", "PENDING", "PREPARING", "RUNNING", "TERMINATING", "CANCEL_REQUESTED"}
 )
 PREP_ACTIVE_STATUS_SQL = ", ".join(sql_string(value) for value in sorted(PREP_ACTIVE_STATUSES))
+EVALUATION_ACTIVE_STATUSES = frozenset({"QUEUED", "RUNNING", "CANCEL_REQUESTED"})
+EVALUATION_ACTIVE_STATUS_SQL = ", ".join(
+    sql_string(value) for value in sorted(EVALUATION_ACTIVE_STATUSES)
+)
 PREP_SUBMISSION_RETRY_BASE_SECONDS = 30.0
 PREP_SUBMISSION_RETRY_MAX_SECONDS = 300.0
 PREP_SUBMISSION_INFLIGHT_RETRY_MS = 1000
@@ -69,6 +73,8 @@ def _overall_evaluation_status(statuses: set[str]) -> str:
         return "SUCCEEDED"
     if normalized == {"CANCELED"}:
         return "CANCELED"
+    if "CANCELED" in normalized and "SUCCEEDED" in normalized:
+        return "PARTIAL"
     if "FAILED" in normalized and "SUCCEEDED" in normalized:
         return "PARTIAL"
     if "FAILED" in normalized:
@@ -3348,7 +3354,8 @@ class Repository:
         config_hash = hashlib.sha256(canonical.encode()).hexdigest()
         table = self.table("toyota_rag_eval_runs")
         previous = self.gateway.query(f"""
-            SELECT eval_run_id, phase_id, status, config_hash
+            SELECT eval_run_id, phase_id, status, config_hash,
+                   expected_trials, completed_trials
             FROM {table}
             WHERE project_id={sql_string(project_id)}
               AND requested_by={sql_string(principal)}
@@ -3369,7 +3376,12 @@ class Repository:
                 "config_hash": config_hash,
                 "selected_case_count": len(selected_case_ids),
                 "phases": [
-                    {"phase_id": row["phase_id"], "status": row["status"]}
+                    {
+                        "phase_id": row["phase_id"],
+                        "status": row["status"],
+                        "expected_trials": _int_or_none(row.get("expected_trials")) or 0,
+                        "completed_trials": _int_or_none(row.get("completed_trials")) or 0,
+                    }
                     for row in previous
                 ],
                 "status_url": f"/api/projects/{project_id}/evaluation-runs/{existing_id}",
@@ -3380,6 +3392,7 @@ class Repository:
             sort_keys=True,
             separators=(",", ":"),
         )
+        expected_trials = len(selected_case_ids) * int(request.trial_count)
         rows = []
         for phase in request.phase_ids:
             rows.append("(" + ", ".join([
@@ -3387,7 +3400,7 @@ class Repository:
                 sql_string(request.variant_id), sql_string(request.dataset_version),
                 sql_string(request.dataset_split), sql_string(request.answer_model_key),
                 sql_string(request.judge_model_key), str(request.trial_count),
-              sql_string(principal), "'QUEUED'", "0", "0", sql_string(stored_config),
+              sql_string(principal), "'QUEUED'", str(expected_trials), "0", sql_string(stored_config),
                 sql_string(config_hash), "current_timestamp()",
             ]) + ")")
         self.gateway.execute_sql(f"""
@@ -3415,7 +3428,15 @@ class Repository:
             "status": "QUEUED",
             "config_hash": config_hash,
             "selected_case_count": len(selected_case_ids),
-            "phases": [{"phase_id": phase, "status": "QUEUED"} for phase in request.phase_ids],
+            "phases": [
+                {
+                    "phase_id": phase,
+                    "status": "QUEUED",
+                    "expected_trials": expected_trials,
+                    "completed_trials": 0,
+                }
+                for phase in request.phase_ids
+            ],
             "status_url": f"/api/projects/{project_id}/evaluation-runs/{eval_run_id}",
         }
 
@@ -3474,6 +3495,7 @@ class Repository:
         table = self.table("toyota_rag_eval_runs")
         rows = self.gateway.query(f"""
             SELECT phase_id, status, expected_trials, completed_trials, error_message,
+                   job_run_id,
                    CAST(created_at AS STRING) AS created_at,
                    CAST(completed_at AS STRING) AS completed_at
             FROM {table} WHERE project_id={sql_string(project_id)}
@@ -3481,12 +3503,100 @@ class Repository:
         """)
         if not rows:
             raise NotFoundError("精度評価runが見つかりません。")
+
+        normalized_job_run_ids = [
+            _int_or_none(row.get("job_run_id")) for row in rows
+        ]
+        has_invalid_job_run_id = any(
+            row.get("job_run_id") not in (None, "")
+            and (job_run_id is None or job_run_id <= 0)
+            for row, job_run_id in zip(rows, normalized_job_run_ids, strict=True)
+        )
+        present_job_run_ids = {
+            job_run_id for job_run_id in normalized_job_run_ids if job_run_id is not None
+        }
+        if has_invalid_job_run_id or len(present_job_run_ids) > 1 or (
+            present_job_run_ids and any(job_run_id is None for job_run_id in normalized_job_run_ids)
+        ):
+            # Every phase is inserted and assigned to one Lakeflow Job as a
+            # single logical evaluation run. Fail closed instead of querying an
+            # arbitrary Job when the control rows no longer agree.
+            raise ResourceNotReadyError(
+                "精度評価runのJob情報に不整合があります。管理者に確認してください。"
+            )
+        job_run_id = next(iter(present_job_run_ids), None)
         for row in rows:
             row["expected_trials"] = _int_or_none(row.get("expected_trials")) or 0
             row["completed_trials"] = _int_or_none(row.get("completed_trials")) or 0
+            row["status"] = str(row.get("status") or "UNKNOWN").upper()
+            row.pop("job_run_id", None)
         statuses = {str(row["status"]) for row in rows}
         overall = _overall_evaluation_status(statuses)
-        return {"eval_run_id": eval_run_id, "status": overall, "phases": rows}
+        response: dict[str, Any] = {
+            "eval_run_id": eval_run_id,
+            "status": overall,
+            "phases": rows,
+            "job_run_id": job_run_id,
+            "job_run_url": None,
+            "job_state": None,
+            "job_state_message": None,
+            "queue_reason": None,
+        }
+        if job_run_id is None:
+            if overall in EVALUATION_ACTIVE_STATUSES:
+                response.update(
+                    job_state="QUEUED",
+                    job_state_message="Lakeflow Jobへの登録を準備しています。",
+                    queue_reason="JOB_SUBMITTING",
+                )
+            return response
+
+        try:
+            job = self.gateway.get_job_run(job_run_id)
+        except (ResourceNotReadyError, AttributeError):
+            response.update(
+                job_state="UNKNOWN",
+                job_state_message="Lakeflow Jobの状態を一時的に取得できません。",
+            )
+            return response
+
+        response.update(
+            job_run_url=job.get("job_run_url"),
+            job_state=job.get("job_state"),
+            job_state_message=_evaluation_job_state_message(job),
+            queue_reason=job.get("queue_reason"),
+        )
+        reconciled = _evaluation_status_from_job(
+            str(job.get("job_state") or ""),
+            str(job.get("result_state") or ""),
+        )
+        if reconciled is None or not statuses.intersection(EVALUATION_ACTIVE_STATUSES):
+            return response
+
+        next_status, public_error = reconciled
+        error_sql = sql_string(public_error) if public_error else "NULL"
+        try:
+            self.gateway.execute_sql(f"""
+                UPDATE {table}
+                SET status={sql_string(next_status)}, completed_at=current_timestamp(),
+                    error_message={error_sql}
+                WHERE project_id={sql_string(project_id)}
+                  AND eval_run_id={sql_string(eval_run_id)}
+                  AND status IN ({EVALUATION_ACTIVE_STATUS_SQL})
+            """)
+        except ResourceNotReadyError:
+            # The Jobs API is authoritative for a run that terminates before
+            # the notebook starts. Reflect it now and let a later poll retry
+            # the Project-scoped persistence update.
+            pass
+        for row in rows:
+            if row["status"] in EVALUATION_ACTIVE_STATUSES:
+                row["status"] = next_status
+                row["error_message"] = public_error
+        response["status"] = _overall_evaluation_status(
+            {str(row["status"]) for row in rows}
+        )
+        return response
 
     def list_evaluation_runs(self, project_id: str) -> list[dict[str, Any]]:
         """Return recent Project-scoped runs so completed comparisons are reusable."""
@@ -3582,11 +3692,37 @@ class Repository:
     def request_evaluation_cancel(self, project_id: str, eval_run_id: str) -> None:
         eval_run_id = require_uuid(eval_run_id, "eval_run_id")
         table = self.table("toyota_rag_eval_runs")
+        rows = self.gateway.query(f"""
+            SELECT DISTINCT job_run_id, status
+            FROM {table}
+            WHERE project_id={sql_string(project_id)}
+              AND eval_run_id={sql_string(eval_run_id)}
+        """)
+        if not rows:
+            raise NotFoundError("精度評価runが見つかりません。")
+        job_run_ids = {
+            value for value in (_int_or_none(row.get("job_run_id")) for row in rows)
+            if value is not None and value > 0
+        }
+        if len(job_run_ids) > 1:
+            raise ResourceNotReadyError(
+                "精度評価runのJob情報に不整合があります。管理者に確認してください。"
+            )
         self.gateway.execute_sql(f"""
             UPDATE {table} SET status='CANCEL_REQUESTED', cancel_requested_at=current_timestamp()
             WHERE project_id={sql_string(project_id)} AND eval_run_id={sql_string(eval_run_id)}
               AND status IN ('QUEUED', 'RUNNING', 'PARTIAL')
         """)
+        # The durable flag is the source of truth and is checked between
+        # trials. Also cancel the Lakeflow run so a blocked FMAPI/search call
+        # does not keep compute alive until the Job timeout. If the Jobs API is
+        # temporarily unavailable, the durable flag still stops at the next
+        # safe checkpoint.
+        if job_run_ids:
+            try:
+                self.gateway.cancel_job_run(next(iter(job_run_ids)))
+            except (ResourceNotReadyError, AttributeError):
+                pass
 
 
 def _title_from_filename(filename: str) -> str:
@@ -4091,6 +4227,57 @@ def _prep_status_from_job(
     if result in {"CANCELED", "UPSTREAM_CANCELED"}:
         return "CANCELED", "canceled", "Lakeflow Jobはキャンセルされました。"
     return "FAILED", "failed", "Lakeflow Jobが完了できませんでした。実行ログを確認してください。"
+
+
+def _evaluation_status_from_job(
+    job_state: str,
+    result_state: str,
+) -> tuple[str, str | None] | None:
+    """Map terminal Jobs states to safe evaluation control-row values."""
+
+    lifecycle = job_state.upper()
+    result = result_state.upper()
+    if lifecycle not in {"TERMINATED", "INTERNAL_ERROR", "SKIPPED"}:
+        return None
+    if result == "SUCCESS":
+        return "SUCCEEDED", None
+    if result in {"CANCELED", "UPSTREAM_CANCELED"}:
+        return "CANCELED", None
+    return (
+        "FAILED",
+        "精度評価Jobが完了できませんでした。Lakeflow Jobの実行ログを確認してください。",
+    )
+
+
+def _evaluation_job_state_message(job: dict[str, Any]) -> str:
+    """Return evaluation-specific copy without forwarding provider messages."""
+
+    queue_reason = str(job.get("queue_reason") or "").upper()
+    lifecycle = str(job.get("job_state") or "").upper()
+    result = str(job.get("result_state") or "").upper()
+    if queue_reason == "WAITING_FOR_JOB_CAPACITY":
+        return "先行する精度評価Jobの完了を待っています。"
+    if queue_reason == "COMPUTE_STARTING":
+        return "Databricksコンピュートを起動しています。初回は数分かかることがあります。"
+    if queue_reason == "ENVIRONMENT_STARTING":
+        return "評価環境とライブラリを準備しています。"
+    if queue_reason == "TASK_STARTING":
+        return "精度評価Taskの開始を待っています。"
+    if queue_reason == "RETRY_WAIT":
+        return "一時的な問題の後、精度評価Jobの再試行を待っています。"
+    if queue_reason == "BLOCKED":
+        return "精度評価Jobは前提条件の完了を待っています。"
+    if lifecycle == "RUNNING":
+        return "検索、回答生成、採点を順番に実行しています。"
+    if lifecycle == "TERMINATING":
+        return "精度評価Jobを終了しています。"
+    if lifecycle == "TERMINATED" and result == "SUCCESS":
+        return "精度評価Jobが完了しました。"
+    if lifecycle == "TERMINATED" and result == "CANCELED":
+        return "精度評価Jobを停止しました。"
+    if lifecycle in {"TERMINATED", "INTERNAL_ERROR", "SKIPPED"}:
+        return "精度評価Jobを完了できませんでした。"
+    return "精度評価Jobの状態を確認しています。"
 
 
 def _int_or_none(value: Any) -> int | None:
