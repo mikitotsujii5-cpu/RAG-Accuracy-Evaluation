@@ -36,6 +36,28 @@ class SettingsError(ValueError):
     """Raised when a configured resource name is unsafe or inconsistent."""
 
 
+def _infer_uc_namespace(
+    volume: str | None,
+    default_index_name: str | None,
+) -> tuple[str | None, str | None]:
+    """Infer Catalog/Schema only from server-controlled qualified resources."""
+
+    candidates: list[tuple[str, str]] = []
+    if volume:
+        volume_parts = (
+            volume.strip("/").split("/")[1:]
+            if volume.startswith("/Volumes/")
+            else volume.split(".")
+        )
+        if len(volume_parts) == 3:
+            candidates.append((volume_parts[0], volume_parts[1]))
+    if default_index_name:
+        index_parts = default_index_name.split(".")
+        if len(index_parts) == 3:
+            candidates.append((index_parts[0], index_parts[1]))
+    return candidates[0] if candidates else (None, None)
+
+
 @dataclass(frozen=True, slots=True)
 class IndexProfile:
     """One administrator-provisioned Delta source Table and AI Search Index.
@@ -115,10 +137,17 @@ class Settings:
         except ValueError as exc:
             raise SettingsError("DATABRICKS_APP_PORT は整数で指定してください。") from exc
 
+        uc_volume = _clean(os.getenv("UC_VOLUME"))
+        default_index_name = _clean(os.getenv("DEFAULT_INDEX_NAME"))
         uc_catalog = _clean(os.getenv("UC_CATALOG"))
         uc_schema = _clean(os.getenv("UC_SCHEMA"))
+        # App resource bindings already provide fully qualified Volume and
+        # Index names. Derive Catalog/Schema when they are not explicitly set,
+        # so app.yaml never needs a user-specific catalog name.
+        inferred_namespace = _infer_uc_namespace(uc_volume, default_index_name)
+        uc_catalog = uc_catalog or inferred_namespace[0]
+        uc_schema = uc_schema or inferred_namespace[1]
         vector_search_endpoint = _clean(os.getenv("VECTOR_SEARCH_ENDPOINT"))
-        default_index_name = _clean(os.getenv("DEFAULT_INDEX_NAME"))
         profiles = _parse_index_profiles(
             os.getenv("RAG_INDEX_PROFILES_JSON"),
             uc_catalog=uc_catalog,
@@ -130,7 +159,7 @@ class Settings:
             warehouse_id=_clean(os.getenv("DATABRICKS_WAREHOUSE_ID")),
             uc_catalog=uc_catalog,
             uc_schema=uc_schema,
-            uc_volume=_clean(os.getenv("UC_VOLUME")),
+            uc_volume=uc_volume,
             vector_search_endpoint=vector_search_endpoint,
             default_index_name=default_index_name,
             default_llm_endpoint=_clean(os.getenv("DEFAULT_LLM_ENDPOINT")),

@@ -7,8 +7,8 @@
 | 変数 | 内容 |
 |---|---|
 | `DATABRICKS_WAREHOUSE_ID` | Project、文書、履歴、評価TableへアクセスするSQL Warehouse |
-| `UC_CATALOG` | アプリ用Unity Catalog名 |
-| `UC_SCHEMA` | アプリ用Schema名 |
+| `UC_CATALOG` | アプリ用Unity Catalog名。完全修飾Volume／Index bindingがあれば省略可 |
+| `UC_SCHEMA` | アプリ用Schema名。完全修飾Volume／Index bindingがあれば省略可 |
 | `UC_VOLUME` | Volume名、または`/Volumes/catalog/schema/volume`形式のパス |
 | `VECTOR_SEARCH_ENDPOINT` | STANDARD AI Search endpoint名 |
 | `DEFAULT_INDEX_NAME` | 初期Indexの3階層名。Project Variantが未登録の間だけ使用 |
@@ -26,6 +26,8 @@
 | `EVAL_JOB_ID` | 固定DatasetでPhase 1〜5を評価するJob |
 
 `PREP_JOB_ID`と`EVAL_JOB_ID`は、先頭ゼロや空白を含まない正の整数でなければなりません。Appは起動時に検証し、不正な値で評価画面を待機させ続けず設定エラーとして停止します。
+
+CatalogとSchemaは完全修飾されたVolume／Index bindingから安全に判定するため、`app.yaml`へ利用者名を含むCatalog名を固定しません。
 
 `app.yaml`では、Workspaceリソースを`valueFrom`で`app-warehouse`、`toyota-volume`、`baseline-index`、`default-llm`、`prep-job`、`eval-job`、`mlflow-experiment`から解決します。Databricks App service principalには、Warehouseの`CAN USE`、必要なTableの`SELECT`／`MODIFY`、Volumeの`READ VOLUME`／`WRITE VOLUME`、Indexの`SELECT`、LLM endpointの`CAN QUERY`、Jobの`CAN MANAGE RUN`、Experimentの`CAN EDIT`を用途に応じて付与します。資格情報を環境変数から直接読み取ったり、ログへ出力したりするコードはありません。`WorkspaceClient()`がAppsのOAuth認証を使用します。
 
@@ -140,7 +142,8 @@ python3 scripts/smoke_test_app.py \
 - Projectごとの最近の評価runを一覧取得し、選択した過去runのPhase状態、集計指標、改善提案を保存済みTableから再表示します。新規runでは選択した評価case IDも再現条件の一部として固定します。
 - 期待回答・期待事実がないケースは`answer_correctness=NULL`にし、SQLの平均から除外します。0点へ変換しません。Phase advisorには検索指標に加え、Answer Correctness、Groundedness、Citation Correctnessと各judge rationaleを渡します。
 - 精度評価の主表示は検索再現率（Recall@10）、回答正解率、回答時間です。詳細表と比較chartでPrecision@10、nDCG@10、Groundedness、Citation Correctness、TTFT、E2E p50／p95、token、cost、error rateも確認します。
-- 各ページのfeature stripに、Unity Catalog Volume、`ai_parse_document`、Lakeflow Jobs、Delta Table、FMAPI、AI Search、MLflow 3、Index Variantなど、裏側で使うDatabricks機能名を表示します。
+- 各ページのfeature stripに、Catalog Explorer、Unity Catalog Volume、`ai_parse_document`、Lakeflow Jobs、Delta Table、FMAPI、AI Search、MLflow 3、Index Profileなど、裏側で使うDatabricks機能名を表示します。現在のWorkspaceに属する安全なURLを生成できた項目は、対応するコンソールを新しいタブで開けます。
+- 空のチャットには用途の異なる質問例を9件表示します。精度評価画面のPhase選択見出しは「比較条件を選択」です。
 - AI SearchのRerankingは`databricks-ai-search`の`DatabricksReranker`を使用します。
 - SQL Statement Executionは公開Databricks SDKを使い、複数result chunkを回収し、timeout時はstatementを取り消します。
 - 削除E2E helperの`on_wait_timeout`は文字列ではなく、SDKの`ExecuteStatementRequestOnWaitTimeout.CONTINUE`を渡します。文字列を渡すとSDK内部で`AttributeError: 'str' object has no attribute 'value'`になる版があるためです。

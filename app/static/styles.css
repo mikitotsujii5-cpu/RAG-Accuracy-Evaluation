@@ -136,7 +136,11 @@ a { color: var(--blue); }
 .step-badge, .lock-label { padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: var(--surface); font-size: .74rem; white-space: nowrap; }
 .feature-strip { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin: -8px 0 18px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 11px; background: color-mix(in srgb, var(--surface) 82%, var(--palette-mint)); }
 .feature-strip > strong { margin-right: 2px; color: var(--muted); font-size: .63rem; letter-spacing: .04em; }
-.feature-strip > span { padding: 3px 7px; border: 1px solid color-mix(in srgb, var(--accent), transparent 76%); border-radius: 999px; background: var(--surface); color: var(--accent-dark); font-size: .62rem; font-weight: 650; white-space: nowrap; }
+.feature-strip > span, .feature-strip > a { padding: 3px 7px; border: 1px solid color-mix(in srgb, var(--accent), transparent 76%); border-radius: 999px; background: var(--surface); color: var(--accent-dark); font-size: .62rem; font-weight: 650; white-space: nowrap; }
+.feature-strip > a { text-decoration: none; cursor: default; }
+.feature-strip > a.linked { cursor: pointer; transition: border-color .15s ease, background .15s ease, transform .15s ease; }
+.feature-strip > a.linked::after { content: "↗"; margin-left: 5px; font-size: .58rem; }
+.feature-strip > a.linked:hover, .feature-strip > a.linked:focus-visible { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); transform: translateY(-1px); outline: none; }
 .feature-strip.compact { margin-bottom: 10px; padding-block: 7px; }
 
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: 20px; }
@@ -466,7 +470,8 @@ th, td { padding: 10px 11px; border-bottom: 1px solid var(--line); vertical-alig
 .chat-empty-kicker { display: block; margin-bottom: 5px; color: var(--accent); font-size: .65rem; font-weight: 800; letter-spacing: .04em; }
 .chat-empty h2 { color: var(--ink); font-size: 1.18rem; margin-bottom: 7px; }
 .chat-empty > p { max-width: 390px; margin: 0 auto; font-size: .77rem; }
-.suggestion-chips { margin-top: 20px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.suggestion-title { margin: 18px 0 7px !important; color: var(--ink) !important; font-size: .68rem !important; font-weight: 800; text-align: left; }
+.suggestion-chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .suggestion-chips button { min-height: 42px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--surface); color: var(--muted); font-size: .69rem; text-align: left; transition: border-color .15s ease, background .15s ease, transform .15s ease; }
 .suggestion-chips button::after { content: "↗"; float: right; margin-left: 5px; color: var(--accent); }
 .suggestion-chips button:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); transform: translateY(-1px); }

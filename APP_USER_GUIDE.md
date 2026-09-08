@@ -7,7 +7,7 @@
 対象Workspaceは`field-eng-east`（ID `<WORKSPACE_ID>`）です。Databricksへサインインし、このAppの利用権限を持つアカウントで開いてください。
 
 > [!NOTE]
-> 現行sourceはasset version `1.4.8`です。Python 337件とUI 38件、合計375件の自動テストに合格しています。GitHubの`main/app`から配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.8`／`databricks_ready=true`、resource binding 7件を確認済みです。asset `1.4.7`で実行済みだったPhase 1・1問・1回runは、asset `1.4.8`で状態と結果を再表示できました。SSO済みremoteブラウザの手操作、TTFT、残り7 profileは`PENDING`です。
+> 現行sourceはasset version `1.4.9`です。Python 342件とUI 40件、合計382件の自動テストに合格しています。Databricks機能リンク、質問例9件、「比較条件を選択」を含みます。remote配置結果はデプロイ後に更新します。
 
 > [!CAUTION]
 > 付属のトヨタ車種関連PDFはすべて架空の評価データです。内容を実車の操作、整備、救助、購入判断に使わないでください。これらは同梱シナリオであり、アプリは車両以外のPDFにも使えます。
@@ -37,7 +37,7 @@ Projectは、同じ目的で使うPDF、検索Index、会話履歴、評価Datas
 
 D05とD09は同じ内容です。同じ検索Indexへ同時登録すると重複検索になり、評価が歪むため分離します。
 
-画面右上には、Databricks Appsへログインしている利用者のメールアドレスが表示されます。各ページ上部の「Databricks構成」または「RAG実行」「評価基盤」には、その画面で使う機能名が表示されます。たとえばUnity Catalog Volume、`ai_parse_document`、Lakeflow Jobs、Delta Table、FMAPI、AI Search、MLflow 3、Index Variantです。
+画面右上には、Databricks Appsへログインしている利用者のメールアドレスが表示されます。各ページ上部の「Databricks構成」または「RAG実行」「評価基盤」には、その画面で使う機能名が表示されます。外部リンク記号`↗`がある機能名を押すと、Catalog Explorer、Volume、SQL Editor、Lakeflow Jobs、FMAPI endpoint、AI Search Index、MLflow Experimentなど、対応するWorkspaceコンソールを新しいタブで開きます。リンクは現在のWorkspaceと許可済み画面だけに制限され、URLを判定できない場合は表示だけに戻ります。
 
 Projectを削除するときは、サイドバー下部の「プロジェクトを削除」を押します。OWNERだけが実行でき、確認画面で確定するまで削除されません。データ準備、回答、評価の実行中は、先に完了または停止してください。削除後は通常の画面とAPIから見えなくなりますが、監査・復旧のためPDF、評価結果、共有Table／Indexの実データは管理領域に保持されます。
 
@@ -220,6 +220,8 @@ Phase 3以降のMetadata Filteringは、質問に書かれた値を現在のProj
 
 ### 4.2 質問して根拠を確認する
 
+空の会話には、資料の要点、結論と根拠ページ、手順、注意事項、対象者と適用範囲、数値条件、専門用語、旧版との差分、不足情報を確認する9件の質問例が表示されます。押すと入力欄へ入るため、必要に応じて文言を直して送信します。
+
 1. 「＋ 新しい会話」を押す。
 2. Phase、検索データ、回答モデルを選ぶ。
 3. 質問を入力し「送信」を押す。`Enter`でも送信でき、`Shift`＋`Enter`で改行できる。
@@ -300,7 +302,7 @@ G01の登録例:
    - `development`: 改善や調整に使う。
    - `holdout`: 調整完了後の最終確認にだけ使う。
 2. 一覧で今回評価する質問を選ぶ。最初は全選択なので、短いsmokeでは不要な質問のチェックを外す。
-3. 比較するPhaseを選ぶ。正式比較では1〜5をすべて選ぶ。
+3. 「比較条件を選択」で比較するPhaseを選ぶ。正式比較では1〜5をすべて選ぶ。
    - Phaseは全幅のカードに左から1〜5の順で表示される。横幅が足りない場合はカード部分を横へスクロールする。
 4. 「繰り返し回数」を選ぶ。既定値は1。最初の動作確認は1、正式比較は事前に決めた同じ回数を使う。
 5. 表示された「最大○試行」が意図した件数か確認する。

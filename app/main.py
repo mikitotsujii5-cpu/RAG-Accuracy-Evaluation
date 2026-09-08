@@ -28,6 +28,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from console_links import build_console_links
 from errors import AppError, ResourceNotReadyError
 from gateway import DatabricksGateway
 from rag import CancellationRegistry, RagOrchestrator
@@ -51,7 +52,7 @@ LOGGER = logging.getLogger("rag_accuracy_app")
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 MAX_PDF_BYTES = 100 * 1024 * 1024
-APP_VERSION = "1.4.8"
+APP_VERSION = "1.4.9"
 
 Authenticator = Callable[[Request], str | Awaitable[str]]
 
@@ -168,6 +169,15 @@ def create_app(
             "email": email,
             "display_name": display_name,
         }
+
+    @api.get("/api/console-links")
+    async def console_links(
+        request: Request,
+        _: str = Depends(current_principal),
+    ) -> dict[str, Any]:
+        """Expose only server-generated links to the current Workspace UI."""
+
+        return {"links": build_console_links(request.app.state.settings)}
 
     @api.get("/api/projects")
     async def list_projects(

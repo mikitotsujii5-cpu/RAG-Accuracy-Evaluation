@@ -2599,7 +2599,7 @@ Project未選択時は最初に作成または選択する画面を出す。READ
 
 高度なUIでも初心者が迷わないよう、主要ボタンは「次に行う操作」を一つ強調する。長い処理はskeleton（読込中の仮表示）、進捗stepper（工程別の進捗表示）、再実行ボタンを使い、色だけで状態を伝えない。キーボード操作、focus表示、light／dark theme、狭い画面でのサイドバー折りたたみに対応する。
 
-各ページの上部には、その画面で実際に使うDatabricks機能名を短いchipで表示する。データ準備はUnity Catalog Volume、`ai_parse_document`、Lakeflow Jobs、Delta Table、FMAPI Embeddings、AI Search、カタログはFMAPI概要、チャットはAI Search、FMAPI、MLflow 3 Tracing、Index Variant、評価はDelta評価Dataset、Lakeflow Jobs、MLflow 3 Evaluation／Trace、Index Variantを表示する。
+各ページの上部には、その画面で実際に使うDatabricks機能名を短いchipで表示する。データ準備はCatalog Explorer、Unity Catalog Volume、`ai_parse_document`、Lakeflow Jobs、Delta Table、FMAPI Embeddings、AI Search、カタログはFMAPI概要、チャットはAI Search、FMAPI、MLflow 3 Tracing、Index Profile、評価はDelta評価Dataset、Lakeflow Jobs、MLflow 3 Evaluation／Trace、Index Profileを表示する。現在のWorkspace hostと許可済みpathからサーバーが生成したリンクだけを有効化し、対応するコンソールを新しいタブで開く。任意URL、userinfo付きURL、HTTP、外部hostは拒否し、判定できないchipは説明表示だけにする。
 
 画面では日本語を主表示にし、技術用語には説明tooltipを付ける。最低限、次の表記を統一する。
 
@@ -2728,6 +2728,8 @@ idle → submitting → streaming → stopping → cancelled
 | 評価質問の追加 | 初期状態で閉じたフォームを必要なときだけ開き、質問、正解PDF、正解ページ、データ版、用途を登録。期待回答は任意。回答可能な質問では解析済みPDFとPDF内のページ番号を必須にする |
 | 実行設定 | Phase 1～5、trial数、Variant、回答LLM、judge LLM、dataset version／split、選択case ID。trialの既定値は1。選択件数と`case × Phase × trial`の最大試行数を表示し、質問、Phase、Variant、両LLMのいずれかが未選択なら開始不可 |
 | 進捗 | 開始要求中からspinnerを表示し、受付、Job起動、Phase評価、指標集計、改善提案の5工程、全体とPhase別の完了試行数、割合、経過時間、cancelを表示。経過時間はstatus APIの`elapsed_seconds`を基準に更新し、terminal状態で固定 |
+
+チャットの空画面には、要点、結論と根拠、手順、注意事項、対象範囲、数値条件、専門用語、版差分、不足情報を確認する9件の汎用質問例を表示する。Phase選択領域の見出しは「比較条件を選択」とする。
 | 評価履歴 | Projectごとの最近のrunを新しい順に表示し、選択した過去runのPhase状態、指標、改善提案を再表示 |
 | 検索品質 | Page Recall@k、Precision@k、DCG@k、nDCG@k |
 | 回答品質 | Answer Correctness、Groundedness、Citation Correctness。期待回答・期待事実がないケースのCorrectnessは`NULL`で平均から除外 |
@@ -4617,7 +4619,7 @@ Trial: 1
 
 このsmokeではHybrid SearchのPhase 2が検索3指標を改善した一方、Metadata Filtering以降はRecallが低下し、Query Optimizationを含むPhase 5はlatencyが増えた。改善機能を増やすこと自体を目的にせず、Phase別提案と失敗Traceから次の一変更を選んで再評価する。
 
-現行source asset `1.4.8`はPython 337件とUI 38件、合計375件の自動テストと差分checkに合格し、ローカル画面でPhase横並び、評価開始直後のspinner、進捗、完了、停止、結果取得中のspinnerを確認した。同一`Idempotency-Key`再送、`eval_run_id`によるJob冪等化、`retry_after_ms`、一時的な`UNKNOWN`再確認、確定的Job拒否の`FAILED`収束、評価履歴からの初回status GETの25秒timeout／最大3回再接続、停止POST待機中のterminal検知とPOST中止・結果保持、停止回復、重複Phase集約、結果取得の45秒timeout／最大3回再試行、Job ID正整数検証も回帰対象である。
+現行source asset `1.4.9`はPython 342件とUI 40件、合計382件の自動テストと差分checkに合格し、Workspace機能リンク、質問例9件、「比較条件を選択」、個人固有名を固定しないResource Binding解決を回帰確認した。同一`Idempotency-Key`再送、`eval_run_id`によるJob冪等化、`retry_after_ms`、一時的な`UNKNOWN`再確認、確定的Job拒否の`FAILED`収束、評価履歴からの初回status GETの25秒timeout／最大3回再接続、停止POST待機中のterminal検知とPOST中止・結果保持、停止回復、重複Phase集約、結果取得の45秒timeout／最大3回再試行、Job ID正整数検証も回帰対象である。
 
 2026-09-09にGitHubの`main/app`からasset `1.4.8`を配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.8`／`databricks_ready=true`、resource binding 7件を確認した。asset `1.4.7`で実行済みだったPhase 1・1問・1回runをasset `1.4.8`のremote status／results APIで取得し、`SUCCEEDED`、1／1試行、`elapsed_seconds=774`、Lakeflow run total 777.125秒、指標1件、改善提案1件を確認した。Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msである。ローカルSSO代替画面では、Phase横並び、結果画面、経過時間12分54秒が3秒後も固定されることを目視確認した。評価の実行はasset `1.4.7`、状態と結果の互換性確認はasset `1.4.8`の証跡であり、asset `1.4.8`による新規評価実行とは扱わない。SSO済みremoteブラウザ手操作、TTFT、残り7 profileは`PENDING`である。
 

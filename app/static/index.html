@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="DatabricksでPDFを検索するRAGを作り、検索精度・回答品質・応答時間を比べるアプリ">
   <title>RAG精度評価アプリ</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=1.4.8">
+  <link rel="stylesheet" href="/assets/styles.css?v=1.4.9">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f3e58'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='Arial' font-weight='700' font-size='18' fill='%23a8e6cf'%3ER%3C/text%3E%3C/svg%3E">
 </head>
 <body>
@@ -88,12 +88,13 @@
         </div>
         <div class="feature-strip" aria-label="データ準備で利用するDatabricks機能">
           <strong>Databricks構成</strong>
-          <span title="PDFを安全に保管">Unity Catalog Volume</span>
-          <span title="PDFから文字・表・ページ情報を抽出">ai_parse_document</span>
-          <span title="データ準備処理を実行・監視">Lakeflow Jobs</span>
-          <span title="チャンクとメタデータを保存">Delta Table</span>
-          <span title="チャンクをベクトル化">FMAPI Embeddings</span>
-          <span title="手動作成済みの検索Indexを同期">AI Search（既存Index）</span>
+          <a data-console-link="catalog" title="Catalog Explorerでデータを確認">Catalog Explorer</a>
+          <a data-console-link="volume" title="PDFを保管するVolumeを確認">Unity Catalog Volume</a>
+          <a data-console-link="ai_parse_document" title="SQL EditorでDocument Parsingを確認">ai_parse_document</a>
+          <a data-console-link="prep_job" title="データ準備処理を実行・監視">Lakeflow Jobs</a>
+          <a data-console-link="delta_table" title="チャンクとメタデータを確認">Delta Table</a>
+          <a data-console-link="fmapi" title="ベクトル化モデルのendpointを確認">FMAPI Embeddings</a>
+          <a data-console-link="ai_search" title="既存の検索Indexを確認">AI Search（既存Index）</a>
         </div>
 
         <div class="prep-layout">
@@ -222,10 +223,11 @@
         </div>
         <div class="feature-strip" aria-label="PDFカタログで利用するDatabricks機能">
           <strong>Databricks構成</strong>
-          <span title="PDF原文を保管">Unity Catalog Volume</span>
-          <span title="タイトル・概要・状態を管理">Delta Table</span>
-          <span title="アップロード時に20〜30字の概要を生成">FMAPIによるAI概要</span>
-          <span title="文字・表・ページを解析">ai_parse_document</span>
+          <a data-console-link="catalog" title="Catalog Explorerでデータを確認">Catalog Explorer</a>
+          <a data-console-link="volume" title="PDF原文を保管するVolumeを確認">Unity Catalog Volume</a>
+          <a data-console-link="document_table" title="タイトル・概要・状態を確認">Delta Table</a>
+          <a data-console-link="fmapi" title="概要生成に使うendpointを確認">FMAPIによるAI概要</a>
+          <a data-console-link="ai_parse_document" title="SQL EditorでDocument Parsingを確認">ai_parse_document</a>
         </div>
         <div class="catalog-toolbar card">
           <label class="search-field"><span aria-hidden="true">⌕</span><input id="catalog-search" type="search" placeholder="タイトル・概要・タグで検索"></label>
@@ -259,10 +261,10 @@
         </div>
         <div class="feature-strip compact" aria-label="RAGチャットで利用するDatabricks機能">
           <strong>RAG実行</strong>
-          <span title="プロジェクトの検索インデックスから根拠を取得">AI Search</span>
-          <span title="選択したLLMで回答を生成">FMAPI</span>
-          <span title="検索・回答処理を記録">MLflow 3 Tracing</span>
-          <span title="検索設定と事前登録済みIndexを対応付け">Index Profile</span>
+          <a data-console-link="ai_search" title="検索IndexをCatalog Explorerで確認">AI Search</a>
+          <a data-console-link="fmapi" title="回答生成に使うendpointを確認">FMAPI</a>
+          <a data-console-link="mlflow" title="検索・回答処理のTraceを確認">MLflow 3 Tracing</a>
+          <a data-console-link="index_profile" title="事前登録済みIndexを確認">Index Profile</a>
         </div>
         <div class="chat-layout">
           <aside class="card conversation-pane" aria-labelledby="conversation-pane-title">
@@ -296,7 +298,7 @@
               </div>
             </header>
             <div id="chat-messages" class="chat-messages" role="log" aria-label="会話内容" aria-live="polite" aria-relevant="additions">
-              <div class="chat-empty"><span class="chat-empty-kicker">根拠のある回答をすばやく確認</span><h2>RAGチャットを開始</h2><p>PDFについて質問すると、回答と参照ページを一緒に表示します。</p><div class="suggestion-chips"><button type="button">この資料の要点を3つ教えて</button><button type="button">手順と注意点を整理して</button></div></div>
+              <div class="chat-empty"><span class="chat-empty-kicker">根拠のある回答をすばやく確認</span><h2>RAGチャットを開始</h2><p>PDFについて質問すると、回答と参照ページを一緒に表示します。</p><p class="suggestion-title">質問例</p><div class="suggestion-chips"><button type="button">この資料の要点を3つ教えて</button><button type="button">重要な結論と根拠ページを教えて</button><button type="button">手順を実行順に整理して</button><button type="button">注意事項・禁止事項を一覧にして</button><button type="button">対象者と適用範囲を教えて</button><button type="button">数値・期限・条件を表にまとめて</button><button type="button">専門用語を初心者向けに説明して</button><button type="button">旧版との変更点を比較して</button><button type="button">判断に必要な不足情報を教えて</button></div></div>
             </div>
             <div id="stream-status" class="stream-status hidden" role="status" aria-live="polite" aria-atomic="true">
               <span class="spinner" aria-hidden="true"></span>
@@ -358,11 +360,11 @@
         </div>
         <div class="feature-strip" aria-label="RAG精度評価で利用するDatabricks機能">
           <strong>評価基盤</strong>
-          <span title="評価質問と正解を版管理">評価Dataset / Delta Table</span>
-          <span title="Phase比較を再現可能に実行">Lakeflow Jobs</span>
-          <span title="検索・回答品質を採点">MLflow 3 Evaluation</span>
-          <span title="試行ごとの処理を追跡">MLflow 3 Trace</span>
-          <span title="検索データと既存Indexの条件を固定">Index Profile</span>
+          <a data-console-link="evaluation_dataset" title="評価質問と正解を確認">評価Dataset / Delta Table</a>
+          <a data-console-link="eval_job" title="Phase比較のJobを確認">Lakeflow Jobs</a>
+          <a data-console-link="mlflow" title="検索・回答品質の評価結果を確認">MLflow 3 Evaluation</a>
+          <a data-console-link="mlflow" title="試行ごとのTraceを確認">MLflow 3 Trace</a>
+          <a data-console-link="index_profile" title="評価で使う既存Indexを確認">Index Profile</a>
         </div>
         <article class="card evaluation-data-card">
           <div class="card-header compact">
@@ -400,7 +402,7 @@
         </article>
         <article class="card evaluation-phase-card">
           <div class="card-header compact">
-            <div><p class="eyebrow">STEP 2 · 比較する構成</p><h2>Phaseを横並びで選択</h2></div>
+            <div><p class="eyebrow">STEP 2 · 比較する構成</p><h2>比較条件を選択</h2></div>
             <span class="lock-label">実行中は変更できません</span>
           </div>
           <p class="subtle">左から順にRAGの改善機能が追加されます。比較したいPhaseを1つ以上選んでください。</p>
@@ -536,6 +538,6 @@
     </div>
   </div>
 
-  <script src="/assets/app.js?v=1.4.8" defer></script>
+  <script src="/assets/app.js?v=1.4.9" defer></script>
 </body>
 </html>

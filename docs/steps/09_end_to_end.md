@@ -16,7 +16,7 @@
 - サイドバーが「データ準備、PDFカタログ、RAGチャット、RAG精度評価」の順である。
 - Projectを変えると、PDF、Variant、会話、評価結果も切り替わる。
 - 右上にDatabricks Appsでログインしているユーザーのメールアドレスが表示される。
-- 各画面に、その処理で使うDatabricks機能名が表示される。
+- 各画面に、その処理で使うDatabricks機能名が表示され、`↗`付き項目から現在のWorkspaceの対応コンソールを新しいタブで開ける。不正hostや未許可pathはリンクにならない。
 - URLのProject IDを書き換えても、権限のないProjectを閲覧できない。
 - OWNERは確認画面からProjectを削除できる。実行中処理がある場合は削除できず、削除後のProjectは通常の一覧とAPIから見えない。
 
@@ -101,6 +101,8 @@ app/.venv/bin/python scripts/smoke_test_last_document_deletion.py \
 
 ### 3. チャット
 
+- 空の会話に質問例が9件あり、押した質問が入力欄へ一度だけ入る。
+
 - Phase 1〜5とCustomを切り替えられる。
 - Vector／Hybrid、Metadata Filtering、Reranking、Query Optimizationがpresetどおりに動く。
 - 回答にはチャンク本文を表示せず、検索済みチャンクとサーバー側で照合した認可済みPDF原文リンク／物理ページが付く。live citationは検証済み`document_id`からURLを作り、retrieval SSEにexcerptを含めない。
@@ -156,7 +158,7 @@ app/.venv/bin/python scripts/smoke_test_last_document_deletion.py \
 
 確認済み項目は`SUCCESS`です。
 
-- 現行source asset `1.4.8`はPython 337件とUI 38件、合計375件が成功し、差分checkも成功しました。ローカル画面でPhase横並び、評価開始直後のspinner、進捗、完了、停止、結果取得中のspinnerを確認しました。既存のChat実測ではEnter 5連打時の質問1件、思考中spinner、停止直後の入力復帰、会話履歴の往復277／284 ms、下書き保持、390 px表示、console error 0件を確認しています。
+- 現行source asset `1.4.9`はPython 342件とUI 40件、合計382件が成功し、差分checkも成功しました。機能リンク、質問例9件、「比較条件を選択」、個人固有名を固定しないResource Binding解決を含みます。
 - 現行asset `1.4.8`はGitHubの`main/app`から配置済みです。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.8`／`databricks_ready=true`、resource binding 7件を確認しました。実ID、メール、App URL、Workspace IDは公開記録へ含めていません。
 - asset `1.4.7`で実行済みだったPhase 1・1問・1回runを、asset `1.4.8`のremote status／results APIで取得しました。状態は`SUCCEEDED`、1／1試行、`elapsed_seconds=774`、Lakeflow run totalは777.125秒、指標1件、改善提案1件、Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msです。asset `1.4.8`で新しい評価runを起動した証跡ではありません。
 - Phase横並び、結果画面、経過時間「12分54秒」が3秒後も固定されることは、ローカルSSO代替画面で目視確認しました。asset `1.4.5`の既存Index、実RAGチャット、Trace、PDFリンク引用は過去のremote履歴として保持します。

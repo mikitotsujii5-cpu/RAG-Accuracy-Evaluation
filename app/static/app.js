@@ -77,6 +77,18 @@ const PHASES = {
   phase_05: { label: "Phase 5", query: "Hybrid Search", filter: true, rerank: true, optimize: true },
 };
 
+const CHAT_STARTER_QUESTIONS = Object.freeze([
+  "この資料の要点を3つ教えて",
+  "重要な結論と根拠ページを教えて",
+  "手順を実行順に整理して",
+  "注意事項・禁止事項を一覧にして",
+  "対象者と適用範囲を教えて",
+  "数値・期限・条件を表にまとめて",
+  "専門用語を初心者向けに説明して",
+  "旧版との変更点を比較して",
+  "判断に必要な不足情報を教えて",
+]);
+
 const PREPARATION_TERMINAL_STATUSES = new Set(["SUCCEEDED", "FAILED", "CANCELED"]);
 const PREPARATION_POLL_INTERVAL_MS = 3000;
 const PREPARATION_RETRY_MAX_MS = 30000;
@@ -116,7 +128,7 @@ async function initialize() {
   restoreChatPreferences();
   readRoute();
   updatePhaseSummary();
-  await Promise.allSettled([checkHealth(), loadCurrentUser()]);
+  await Promise.allSettled([checkHealth(), loadCurrentUser(), loadConsoleLinks()]);
   await loadProjects();
 }
 
@@ -357,6 +369,34 @@ async function loadCurrentUser() {
     email.textContent = "Databricksにログイン中";
     avatar.textContent = "U";
   }
+}
+
+async function loadConsoleLinks() {
+  let links = {};
+  try {
+    const result = await api("/api/console-links");
+    links = result?.links && typeof result.links === "object" ? result.links : {};
+  } catch (_) {
+    // The App remains usable when a Workspace URL is not configured. Feature
+    // badges stay visible but are not presented as working links.
+  }
+  $$('[data-console-link]').forEach((link) => {
+    const href = safeWorkspaceConsoleHref(links[link.dataset.consoleLink]);
+    if (href === "#") {
+      link.removeAttribute("href");
+      link.removeAttribute("target");
+      link.removeAttribute("rel");
+      link.setAttribute("aria-disabled", "true");
+      link.classList.remove("linked");
+      return;
+    }
+    link.href = href;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.removeAttribute("aria-disabled");
+    link.classList.add("linked");
+    link.setAttribute("aria-label", `${link.textContent.trim()}をDatabricksで開く（新しいタブ）`);
+  });
 }
 
 async function loadProjects(preferredId = null) {
@@ -3017,7 +3057,7 @@ function renderMessages(messages) {
   if (!messages.length) {
     const empty = node("div", "chat-empty");
     const suggestions = node("div", "suggestion-chips");
-    ["この資料の要点を3つ教えて", "手順と注意点を整理して"].forEach((text) => {
+    CHAT_STARTER_QUESTIONS.forEach((text) => {
       const button = node("button", "", text);
       button.type = "button";
       bindSuggestionButton(button);
@@ -3026,6 +3066,7 @@ function renderMessages(messages) {
     empty.append(
       node("h2", "", "RAGチャットを開始"),
       node("p", "", "PDFについて質問すると、根拠リンク付きで回答します。"),
+      node("p", "suggestion-title", "質問例"),
       suggestions,
     );
     container.append(empty);
@@ -4533,6 +4574,31 @@ function safeJobHref(value) {
     const legacyJobHash = /^#job\/\d+\/run\/\d+$/.test(url.hash);
     const jobPath = /^\/(jobs|workflows)\/\d+(\/runs\/\d+)?\/?$/.test(url.pathname);
     return url.protocol === "https:" && trustedHost && (legacyJobHash || jobPath) ? url.href : "#";
+  } catch (_) {
+    return "#";
+  }
+}
+function safeWorkspaceConsoleHref(value) {
+  if (typeof value !== "string") return "#";
+  try {
+    const url = new URL(value);
+    const trustedHost = [".azuredatabricks.net", ".cloud.databricks.com", ".gcp.databricks.com"]
+      .some((suffix) => url.hostname.endsWith(suffix));
+    const trustedPath = [
+      /^\/explore\/data(?:\/|$)/,
+      /^\/sql\/(?:editor|warehouses\/[^/]+)\/?$/,
+      /^\/jobs\/\d+\/?$/,
+      /^\/ml\/endpoints\/?$/,
+      /^\/ml\/experiments\/[^/]+\/?$/,
+    ].some((pattern) => pattern.test(url.pathname));
+    return url.protocol === "https:"
+      && trustedHost
+      && !url.username
+      && !url.password
+      && ["", "443"].includes(url.port)
+      && trustedPath
+      ? url.href
+      : "#";
   } catch (_) {
     return "#";
   }
