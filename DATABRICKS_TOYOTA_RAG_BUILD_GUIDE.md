@@ -4619,9 +4619,9 @@ Trial: 1
 
 このsmokeではHybrid SearchのPhase 2が検索3指標を改善した一方、Metadata Filtering以降はRecallが低下し、Query Optimizationを含むPhase 5はlatencyが増えた。改善機能を増やすこと自体を目的にせず、Phase別提案と失敗Traceから次の一変更を選んで再評価する。
 
-現行source asset `1.5.0`はPDF全画面viewerを含むUIテスト40件と差分checkに合格した。field-eng-eastへのremote配置、health、resource binding 7件も確認した。Python 344件はasset `1.4.9`の確認記録である。
+現行source asset `1.5.1`はPDF全画面viewerを含むUIテスト40件と差分checkに合格した。field-eng-eastへのremote配置、health、resource binding 7件も確認した。Python 344件はasset `1.4.9`の確認記録である。
 
-同日にGitHubの`main/app`からasset `1.5.0`をfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.5.0`／`databricks_ready=true`、resource binding 7件を確認した。認証付きremote APIでは、PDF全画面viewer、別タブ表示、ダウンロード用要素を確認した。実ID、メール、App URL、Workspace IDは公開記録へ含めない。
+同日にGitHubの`main/app`からasset `1.5.1`をfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.5.1`／`databricks_ready=true`、resource binding 7件を確認した。静的asset URLを`v=1.5.1`へ更新し、認証付きremote画面でPDF全画面viewer、別タブ表示、ダウンロード用要素を確認した。実ID、メール、App URL、Workspace IDは公開記録へ含めない。
 
 2026-09-09にGitHubの`main/app`からasset `1.4.8`を配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.8`／`databricks_ready=true`、resource binding 7件を確認した。asset `1.4.7`で実行済みだったPhase 1・1問・1回runをasset `1.4.8`のremote status／results APIで取得し、`SUCCEEDED`、1／1試行、`elapsed_seconds=774`、Lakeflow run total 777.125秒、指標1件、改善提案1件を確認した。Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msである。ローカルSSO代替画面では、Phase横並び、結果画面、経過時間12分54秒が3秒後も固定されることを目視確認した。評価の実行はasset `1.4.7`、状態と結果の互換性確認はasset `1.4.8`の証跡であり、asset `1.4.8`による新規評価実行とは扱わない。SSO済みremoteブラウザ手操作、TTFT、残り7 profileは`PENDING`である。
 
