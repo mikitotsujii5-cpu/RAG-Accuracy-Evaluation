@@ -102,8 +102,13 @@ databricks apps deploy <APP_NAME> \
 - 会話削除は本人の会話だけを対象にし、回答中なら停止を要求してHTTP 409を返します。停止完了後に再実行すると、message、run、sessionを子から順に削除します。
 - 精度評価画面はProject／評価データ版／用途内の登録済み質問を初回全選択し、個別／一括選択、正解状態、期待回答、正解PDF／ページ、選択件数と最大試行数を表示します。質問追加フォームは初期状態で閉じ、0件では評価を開始できません。Phase 1〜5は全幅の横並びカードにし、狭い画面ではPhase領域を横スクロール、設定・工程・指標群を1列で表示します。
 - trialの既定値は1です。開始ボタンは質問、Phase、既存Indexに対応するVariant、回答LLM、採点LLMがそろった場合だけ有効にします。Evaluation作成APIは`evaluation_case_ids`を1〜1000件で受け、Project・version・split所属を全件検証して`config_json`／`config_hash`へ固定します。Jobは選択IDだけを評価し、fieldを持たない旧runは同じ版・用途の全件を処理します。
-- 開始要求中からspinnerと進捗カードを表示し、受付、Job起動、Phase評価、指標集計、改善提案、全体／Phase別の完了試行数、割合、経過時間を更新します。Projectを再表示した場合はactive runを復元し、一時的なpoll失敗後も同じrunを監視します。精度評価画面はProjectごとの最近の評価runも一覧表示し、過去runのPhase状態、指標、改善提案を再表示します。
-- 評価status APIは一つの論理runと一つのLakeflow runの対応を検証し、queue、compute、environment、task、terminal状態を安全な文言へ変換します。JobがNotebook開始前に失敗／停止しても、評価行を終端状態へ収束します。停止APIはDelta Tableへ要求を保存すると同時にLakeflow Jobへ取消を依頼し、画面は終端状態まで監視します。Job linkは設定済みWorkspaceと一致するURLだけを表示します。
+- 開始要求中からspinnerと進捗カードを表示し、受付、Job起動、Phase評価、指標集計、改善提案、全体／Phase別の完了試行数、割合、経過時間を更新します。Projectを再表示した場合はactive runを復元します。履歴からrunを開く最初のstatus GETは1回25秒でtimeoutし、一時的な失敗ではspinnerを保って最大3回再接続します。通常のpollも同じrunを監視し続けます。精度評価画面はProjectごとの最近の評価runも一覧表示し、過去runのPhase状態、指標、改善提案を再表示します。
+- ブラウザは評価開始の応答が途切れた場合も、同じpayloadと`Idempotency-Key`で最大3回再送します。サーバーはProject、利用者、keyから同じ`eval_run_id`を決定し、Phase行を`MERGE`します。Lakeflow Jobも同じ`eval_run_id`をidempotency tokenに使うため、受付応答や`job_run_id`保存が失われても別run／別Jobを増やしません。
+- 評価status APIは一つの論理runと一つのLakeflow runの対応を検証し、queue、compute、environment、task、terminal状態を安全な文言へ変換します。一時的なJob受付失敗では30〜300秒のbackoffと`retry_after_ms`を返し、画面はその間隔で監視します。Jobs APIの状態取得が一時失敗した`UNKNOWN`はspinner付きで再確認し、Job ID不正や権限・設定の確定的な拒否は`FAILED`へ収束します。JobがNotebook開始前に失敗／停止しても、評価行を終端状態へ収束します。
+- 同一Phaseの同じ制御行が複数見えても、API、履歴、Evaluation JobはPhaseごとに1件へ集約し、進捗や試行数を水増ししません。固定設定が異なる重複行は拒否します。
+- 停止APIはDelta Tableへ要求を保存すると同時にLakeflow Jobへ取消を依頼します。画面は停止専用の通信経路で最大3回再確認し、クリック直後にもstatusを更新します。Job登録と停止が競合した場合も同じ`eval_run_id`からJobを回復して取消します。status監視が先にterminal状態を確認した場合は、待機中の停止POSTをabortし、terminal状態と結果表示を維持します。すでに完了していれば409を返して完了状態を維持します。画面は終端状態まで監視します。Job linkは設定済みWorkspaceと一致するURLだけを表示します。
+- terminal状態後の結果取得中もspinner、`aria-busy=true`、「結果取得中」、現在の試行番号を表示します。結果APIは1回45秒でtimeoutし、一時エラーを最大3回再試行します。取得に失敗してもrunを削除せず、評価履歴を更新して同じrunを選ぶと保存済み結果を再取得できます。
+- `PREP_JOB_ID`と`EVAL_JOB_ID`は、先頭ゼロや空白を含まない正の整数としてApp起動時に検証します。
 - 期待回答・期待事実がないケースは`answer_correctness=NULL`として平均から除外します。Phase advisorには検索指標だけでなく回答品質3指標とjudge rationaleを渡します。
 
 ## 確認
@@ -167,8 +172,11 @@ https://<APP_HOST>
 - APIへ渡した質問IDが1〜1000件で同じProject・version・splitに属し、Job結果がその選択IDだけである。IDのない旧runは全件評価できる。
 - trialの初期値が1で、質問・Phase・Variant・回答LLM・採点LLMの不足時は開始できない。1問 × 5 Phaseでは最大5試行と表示される。
 - 開始クリック直後からspinner、5工程、完了試行数、割合、経過時間、Phase別状態が表示される。狭い画面でもPhase、設定、主要指標が欠けずに操作できる。
-- 再読込またはページ移動後にactiveな評価runが復元され、pollの一時失敗後も監視を継続する。Notebook開始前のJob失敗／停止も`FAILED`／`CANCELED`へ確定する。
-- `評価を停止`で永続取消フラグとLakeflow Job取消の両方が実行され、停止要求後もterminal状態まで監視される。完了済みPhaseは停止へ上書きされない。
+- 同じ`Idempotency-Key`とpayloadを再送しても、評価run、Lakeflow Job、公開Phase行が重複しない。受付応答が失われても同じ`eval_run_id`から回復する。
+- 再読込またはページ移動後にactiveな評価runが復元され、最初のstatus GETが25秒でtimeoutしても最大3回再接続し、通常pollの一時失敗後も監視を継続する。Notebook開始前のJob失敗／停止も`FAILED`／`CANCELED`へ確定する。
+- status APIの`retry_after_ms`が画面の次回確認間隔へ反映され、`UNKNOWN` Job状態ではspinner付きの再確認表示になる。確定的なJob拒否は`FAILED`へ終了する。
+- `評価を停止`で永続取消フラグとLakeflow Job取消の両方が実行され、停止APIの一時失敗やJob登録との競合後もterminal状態まで監視される。status監視が先にterminal状態を確認した場合は遅い停止POSTを中止し、結果表示を維持する。完了済みPhaseは停止へ上書きされない。
+- Job終端後、指標と改善提案の取得が終わるまでspinnerと「結果取得中」を表示する。結果APIの45秒timeoutと最大3回再試行が動き、失敗後も評価履歴から同じrunを選び直して再取得できる。
 - Job URLは同一Workspaceと検証できた場合だけ表示され、providerの生メッセージ、実ID、内部endpoint名を画面へ露出しない。
 - 結果画面の主表示が検索再現率、回答正解率、回答時間で、詳細表に検索適合率、検索順位、根拠一致率、引用正解率、TTFT、p50／p95、token、cost、error rateがある。
 - 未ラベルケースのAnswer Correctnessは`NULL`／`—`となり、0点として平均へ入らない。
@@ -194,13 +202,15 @@ https://<APP_HOST>
 - PDF削除が409の場合は、同じProjectのデータ準備、Chat、Evaluation、別の更新が進行中でないか確認します。競合するrunを完了または停止し、新しいPDF行を手動作成せず同じ削除を再実行します。
 - 30分を大きく超えたChat runが削除を妨げる場合は、runの`started_at`と状態、対応assistant messageを確認します。現行sourceは削除判定時に孤児runをguard付きで`ERROR`へ収束します。時刻や状態を手動UPDATEせず、App logと条件付きUPDATEの結果を確認します。
 - 選択した評価質問以外が実行された場合は、Eval runの`config_json`／`config_hash`と`evaluation_case_ids`を確認します。画面指定のcase IDをJob parameterとして直接信用せず、永続化済み設定のProject・version・split検証を修正します。
-- 精度評価が`QUEUED`のまま変わらない場合は、評価Tableだけでなく対応するLakeflow Jobのlifecycle／result stateを確認します。Jobが終端ならstatus APIのreconcile権限と更新結果を直し、手動で成功へ書き換えません。
-- 停止後もcomputeが動き続ける場合は、App SPの対象Evaluation Jobに対する`CAN MANAGE RUN`とcancel APIの結果を確認します。永続フラグを消さず、Jobが次のcheckpointで停止できる経路も確認します。
+- 精度評価が`QUEUED`のまま変わらない場合は、`queue_reason`、`retry_after_ms`、評価Tableの`job_run_id`、対応するLakeflow Jobのlifecycle／result stateを確認します。`JOB_SUBMITTING`／`SUBMISSION_RETRY`中に新しいrunを作らず、同じ`eval_run_id`の回復を待ちます。Jobが終端ならstatus APIのreconcile権限と更新結果を直し、手動で成功へ書き換えません。
+- `Jobの状態を再確認しています`が長時間続く場合はJobs API権限と接続を確認します。一時的な`UNKNOWN`を手動で`FAILED`へ変更しません。Job ID、設定、権限の確定的な拒否はAppが`FAILED`へ収束させます。
+- 停止後もcomputeが動き続ける場合は、App SPの対象Evaluation Jobに対する`CAN MANAGE RUN`、cancel API、同じ`eval_run_id`の`job_run_id`回復を確認します。永続フラグを消さず、Job側checkpointと後続status pollの取消再試行も確認します。
+- Jobは終わったが結果が表示されない場合は、画面の「結果取得中」と再試行番号、結果APIの応答を確認します。45秒timeoutを待たずに評価を再実行せず、最大3回失敗後は評価履歴を更新して同じrunを選び直します。
 - PDF削除後の検索が準備できない場合は、返された`preparation_run_id`、Data Preparation Job、後継Variantのsource Table／Indexを確認します。旧`SUPERSEDED` Variantを手動でactiveに戻さず、削除PDFを含まない新しいVariantで回復します。
 
 ## この環境の実測結果
 
-直前のremote実測asset `1.4.5`をGitHubの`main/app`から新規Appへ配置し、App状態、health、resource binding、既存Index Variant一覧、実RAGチャット、MLflow Trace、PDFリンク引用まで確認しました。現行source asset `1.4.6`のremote欄はデプロイ後に更新します。登録済み評価質問の選択runと孤児Chat run回復付きPDF単体削除はasset `1.4.4`の検証履歴です。旧asset `1.4.1`で実行した非車両G01のChat／評価も履歴として下表に残します。
+直前のremote実測asset `1.4.5`をGitHubの`main/app`から新規Appへ配置し、App状態、health、resource binding、既存Index Variant一覧、実RAGチャット、MLflow Trace、PDFリンク引用まで確認しました。現行source asset `1.4.7`はPython 334件とUI 37件、合計371件の自動テストに合格していますが、remote実測は`PENDING`です。登録済み評価質問の選択runと孤児Chat run回復付きPDF単体削除はasset `1.4.4`の検証履歴です。旧asset `1.4.1`で実行した非車両G01のChat／評価も履歴として下表に残します。
 
 | 項目 | 実測 |
 |---|---|
@@ -211,7 +221,7 @@ https://<APP_HOST>
 | Resources／scope | binding 7件、`iam.access-control:read`、`iam.current-user:read`、`model-serving` |
 | ログインユーザー | `/api/me` HTTP 200、`<DATABRICKS_USER_EMAIL>` |
 | App SP権限 | grant 30文成功。`toyota_index_variants`の`MODIFY`はStatement `<STATEMENT_ID>`、`SELECT`＋`MODIFY`の確認は`<STATEMENT_ID>` |
-| Source test | asset `1.4.6`、Python 311件、Chat UI 32件、差分check成功 |
+| Source test | asset `1.4.7`、Python 334件、UI 37件、合計371件、差分check成功 |
 | App起動 | deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`。旧deploymentのnpm失敗履歴は現行Appと分けて記録 |
 | PDF概要 | 20件snapshotで空欄0件、20〜30字違反0件。`AI_GENERATED=10`、`AI_GENERATED_NORMALIZED=9`、`USER=1`。最新registry 22件全体の監査値ではない |
 | PDF content API | 通常取得200、byte Range 206、ETag再検証304、`private, max-age=300` |

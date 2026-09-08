@@ -485,6 +485,36 @@ class JobCommonTest(unittest.TestCase):
         with self.assertRaises(common.JobContractError):
             common.validate_eval_batch(rows)
 
+    def test_validate_eval_batch_collapses_identical_concurrent_phase_rows(self) -> None:
+        run_id = str(uuid.uuid4())
+        config = {
+            "phase_ids": ["phase_01"],
+            "trial_count": 1,
+            "dataset_version": "v1.0.0",
+            "dataset_split": "development",
+            "variant_id": "default",
+            "answer_model_key": "answer",
+            "judge_model_key": "judge",
+            "final_k": 10,
+        }
+        row = {
+            "project_id": common.BASELINE_PROJECT_ID,
+            "eval_run_id": run_id,
+            "phase_id": "phase_01",
+            "variant_id": "default",
+            "dataset_version": "v1.0.0",
+            "dataset_split": "development",
+            "answer_model_key": "answer",
+            "judge_model_key": "judge",
+            "trial_count": 1,
+            "config_json": common.canonical_json(config),
+            "config_hash": common.canonical_json_hash(config),
+        }
+
+        validated = common.validate_eval_batch([row, dict(row)])
+
+        self.assertEqual(validated["phases"], ["phase_01"])
+
     def test_validate_eval_batch_allows_non_baseline_project_and_hidden_retry_key(self) -> None:
         project_id = str(uuid.uuid4())
         run_id = str(uuid.uuid4())
@@ -796,6 +826,78 @@ class JobCommonTest(unittest.TestCase):
         with self.assertRaisesRegex(common.JobContractError, "another source table"):
             common.trigger_index_sync_and_wait(Workspace(), poll_seconds=1)
         self.assertEqual(service.sync_calls, 0)
+
+    def test_existing_index_accepts_get_response_that_omits_columns_to_sync(self) -> None:
+        profile = common.load_index_profiles("")[common.BASELINE_INDEX_PROFILE_KEY]
+        payload = {
+            "name": common.BASELINE_INDEX_NAME,
+            "endpoint_name": common.BASELINE_SEARCH_ENDPOINT,
+            "primary_key": "chunk_id",
+            "index_type": "DELTA_SYNC",
+            "index_subtype": "HYBRID",
+            "delta_sync_index_spec": {
+                "pipeline_type": "TRIGGERED",
+                "source_table": common.BASELINE_CHUNK_TABLE,
+                "embedding_source_columns": [{
+                    "name": "chunk_to_embed",
+                    "embedding_model_endpoint_name": common.BASELINE_EMBEDDING_ENDPOINT,
+                }],
+            },
+        }
+
+        self.assertEqual(
+            common.validate_existing_index(payload, profile=profile),
+            payload,
+        )
+
+    def test_existing_index_rejects_explicit_incomplete_columns_to_sync(self) -> None:
+        profile = common.load_index_profiles("")[common.BASELINE_INDEX_PROFILE_KEY]
+        payload = {
+            "name": common.BASELINE_INDEX_NAME,
+            "endpoint_name": common.BASELINE_SEARCH_ENDPOINT,
+            "primary_key": "chunk_id",
+            "index_type": "DELTA_SYNC",
+            "index_subtype": "HYBRID",
+            "delta_sync_index_spec": {
+                "pipeline_type": "TRIGGERED",
+                "source_table": common.BASELINE_CHUNK_TABLE,
+                "columns_to_sync": ["project_id", "document_id"],
+                "embedding_source_columns": [{
+                    "name": "chunk_to_embed",
+                    "embedding_model_endpoint_name": common.BASELINE_EMBEDDING_ENDPOINT,
+                }],
+            },
+        }
+
+        with self.assertRaisesRegex(
+            common.JobContractError,
+            "synchronized columns",
+        ):
+            common.validate_existing_index(payload, profile=profile)
+
+    def test_existing_index_accepts_exact_columns_to_index_alias(self) -> None:
+        profile = common.load_index_profiles("")[common.BASELINE_INDEX_PROFILE_KEY]
+        payload = {
+            "name": common.BASELINE_INDEX_NAME,
+            "endpoint_name": common.BASELINE_SEARCH_ENDPOINT,
+            "primary_key": "chunk_id",
+            "index_type": "DELTA_SYNC",
+            "index_subtype": "HYBRID",
+            "delta_sync_index_spec": {
+                "pipeline_type": "TRIGGERED",
+                "source_table": common.BASELINE_CHUNK_TABLE,
+                "columns_to_index": sorted(common.INDEX_SYNC_COLUMNS),
+                "embedding_source_columns": [{
+                    "name": "chunk_to_embed",
+                    "embedding_model_endpoint_name": common.BASELINE_EMBEDDING_ENDPOINT,
+                }],
+            },
+        }
+
+        self.assertEqual(
+            common.validate_existing_index(payload, profile=profile),
+            payload,
+        )
 
 
 if __name__ == "__main__":

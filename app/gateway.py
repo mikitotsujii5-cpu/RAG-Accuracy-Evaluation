@@ -14,12 +14,24 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 from urllib.parse import urlparse
 
-from errors import ResourceNotReadyError
+from errors import AppError, ResourceNotReadyError
 from settings import Settings, SettingsError
 
 
 class DatabricksCallError(ResourceNotReadyError):
     """Sanitized Databricks failure; raw details stay in server logs only."""
+
+
+class JobSubmissionRejectedError(AppError):
+    """A definitive Jobs API rejection that cannot succeed by retrying."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "JOB_SUBMISSION_REJECTED",
+            "Lakeflow Jobを開始できませんでした。Job設定と権限を確認してください。",
+            status_code=503,
+            retryable=False,
+        )
 
 
 def as_dict(value: Any) -> dict[str, Any]:
@@ -203,8 +215,21 @@ class DatabricksGateway:
                 missing=[missing],
             )
         try:
+            normalized_job_id = int(job_id)
+        except (TypeError, ValueError) as exc:
+            raise JobSubmissionRejectedError() from exc
+        if normalized_job_id <= 0:
+            raise JobSubmissionRejectedError()
+        try:
+            from databricks.sdk.errors import (
+                BadRequest,
+                NotFound,
+                PermissionDenied,
+                Unauthenticated,
+            )
+
             result = self.workspace.jobs.run_now(
-                job_id=int(job_id),
+                job_id=normalized_job_id,
                 job_parameters={parameter_name: parameter_value},
                 # The persisted run UUID is stable across browser retries. If
                 # two App requests race, Databricks returns the same Job run
@@ -219,6 +244,11 @@ class DatabricksGateway:
             return int(run_id)
         except ResourceNotReadyError:
             raise
+        except (BadRequest, NotFound, PermissionDenied, Unauthenticated) as exc:
+            # These responses definitively reject the request; retrying them
+            # forever only leaves the evaluation UI spinning. Network,
+            # deadline, and 5xx failures remain ambiguity-safe retries below.
+            raise JobSubmissionRejectedError() from exc
         except Exception as exc:
             raise DatabricksCallError(
                 "Databricks Jobを開始できませんでした。Job権限と設定を確認してください。"

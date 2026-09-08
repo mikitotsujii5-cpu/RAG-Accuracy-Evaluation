@@ -56,6 +56,7 @@ app/.venv/bin/python scripts/smoke_test_ai_search.py --profile <DATABRICKS_CLI_P
 - sourceは`toyota_chunks_standard_512_v1`、Embedding列は`chunk_to_embed`である。
 - `ready=true`、`indexed_row_count=40`である。
 - ANN、HYBRID、metadata filter、Rerankingの各smoke queryが結果を返す。
+- Index GET応答で`columns_to_sync`が省略されても、全source列を同期する応答としてsource schemaと検索manifestから必要列を確認できる。`columns_to_sync`または`columns_to_index`が明示された場合は、必要列と完全一致する。
 - Project別の動的Indexは選択Projectの行だけを持ち、source件数とIndex件数が一致する。
 - PDF単体の論理削除後は、削除PDFを含む旧VariantのIndexを新しい検索に解決しない。後継Indexは残存PDFだけを含み、source／Indexの削除PDF行数がともに0である。
 
@@ -64,7 +65,7 @@ app/.venv/bin/python scripts/smoke_test_ai_search.py --profile <DATABRICKS_CLI_P
 - 行数不一致はsource Tableの件数、Change Data Feed、最新pipeline syncの順で確認します。
 - Index作成中は再作成せず、readyになるまで待ちます。
 - Embedding modelまたはdimensionを変える場合は既存Indexを上書きせず、新しいVariantを作ります。
-- filter列や返却列が不足する場合は、`columns_to_sync`を確認して新しいIndexへ反映します。
+- filter列や返却列が不足する場合は、Index作成requestの`columns_to_sync`とsource schemaを確認して新しいIndexへ反映します。Index GET応答は全列同期時に`columns_to_sync`を返さない場合があるため、省略だけでIndex不正と判断しません。一方、GET応答に`columns_to_sync`または`columns_to_index`がある場合は、不足、余分、重複がないことを確認します。
 - PDF削除後の後継IndexがREADYにならない場合は、返された`preparation_run_id`、Data Preparation Job、source TableのCDF、pipeline syncを確認します。削除PDFを含む旧`SUPERSEDED` Indexをactiveに戻しません。
 
 ## この環境の実測結果

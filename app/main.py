@@ -51,7 +51,7 @@ LOGGER = logging.getLogger("rag_accuracy_app")
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 MAX_PDF_BYTES = 100 * 1024 * 1024
-APP_VERSION = "1.4.6"
+APP_VERSION = "1.4.7"
 
 Authenticator = Callable[[Request], str | Awaitable[str]]
 
@@ -644,8 +644,9 @@ def create_app(
                 "精度評価の開始にはIdempotency-Keyが必要です。",
                 status_code=400,
             )
-        # The job run itself is idempotent by eval_run_id. Persistent retry-key
-        # storage can be added to a dedicated table without changing this DTO.
+        # The Project/principal/key scope deterministically identifies one
+        # durable evaluation run; the Lakeflow run reuses that ID as its
+        # idempotency token.
         return await asyncio.to_thread(
             repo.create_evaluation_run, project_id, principal, payload, idempotency_key
         )
@@ -693,8 +694,13 @@ def create_app(
     ) -> dict[str, Any]:
         repo = request.app.state.repository
         await asyncio.to_thread(repo.require_project, principal, project_id, "EDITOR")
-        await asyncio.to_thread(repo.request_evaluation_cancel, project_id, eval_run_id)
-        return {"eval_run_id": eval_run_id, "status": "CANCEL_REQUESTED"}
+        final_status = await asyncio.to_thread(
+            repo.request_evaluation_cancel, project_id, eval_run_id
+        )
+        return {
+            "eval_run_id": eval_run_id,
+            "status": final_status or "CANCEL_REQUESTED",
+        }
 
     @api.get("/", include_in_schema=False)
     async def index() -> FileResponse:

@@ -25,9 +25,13 @@
 | `PREP_JOB_ID` | チャンク、Delta Table、Index作成・同期を行うJob |
 | `EVAL_JOB_ID` | 固定DatasetでPhase 1〜5を評価するJob |
 
+`PREP_JOB_ID`と`EVAL_JOB_ID`は、先頭ゼロや空白を含まない正の整数でなければなりません。Appは起動時に検証し、不正な値で評価画面を待機させ続けず設定エラーとして停止します。
+
 `app.yaml`では、Workspaceリソースを`valueFrom`で`app-warehouse`、`toyota-volume`、`baseline-index`、`default-llm`、`prep-job`、`eval-job`、`mlflow-experiment`から解決します。Databricks App service principalには、Warehouseの`CAN USE`、必要なTableの`SELECT`／`MODIFY`、Volumeの`READ VOLUME`／`WRITE VOLUME`、Indexの`SELECT`、LLM endpointの`CAN QUERY`、Jobの`CAN MANAGE RUN`、Experimentの`CAN EDIT`を用途に応じて付与します。資格情報を環境変数から直接読み取ったり、ログへ出力したりするコードはありません。`WorkspaceClient()`がAppsのOAuth認証を使用します。
 
 既存Index専用モードでは、`GET /api/projects/{project_id}/variants`は`RAG_INDEX_PROFILES_JSON`、またはbaseline fallbackのsource Table／Indexと完全一致する行だけを返します。Projectに旧方式のVariantが残っていても一覧全体を失敗させず、その行だけを除外します。チャット／評価でVariantを解決するときは同じ許可リストを再確認し、許可外の物理Indexへはfail-closedで接続しません。
+
+AI SearchのIndex GET応答は、全source列を同期するIndexで`columns_to_sync`を省略する場合があります。この省略だけでは失敗にせず、source schemaと検索manifestで必要列を検証します。GET応答に`columns_to_sync`または`columns_to_index`が明示される場合は、必要列との完全一致を要求し、不足列や重複列を許可しません。
 
 ## ローカル起動
 
@@ -116,9 +120,12 @@ python3 scripts/smoke_test_app.py \
 - 評価質問はProject、評価データ版、`development`／`holdout`用途で分離します。作成APIは`EDITOR`以上に限定し、正解PDFが同じProjectの`PARSED`／`READY`文書であること、1始まりの正解ページがPDFの範囲内であること、同じ版・用途に同じ質問がないことをサーバー側で検証します。画面は対象の登録済み質問を初期全選択し、個別／一括選択、正解状態、期待回答、正解PDF／ページ、選択件数と最大試行数を表示します。追加フォームは初期状態で閉じます。
 - Evaluation作成APIの`evaluation_case_ids`は1〜1000件、空文字・重複なしです。サーバーは全IDが指定Project・評価データ版・用途に属することを検証し、選択IDを含むcanonicalな`config_json`／`config_hash`をPhase行へ固定します。画面は0件選択時に開始を無効化し、Jobは固定済みIDだけを評価します。`evaluation_case_ids`のない既存runは同じProject・版・用途の全件を処理する後方互換を維持します。
 - 精度評価のtrial既定値は1です。開始ボタンは質問、Phase、既存Indexに対応するVariant、回答LLM、採点LLMがそろった場合だけ有効です。Phase 1〜5は全幅の横並びカードで、狭い画面はPhase領域を横スクロールし、設定、工程、指標群は1列へ切り替えます。
-- 評価開始要求中からspinnerと進捗カードを表示し、`expected_trials`／`completed_trials`を全体とPhaseごとに更新します。画面は受付、Job起動、Phase評価、指標集計、改善提案、進捗割合、経過時間を示します。Projectを再表示した場合は最近のactive runを復元し、status pollのtimeoutや一時的失敗後も同じrunを監視します。
-- status APIはPhase行と一つのLakeflow runの対応を検証し、queue、compute起動、environment準備、実行、terminal状態を利用者向け文言へ変換します。JobがNotebook開始前に失敗／取消になっても、Jobs APIを基準に評価行を終端状態へ収束します。providerの生メッセージは返しません。Job linkは設定済みWorkspaceと一致する安全なURLだけを返します。
-- 評価停止は、まずDelta Tableへ`CANCEL_REQUESTED`を永続化し、対応するLakeflow Job runへも取消を要求します。Jobs APIが一時失敗してもJob側のcheckpointは永続フラグを確認します。画面は停止要求後もterminal状態までpollを続け、完了済みPhaseを停止へ上書きしません。
+- 評価開始要求中からspinnerと進捗カードを表示し、`expected_trials`／`completed_trials`を全体とPhaseごとに更新します。画面は受付、Job起動、Phase評価、指標集計、改善提案、進捗割合、経過時間を示します。Projectを再表示した場合は最近のactive runを復元します。履歴からrunを開く最初のstatus GETは1回25秒のtimeoutと最大3回の再接続を持ち、通常のstatus pollも一時的失敗後に同じrunを監視します。
+- Evaluation作成要求は、同じpayloadの再送でブラウザが同じ`Idempotency-Key`を最大3回再利用します。サーバーはProject、利用者、keyから同じ`eval_run_id`を決定し、Phase行をDelta `MERGE`で作成します。Lakeflow Jobsのidempotency tokenにも同じ`eval_run_id`を使うため、Appの応答消失や再起動後も同じJobを回復し、二重起動しません。
+- status APIはPhase行と一つのLakeflow runの対応を検証し、queue、compute起動、environment準備、実行、terminal状態を利用者向け文言へ変換します。Job受付結果が不明な場合は30〜300秒のbackoffと`retry_after_ms`を返し、画面はその間隔を尊重します。Jobs APIの状態を一時取得できない`UNKNOWN`はspinner付きで再確認し、Bad Request、Not Found、Permission Denied、Unauthenticatedなど確定的なJob拒否だけを`FAILED`へ収束します。JobがNotebook開始前に失敗／取消になっても、Jobs APIを基準に評価行を終端状態へ収束します。providerの生メッセージは返しません。Job linkは設定済みWorkspaceと一致する安全なURLだけを返します。
+- Deltaが同じPhaseの同一制御行を複数保持しても、API、評価履歴、Evaluation JobはPhaseごとに1件へ集約し、進捗と試行数を水増ししません。設定が異なる重複行はJob契約違反として拒否します。
+- 評価停止は、まずDelta Tableへ`CANCEL_REQUESTED`を永続化し、対応するLakeflow Job runへも取消を要求します。画面は停止専用の通信経路で最大3回再確認し、クリック直後にもstatusを取得します。Job登録と停止が競合した場合も、同じ`eval_run_id`からJobを回復して取消します。Jobs APIが一時失敗してもJob側のcheckpointは永続フラグを確認し、その後のstatus pollでも取消を再試行します。status pollが先にterminal状態を確認した場合は、待機中の停止POSTをabortし、terminal状態と取得済み結果を維持します。完了が先に確定した場合は409を返し、完了済みPhaseを停止へ上書きしません。
+- terminal状態になった後の結果APIは、1回45秒のtimeoutと最大3回の再試行を使います。取得中はspinner、`aria-busy=true`、「結果取得中」、試行番号を表示し、停止ボタンは隠します。全試行が失敗しても評価runを消さず、評価履歴を更新して同じrunを選ぶと保存済み指標と改善提案を再取得できます。
 - Metadata Filteringは、現在のProjectで`PARSED`／`READY`の文書registryだけを照合します。`category`、`tags`、`document_date`、`source`、custom metadataを検証し、customは質問にkeyとvalueの両方がある場合だけ採用します。任意JSON pathをAI Search filterへ直接渡さず、検証済み`document_id IN (...)`へ変換します。矛盾、0件、全件一致、100件超では安全のためフィルタなしへ戻します。
 - 回答内の引用IDを検索結果と照合し、最終回答で実際に参照した引用だけを保存します。live `citation.added`には検証済み`document_id`と物理ページを含め、ブラウザはその値から認可付きPDF content routeを再構築します。`retrieval.completed` SSEにはexcerpt／チャンク本文を含めず、画面にも表示しません。
 - PDF content routeはProjectと文書所属を再認可し、`ETag`、`If-None-Match`、単一byte `Range`、`HEAD`、`Cache-Control: private`を扱います。画面はPDF操作のhover／focus／pointerdownでprefetchし、同じProjectで読み込み済みの同じPDF・ページはiframeを保持します。Project切替時は必ず破棄します。

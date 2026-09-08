@@ -178,6 +178,21 @@ class Settings:
 
     def validate_names(self) -> None:
         for env_name, value in (
+            ("PREP_JOB_ID", self.prep_job_id),
+            ("EVAL_JOB_ID", self.eval_job_id),
+        ):
+            if value is None:
+                continue
+            try:
+                normalized_job_id = int(value)
+            except (TypeError, ValueError) as exc:
+                raise SettingsError(
+                    f"{env_name} は正の数値で指定してください。"
+                ) from exc
+            if normalized_job_id <= 0 or str(normalized_job_id) != value:
+                raise SettingsError(f"{env_name} は正の数値で指定してください。")
+
+        for env_name, value in (
             ("UC_CATALOG", self.uc_catalog),
             ("UC_SCHEMA", self.uc_schema),
         ):

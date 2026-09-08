@@ -461,14 +461,29 @@ def validate_existing_index(
         raise JobContractError("existing Index points to another source table")
     if str(spec.get("pipeline_type") or "").upper() != "TRIGGERED":
         raise JobContractError("existing Index is not TRIGGERED")
-    raw_columns = spec.get("columns_to_sync")
-    if (
-        not isinstance(raw_columns, list)
-        or any(not isinstance(column, str) for column in raw_columns)
-        or len(raw_columns) != len(set(raw_columns))
-        or set(raw_columns) != set(INDEX_SYNC_COLUMNS)
-    ):
-        raise JobContractError("existing Index synchronized columns do not match the contract")
+    # The create request accepts ``columns_to_sync`` but the Index GET API can
+    # omit it.  In that response shape, omission means the Index includes all
+    # source-table columns; the later source-schema and search-manifest checks
+    # still prove that every required retrieval column is usable.  When the
+    # service does return an explicit list, keep the exact fail-closed check.
+    returned_column_fields = [
+        field for field in ("columns_to_sync", "columns_to_index") if field in spec
+    ]
+    if len(returned_column_fields) > 1:
+        raise JobContractError(
+            "existing Index synchronized columns do not match the contract"
+        )
+    if returned_column_fields:
+        raw_columns = spec.get(returned_column_fields[0])
+        if (
+            not isinstance(raw_columns, list)
+            or any(not isinstance(column, str) for column in raw_columns)
+            or len(raw_columns) != len(set(raw_columns))
+            or set(raw_columns) != set(INDEX_SYNC_COLUMNS)
+        ):
+            raise JobContractError(
+                "existing Index synchronized columns do not match the contract"
+            )
     embedding_columns = spec.get("embedding_source_columns")
     if not isinstance(embedding_columns, list):
         raise JobContractError("existing Index embedding source is missing")
@@ -1160,8 +1175,14 @@ def validate_eval_batch(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             raise JobContractError("evaluation row ID is not canonical")
 
     phases = [str(row.get("phase_id")) for row in normalized]
-    if len(phases) != len(set(phases)) or any(phase not in PHASE_PRESETS for phase in phases):
-        raise JobContractError("evaluation Phase rows are missing, duplicated, or unsupported")
+    if any(phase not in PHASE_PRESETS for phase in phases):
+        raise JobContractError("evaluation Phase rows are missing or unsupported")
+    # Concurrent insert-only Delta MERGEs can materialize identical control
+    # rows because Delta tables do not enforce a unique key.  The invariant
+    # checks above reject conflicting duplicates.  Identical Phase replicas
+    # are therefore collapsed here; the Lakeflow idempotency token still
+    # guarantees that only one evaluation Job runs.
+    phases = sorted(set(phases))
     config = parse_and_verify_config(
         str(first["config_json"]),
         str(first["config_hash"]),
@@ -1224,7 +1245,7 @@ def validate_eval_batch(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         **first,
         "project_id": project_id,
         "config": config,
-        "phases": sorted(phases),
+        "phases": phases,
     }
 
 

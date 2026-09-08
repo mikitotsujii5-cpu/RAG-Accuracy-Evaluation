@@ -1282,6 +1282,8 @@ index = client.create_delta_sync_index(
 
 `chunk_id` とEmbedding元列は常にIndexへ含まれる。`columns_to_sync` には、回答表示、引用、filter、Rerankingで必要な列を漏れなく追加する。Embeddingモデルは日本語・英語混在データで事前評価する。検索方式だけを比べるPhase 1～5では同じendpointを使い、Embedding Model自体の比較は別Variant実験にする。
 
+AI SearchのIndex GET応答は、全source列を同期するIndexで`columns_to_sync`を省略する場合がある。この省略だけをIndex不正とせず、source Tableのschemaと検索manifestで必要列を検証する。GET応答に`columns_to_sync`または`columns_to_index`が明示された場合は、必要列との完全一致を要求し、不足、余分、重複を許可しない。両方の項目が同時に返る想定外の応答もfail-closedで拒否する。
+
 Triggered syncを実行する。
 
 ```python
@@ -2738,9 +2740,13 @@ Phase 1〜5は全幅カード内へ横並びで置く。デスクトップでも
 
 開始ボタンは、評価質問、1つ以上のPhase、既存Indexに対応するVariant、回答LLM、judge LLMがそろった場合だけ有効にする。たとえば1問、Phase 1〜5、trial 1なら最大5試行である。送信直後はJob run作成APIの応答前でも`SUBMITTING`として進捗カードを表示し、利用者が二重に開始しないよう設定と開始ボタンを無効化する。
 
-進捗APIはPhaseごとの`expected_trials`と`completed_trials`、全体状態に加え、Lakeflow Jobsから取得したqueue／compute／environment／task／terminal状態を返す。画面はProjectを再表示したときに最近のactive runを自動復元し、pollのtimeoutや一時的なAPI失敗後も同じrun IDで監視を再開する。JobがNotebook開始前に失敗または取消になった場合は、Jobs APIの終端状態を評価Tableへ収束させ、`QUEUED`のまま無限に待たせない。
+作成APIの応答が途切れた場合、画面は同じpayloadと`Idempotency-Key`を最大3回再利用する。「評価の受付結果を確認しています」とspinnerを表示し、別の評価を開始しない。サーバーは同じkeyを同じ`eval_run_id`へ解決し、Lakeflow Jobも同じIDで冪等に回復する。
 
-取消APIは評価Tableへ`CANCEL_REQUESTED`を保存したうえで、server-sideで確認したLakeflow Job runにも取消を要求する。Jobs APIが一時的に利用できない場合も、Jobが試行間で永続フラグを確認する経路を残す。画面は取消要求だけでidleへ戻さず、`CANCELED`、`FAILED`、`PARTIAL`、`SUCCEEDED`のいずれかへ確定するまで監視する。providerの生の状態メッセージは表示せず、利用者向けの固定文言へ変換する。Jobへのリンクは設定済みWorkspace hostと一致するHTTPS URLだけを表示し、実run IDを本文や公開記録へ転記しない。
+進捗APIはPhaseごとの`expected_trials`と`completed_trials`、全体状態に加え、Lakeflow Jobsから取得したqueue／compute／environment／task／terminal状態を返す。一時的なJob受付失敗では`retry_after_ms`を返し、画面は指定間隔を次回pollへ反映する。Jobs APIの状態を取得できない`UNKNOWN`は失敗確定にせず、「Jobの状態を再確認しています」とspinnerを続ける。画面はProjectを再表示したときに最近のactive runを自動復元し、pollのtimeoutや一時的なAPI失敗後も同じrun IDで監視を再開する。Job設定・権限など確定的な拒否、またはNotebook開始前の失敗・取消は評価Tableを終端状態へ収束させ、`QUEUED`のまま無限に待たせない。
+
+取消APIは評価Tableへ`CANCEL_REQUESTED`を保存したうえで、server-sideで確認したLakeflow Job runにも取消を要求する。画面は停止専用の通信経路を使い、応答が失われても最大3回再確認し、クリック直後にもstatusを取得する。Job登録と停止が競合した場合も、同じ`eval_run_id`から対象Jobを回復して取消を依頼する。Jobs APIが一時的に利用できない場合は、後続status pollでも取消を再試行し、Jobが試行間で永続フラグを確認する経路も残す。完了が先に確定した場合は409を返し、完了済みPhaseを停止へ上書きしない。画面は取消要求だけでidleへ戻さず、`CANCELED`、`FAILED`、`PARTIAL`、`SUCCEEDED`のいずれかへ確定するまで監視する。providerの生の状態メッセージは表示せず、利用者向けの固定文言へ変換する。Jobへのリンクは設定済みWorkspace hostと一致するHTTPS URLだけを表示し、実run IDを本文や公開記録へ転記しない。
+
+Jobがterminal状態になった時点でspinnerを消さず、結果APIから指標と改善提案を取得し終わるまで「結果取得中」と試行番号を表示する。結果APIは1回45秒でtimeoutし、通信断、408、425、429、5xxなど一時的な失敗を最大3回まで再試行する。取得失敗は評価run自体の失敗と混同せず、「評価は終了しましたが、結果を取得できませんでした」と表示する。runは評価履歴へ残し、利用者が履歴を更新して同じrunを選び直したときに保存済み結果を再取得できるようにする。
 
 主表示は初心者向けに「検索再現率」「回答正解率」「回答時間」とし、詳細表ではそれぞれRecall@10、Answer Correctness、E2E p50／p95などの技術名を併記する。
 
@@ -3047,7 +3053,7 @@ Phase 1～5をまとめて実行するときは、同じDataset／Variant／モ�
 
 ```json
 {
-  "eval_run_id": "eval_01R...",
+  "eval_run_id": "<EVAL_RUN_UUID>",
   "status": "QUEUED",
   "config_hash": "sha256-hex",
   "selected_case_count": 3,
@@ -3058,15 +3064,21 @@ Phase 1～5をまとめて実行するときは、同じDataset／Variant／モ�
     {"phase_id": "phase_04", "status": "QUEUED", "expected_trials": 3, "completed_trials": 0},
     {"phase_id": "phase_05", "status": "QUEUED", "expected_trials": 3, "completed_trials": 0}
   ],
-  "status_url": "/api/projects/prj_01J.../evaluation-runs/eval_01R..."
+  "status_url": "/api/projects/<PROJECT_UUID>/evaluation-runs/<EVAL_RUN_UUID>"
 }
 ```
 
-同じ送信操作が通信再試行で二重起動しないよう、作成APIにはブラウザが生成した `Idempotency-Key` を付ける。サーバーは利用者、Project、request body hashと対応付け、同じkeyの再送には作成済みrunを返す。
+同じ送信操作が通信再試行で二重起動しないよう、作成APIにはブラウザが生成した`Idempotency-Key`を付ける。ブラウザは同じProjectとpayloadの受付結果が不明な間、同じkeyをsession内で保持し、1回30秒のtimeout、最大3回で再送する。408、425、429、5xx、通信断は再試行できるが、その他の確定的な4xxは同じ送信の再試行対象にしない。
 
-Evaluation Jobへは`eval_run_id`だけを渡す。JobはPhase行の`config_json`／`config_hash`を再検証し、固定された`evaluation_case_ids`だけをProject・version・splitで抽出する。取得したID集合が保存済み集合と一致しない場合は評価を開始しない。`evaluation_case_ids` fieldの追加前に作られた旧runだけは、後方互換として同じProject・version・splitの全ケースを処理する。新しいUIは常に明示的な選択IDを送る。
+サーバーはProject、認証済み利用者、`Idempotency-Key`から非可逆なUUIDの`eval_run_id`を決定し、`project_id + eval_run_id + phase_id`を条件とするDelta `MERGE`で制御行を作る。同じkeyと同じrequest body hashの再送には作成済みrunを返し、同じkeyで設定が違う場合は409を返す。これにより、複数App replicaが同時に受けても同じ論理runへ収束する。
 
-結果APIは、集計指標、公開用model表示名、case ID、回答、検証済み引用リンク、Traceリンク、改善提案だけを返す。Delta Tableの `doc_uri`、実model target、Job run IDはDTO作成時に除外する。取消APIは何度呼んでも同じ状態になるidempotentな処理にし、完了済みrunを取消済みに書き換えない。
+Evaluation Jobへは`eval_run_id`だけを渡し、同じ値をLakeflow Jobsのidempotency tokenにも使う。`run-now`は成功したが応答を失った場合や、その後の`job_run_id`保存だけが失敗した場合も、POSTまたはstatus GETが同じJobを回復する。一時的な受付失敗は30、60、120、240、最大300秒のbackoffを使い、status responseへ`queue_reason=SUBMISSION_RETRY`と`retry_after_ms`を返す。ブラウザはその間隔より短くpollしない。Job ID不正、Bad Request、Not Found、Permission Denied、Unauthenticatedなど確定的な拒否は全active Phaseを`FAILED`へ更新し、無限再試行しない。`PREP_JOB_ID`と`EVAL_JOB_ID`はApp起動時に先頭ゼロや空白を含まない正の整数として検証する。
+
+JobはPhase行の`config_json`／`config_hash`を再検証し、固定された`evaluation_case_ids`だけをProject・version・splitで抽出する。取得したID集合が保存済み集合と一致しない場合は評価を開始しない。`evaluation_case_ids` fieldの追加前に作られた旧runだけは、後方互換として同じProject・version・splitの全ケースを処理する。新しいUIは常に明示的な選択IDを送る。Deltaの同時MERGEで同じPhaseの同一行が複数見える場合は、固定設定がすべて一致する行だけを1 Phaseへ集約する。不一致の重複行は拒否する。status APIと評価履歴も公開Phaseを1 IDにつき1件へ集約し、進捗や試行数を水増ししない。
+
+結果APIは、集計指標、公開用model表示名、case ID、回答、検証済み引用リンク、Traceリンク、改善提案だけを返す。Delta Tableの `doc_uri`、実model target、Job run IDはDTO作成時に除外する。ブラウザは結果GETを1回45秒でtimeoutし、一時エラーを最大3回まで再試行する。全試行が失敗してもrunを削除せず、評価履歴から同じ結果GETを再実行できる。status APIでJobs APIを一時的に読めない場合は`job_state=UNKNOWN`と安全な固定文言を返し、画面はspinner付きで同じrunを再確認する。
+
+取消APIはactive Phaseへ先に`CANCEL_REQUESTED`を保存してから、同じ`eval_run_id`のJobを回復し、Lakeflow Jobsへ取消を要求する。ブラウザはstatus pollと別のAbortControllerを使い、停止要求を1回20秒のtimeout、最大3回で再確認し、クリック直後と取消応答後にstatusを取得する。Jobs APIが一時失敗しても後続status GETで取消を再試行する。停止と完了が競合し完了が先に確定した場合は409を返し、完了済みrunを取消済みに書き換えない。
 
 Table名、Index名、Volume URI、Job ID、実endpoint／model service名はリクエストから受け取らない。`project_id`、`variant_id`、opaqueな `model_key` を検証し、server-side registryとApp resourceから解決する。
 
@@ -3982,7 +3994,11 @@ CREATE TABLE IF NOT EXISTS <catalog>.<schema>.toyota_rag_eval_runs (
 USING DELTA;
 ```
 
-Appは認可後にPhaseごとの行を `QUEUED` で作り、`eval_run_id + phase_id` を複合keyとして扱う。同じeval runの行はdataset、split、選択したcase ID、Variant、各model、trial数、`config_hash` が一致しなければならない。選択IDはPhaseごとに別列へ複製せず、canonicalな`config_json`へ含めてhashで固定する。Jobへは `eval_run_id` だけを渡し、Jobが全Phase行とcase所属をserver-sideで再検証する。状態は `QUEUED`、`RUNNING`、`SUCCEEDED`、`PARTIAL`、`CANCEL_REQUESTED`、`CANCELED`、`FAILED` に限定する。取消APIは同じeval runの未完了行だけへ `cancel_requested_at` と状態を更新し、Eval Jobはcase間とstream event間で確認する。完了済みrunを取消済みに書き換えない。
+Appは認可後にPhaseごとの行を`QUEUED`で作り、`eval_run_id + phase_id`を複合keyとして扱う。`eval_run_id`はProject、認証済み利用者、`Idempotency-Key`から決定し、各Phase行はINSERTではなく同じ複合keyのDelta `MERGE`で作る。同じeval runの行はdataset、split、選択したcase ID、Variant、各model、trial数、`config_hash`が一致しなければならない。選択IDはPhaseごとに別列へ複製せず、canonicalな`config_json`へ含めてhashで固定する。
+
+Delta Table自体は一意制約を強制しないため、同時MERGEで同じPhase行が複数見える可能性を考慮する。APIとJobは、固定設定が同じ重複行を1 Phaseへ集約し、statusは最も保守的な状態、完了試行数は最大値を採用する。固定設定が異なる重複はfail-closedで拒否する。1件の正の`job_run_id`とNULLが混在する場合は同じ論理runの行へ安全に補完し、異なる正のJob IDが混在する場合は不整合として拒否する。
+
+Jobへは`eval_run_id`だけを渡し、その値をLakeflow Jobsのidempotency tokenにして、Job受付応答や`job_run_id`保存の消失から同じJobを回復する。状態は`QUEUED`、`RUNNING`、`SUCCEEDED`、`PARTIAL`、`CANCEL_REQUESTED`、`CANCELED`、`FAILED`に限定する。取消APIは同じeval runの未完了行だけへ`cancel_requested_at`と状態を更新し、Eval Jobはcase間とstream event間で確認する。Job登録と取消が競合した場合も永続フラグを再読込し、回復した同じJobへ取消を要求する。完了済みrunを取消済みに書き換えない。
 
 Phase別のLLM改善提案は別Tableへ保存する。指標Tableを提案文で上書きしない。
 
@@ -4235,7 +4251,13 @@ custom production scorerには追加制約がある。`@scorer` 形式で自己�
 - [ ] `evaluation_case_ids`を1〜1000件、空・重複なし、同じProject／version／split所属で検証し、`config_json`／`config_hash`へ固定した。Jobは選択IDだけを処理し、fieldのない旧runだけ全件互換を維持した。
 - [ ] trialの既定値を1にし、質問、Phase、既存Index Variant、回答LLM、judge LLMがそろうまで開始ボタンを無効にした。
 - [ ] 開始要求中からspinner、5工程、全体／Phase別の完了試行数、割合、経過時間を表示し、再読込、ページ移動、一時的なpoll失敗後もactive runを復元した。
+- [ ] 同じpayloadと`Idempotency-Key`の再送が同じ`eval_run_id`、同じLakeflow Job、Phaseごとに1つの公開行へ収束した。
+- [ ] Job受付応答または`job_run_id`保存が失われても、同じ`eval_run_id`をidempotency tokenとして元のJobを回復した。backoffの`retry_after_ms`を画面pollへ反映した。
+- [ ] Jobs APIの一時的な`UNKNOWN`ではspinner付きで再確認し、Job ID不正や権限・設定の確定的な拒否だけを`FAILED`へ収束した。
+- [ ] 同一設定の重複Phase行はAPI／履歴／Jobで1 Phaseへ集約し、設定が異なる重複行は拒否した。
 - [ ] JobがNotebook開始前に失敗／停止しても評価行を終端状態へ収束し、取消時はDeltaの永続フラグとLakeflow Jobs API cancelを併用してterminal状態まで監視した。
+- [ ] 停止APIの一時失敗を同じrunで再確認し、Job登録との競合後も対象Jobを取消した。完了が先に確定した場合は409となり完了状態を維持した。
+- [ ] Job終端後も結果取得が完了するまでspinnerと試行番号を表示し、結果APIの45秒timeout／最大3回再試行と評価履歴からの再取得を確認した。
 - [ ] Job linkを同一WorkspaceのHTTPS URLに限定し、providerの生メッセージと実DatabricksリソースIDを利用者画面や公開記録へ出していない。
 - [ ] 検索再現率、回答正解率、回答時間を主要3指標として表示し、詳細表に他の検索・回答・運用指標を残した。
 - [ ] Phase 1～5で選択質問、Variant、Embedding、回答LLM、prompt、kを固定した。
@@ -4267,6 +4289,11 @@ custom production scorerには追加制約がある。`@scorer` 形式で自己�
 | Token usageがNULL | Providerがusageを返すか、streamingのusage設定 |
 | AppsからIndexを読めない | App resource、`SELECT`、親catalog/schemaのUSE権限 |
 | AppからJobは起動できるが処理が失敗する | Job run detailsのRun as identityと、その主体のVolume／Table／endpoint権限 |
+| 評価の受付確認が終わらない | 同じ`eval_run_id`のPhase行、`job_run_id`、`queue_reason`、`retry_after_ms`、Evaluation Job ID、App SPの`CAN MANAGE RUN`を確認する。`JOB_SUBMITTING`／`SUBMISSION_RETRY`中に別runを作らない |
+| `Jobの状態を再確認しています`が長時間続く | Jobs APIの接続と権限を確認する。一時的な`UNKNOWN`を手動で失敗へ変えず、確定的なJob拒否が`FAILED`へ収束するか確認する |
+| 評価停止後もJobが動く | Deltaの`CANCEL_REQUESTED`、同じ`eval_run_id`から回復した`job_run_id`、App SPの`CAN MANAGE RUN`、Jobs cancelを確認する。取消フラグを削除せず、後続status GETの再試行を待つ |
+| 評価Jobは終わったが指標が表示されない | 「結果取得中」のspinnerと試行番号、結果APIの45秒timeout／最大3回再試行を確認する。評価を再実行せず、評価履歴を更新して同じrunを選び直す |
+| Phaseが重複表示／重複実行される | 同じ`eval_run_id + phase_id`の行を確認する。同一設定ならAPI／Jobで1件へ集約し、設定が違えば契約違反として停止する。任意の1行を手作業で選んで続行しない |
 | PDFを削除できない | 403はOWNER／EDITOR権限、409はProject mutation lock、実行中Prep／Evaluation、または30分以内のChat。30分超の孤児Chatは削除判定前に`ERROR`へ自動収束するため、runの`started_at`、状態、対応assistant message、guard付きUPDATEを確認する。`DELETING`が長時間残る場合は削除requestとApp log、ロック解除条件を確認 |
 | PDF削除後に検索できない | 後継`prep_run_id`とData Preparation Job、後継Variantの`activate_on_success`、AI Search pipeline、source／Indexの削除PDF行数。最後のPDFなら`EMPTY`は正常 |
 | 選択していない評価質問が実行される | Eval runの`config_json`／`config_hash`と`evaluation_case_ids`、caseのProject／version／split、JobでのID集合再検証を確認。新しいrunでfieldを省略しない |
@@ -4554,7 +4581,7 @@ databricks fs cp \
 5. OWNER／EDITORがPDF単体を確認付きで論理削除できる。進行中処理との競合は409で拒否し、30分超の孤児Chat runだけはguard付きで`ERROR`へ収束し、同じDELETEは冪等である。削除PDFを含む旧Variantは`SUPERSEDED`となり、残存PDFだけの後継Variant／AI Search IndexがREADYになる。最後のPDFならProjectは`EMPTY`となる。原本、解析結果、過去の会話／引用／評価は保持し、削除前のPDF引用をProject認可内で開ける。
 6. チャットでVector／Hybrid、Metadata Filtering、Reranking、Query Optimization、利用可能なFMAPI LLMを選べる。
 7. チャット履歴を高速に再表示・本人削除でき、回答を停止でき、すべての事実回答から検証済み`document_id`由来のPDF原文リンクへ移動できる。retrieval SSEと利用者画面へexcerpt／チャンク本文を出さない。
-8. 初回Data Preparation後に正解ラベルを捏造しないサンプル質問3件があり、Project／version／split内の登録済み質問を初期全選択、個別／一括で切り替え、正解状態と詳細を確認できる。0件では開始せず、trial既定値1で人が固定した選択質問だけをPhase 1～5へ実行する。開始要求中から工程、試行数、経過時間を表示し、再読込後もactive runを復元し、停止はLakeflow Jobを含めてterminal状態まで確認する。Project単位で検索再現率、回答正解率、回答時間、costを比較し、未ラベルCorrectnessは`NULL`で平均から除外する。
+8. 初回Data Preparation後に正解ラベルを捏造しないサンプル質問3件があり、Project／version／split内の登録済み質問を初期全選択、個別／一括で切り替え、正解状態と詳細を確認できる。0件では開始せず、trial既定値1で人が固定した選択質問だけをPhase 1～5へ実行する。Phaseは横並びの大きなカードで選べる。開始要求中からspinner、工程、試行数、経過時間を表示し、同じkeyの再送は1 run／1 Jobへ収束する。`retry_after_ms`と一時的な`UNKNOWN`を安全に再確認し、確定的な拒否は`FAILED`へ終了する。再読込後もactive runを復元し、停止APIの応答消失やJob登録との競合後もLakeflow Jobを含めてterminal状態まで確認する。Job終端後も結果取得中はspinnerを表示し、45秒timeout／最大3回再試行後も取得できなければ評価履歴から同じrunを再取得できる。Project単位で検索再現率、回答正解率、回答時間、costを比較し、未ラベルCorrectnessは`NULL`で平均から除外する。
 9. 各Phaseに対してLLMが回答品質3指標とjudge rationaleも根拠にし、優先度、副作用、再検証方法を含む改善提案を作り、自動適用せず保存できる。過去runを評価履歴から再表示できる。
 10. Phaseごとの設定と最終検索結果をMLflow Traceで再現でき、Project、quality run、performance runを安全に対応付けられる。
 11. データ準備Variantが別Delta Table・別Indexとして残り、どの変更で品質が上がり、latencyとcostがどれだけ増えたか説明できる。
@@ -4590,7 +4617,7 @@ Trial: 1
 
 このsmokeではHybrid SearchのPhase 2が検索3指標を改善した一方、Metadata Filtering以降はRecallが低下し、Query Optimizationを含むPhase 5はlatencyが増えた。改善機能を増やすこと自体を目的にせず、Phase別提案と失敗Traceから次の一変更を選んで再評価する。
 
-現行source asset `1.4.6`はPython 311件、Chat UI 32件、差分checkに合格し、ローカル画面でPhase横並び、評価開始直後のspinner、進捗、完了、停止を確認した。直前のremote実測asset `1.4.5`はGitHubの`main/app`から新規Appへ配置し、`SUCCEEDED`／`RUNNING`／`ACTIVE`、health HTTP 200、resource binding 7件を確認した。許可済み既存Index Variant 1件だけを一覧表示し、AI Search 10件取得、回答、Trace、PDFリンク引用、`run.completed`まで認証付きremote APIで確認した。asset `1.4.6`のremote実測はデプロイ後に追記する。PDF viewerはローカルで初回3,057 ms、同一Project・PDF・pageの再表示296 msを確認し、Project切替時に保持iframeを破棄した。旧asset `1.4.1`のremote content APIではPDF 200、byte Range 206、ETag再検証304、private cacheを確認した履歴を保持する。
+現行source asset `1.4.7`はPython 334件とUI 37件、合計371件の自動テストと差分checkに合格し、ローカル画面でPhase横並び、評価開始直後のspinner、進捗、完了、停止、結果取得中のspinnerを確認した。同一`Idempotency-Key`再送、`eval_run_id`によるJob冪等化、`retry_after_ms`、一時的な`UNKNOWN`再確認、確定的Job拒否の`FAILED`収束、評価履歴からの初回status GETの25秒timeout／最大3回再接続、停止POST待機中のterminal検知とPOST中止・結果保持、停止回復、重複Phase集約、結果取得の45秒timeout／最大3回再試行、Job ID正整数検証も回帰対象である。直前のremote実測asset `1.4.5`はGitHubの`main/app`から新規Appへ配置し、`SUCCEEDED`／`RUNNING`／`ACTIVE`、health HTTP 200、resource binding 7件を確認した。許可済み既存Index Variant 1件だけを一覧表示し、AI Search 10件取得、回答、Trace、PDFリンク引用、`run.completed`まで認証付きremote APIで確認した。asset `1.4.7`のremote実測は`PENDING`であり、デプロイ後に追記する。PDF viewerはローカルで初回3,057 ms、同一Project・PDF・pageの再表示296 msを確認し、Project切替時に保持iframeを破棄した。旧asset `1.4.1`のremote content APIではPDF 200、byte Range 206、ETag再検証304、private cacheを確認した履歴を保持する。
 
 asset `1.4.4`では評価画面にProject／version／split内の質問一覧、初期全選択、個別／一括選択、正解状態／詳細、選択件数／最大試行数、0件開始禁止、折りたたみ追加フォームを実装した。作成APIは1〜1000件の`evaluation_case_ids`を所属検証して`config_json`／`config_hash`へ固定し、Evaluation Jobは選択IDだけを処理する。fieldを持たない旧runの全件評価は後方互換として維持する。選択評価run `<RESOURCE_ID>`はcase `figure-001`だけを処理し、Job `<DATABRICKS_RESOURCE_ID>`／task `<DATABRICKS_RESOURCE_ID>`が`TERMINATED`／`SUCCESS`となった。結果1行、選択外0行、error 0、MLflow run `<RESOURCE_ID>`を確認した。
 

@@ -69,11 +69,11 @@ find app -maxdepth 2 \( -name '.venv' -o -name '__pycache__' -o -name '.pytest_c
 
 ## この環境の実測結果
 
-`SUCCESS`。2026-09-08に現行source asset `1.4.6`の`app/tests`と`jobs/tests`を統合実行し、Python 311件すべてが合格しました。加えてChat UIのjsdom回帰テスト32件が合格しています。差分checkも合格しました。ローカル画面では評価開始直後のspinner、進捗、完了、停止、Phase横並びを確認しました。既存のChat実測ではEnter連打、spinner、停止、履歴切替、下書き、390 px表示、console error 0件、PDF viewer初回3,057 ms、同じProject・PDF・pageの再表示296 msを確認しています。
+`SUCCESS`。2026-09-08に現行source asset `1.4.7`の`app/tests`と`jobs/tests`を統合実行し、Python 334件すべてが合格しました。加えてUIのjsdom回帰テスト37件が合格し、自動テストは合計371件です。差分checkも合格しました。ローカル画面では評価開始直後のspinner、進捗、完了、停止、結果取得中のspinner、Phase横並びを確認しました。既存のChat実測ではEnter連打、spinner、停止、履歴切替、下書き、390 px表示、console error 0件、PDF viewer初回3,057 ms、同じProject・PDF・pageの再表示296 msを確認しています。
 
-テストには、PDFだけの登録、タイトル自動補完、汎用メタデータ、Project限定Metadata Filteringに加え、FMAPIモデルによって拒否されるoptional sampling値を送らないこと、最終回答で参照した引用だけを保存すること、同一`client_request_id`を冪等化すること、停止と完了の競合を正しく閉じること、Chat Trace IDを履歴と画面へ渡すこと、MLflow Trace階層の契約が含まれます。さらに現行sourceでは、20〜30字の概要生成、Qwen3の既定値とfallback表示、ログインユーザー取得、Project／会話削除、PDFの`Range`／`ETag`、PDF原文リンク、prefetch、`ERROR` PDF再解析、評価履歴再表示、未ラベルCorrectness除外、advisorの回答品質根拠、評価質問の個別／一括選択と固定、評価runの復元／停止／終端収束、PDF単体削除の権限／競合／冪等性／後継Variant／最後のPDF、30分超の孤児Chat run回復、既存Index許可外の旧Variantを一覧から除外する回帰も対象です。直前のremote実測asset `1.4.5`はStep 8〜9で確認済みです。
+テストには、PDFだけの登録、タイトル自動補完、汎用メタデータ、Project限定Metadata Filteringに加え、FMAPIモデルによって拒否されるoptional sampling値を送らないこと、最終回答で参照した引用だけを保存すること、同一`client_request_id`を冪等化すること、停止と完了の競合を正しく閉じること、Chat Trace IDを履歴と画面へ渡すこと、MLflow Trace階層の契約が含まれます。さらに現行sourceでは、20〜30字の概要生成、Qwen3の既定値とfallback表示、ログインユーザー取得、Project／会話削除、PDFの`Range`／`ETag`、PDF原文リンク、prefetch、`ERROR` PDF再解析、評価履歴再表示、未ラベルCorrectness除外、advisorの回答品質根拠、評価質問の個別／一括選択と固定、評価runの復元／停止／終端収束、同一`Idempotency-Key`による評価開始再送、`eval_run_id`によるJob冪等化、`retry_after_ms`、一時的な`UNKNOWN`状態、確定的Job拒否の`FAILED`収束、停止APIの再試行、重複Phase集約、結果取得中spinner、結果APIの45秒timeout／最大3回再試行、評価履歴からの結果再取得、Job IDの正整数検証、AI Search GETで同期列が省略される応答、PDF単体削除の権限／競合／冪等性／後継Variant／最後のPDF、30分超の孤児Chat run回復、既存Index許可外の旧Variantを一覧から除外する回帰も対象です。直前のremote実測asset `1.4.5`はStep 8〜9で確認済みで、asset `1.4.7`のremote実測は`PENDING`です。
 
-現行sourceは、上記311件のPython自動テストと32件のChat UIテストを確認済みです。直前のdeployment `<DEPLOYMENT_ID>`によるremote E2Eはasset `1.4.5`の別証跡です。旧asset `1.4.1`の240件成功とasset `1.4.3`の277件成功は履歴であり、現行機能の合格件数へ混ぜません。
+現行sourceは、上記334件のPython自動テストと37件のUIテスト、合計371件を確認済みです。直前のdeployment `<DEPLOYMENT_ID>`によるremote E2Eはasset `1.4.5`の別証跡です。旧asset `1.4.1`の240件成功とasset `1.4.3`の277件成功は履歴であり、現行機能の合格件数へ混ぜません。
 
 削除E2E helperがSQL Statement Execution APIを呼ぶときは、両helperで`ExecuteStatementRequestOnWaitTimeout`をimportし、`on_wait_timeout=ExecuteStatementRequestOnWaitTimeout.CONTINUE`を渡します。文字列`"CONTINUE"`ではSDK内部で`AttributeError: 'str' object has no attribute 'value'`となることを実環境で検出し、enumへ修正後にfresh helperがexit 0となりました。`jobs/tests/test_deployment_contract.py`の2件の契約testで、このenum指定を固定しています。
 

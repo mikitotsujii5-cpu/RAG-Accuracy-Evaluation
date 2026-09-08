@@ -16,6 +16,7 @@ from typing import Any
 from errors import AppError, ForbiddenError, NotFoundError, ResourceNotReadyError
 from gateway import (
     DatabricksGateway,
+    JobSubmissionRejectedError,
     json_or_value,
     sql_bool,
     sql_string,
@@ -30,6 +31,7 @@ SAFE_MODEL_KEY = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 SAFE_VARIANT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 SAFE_TRACE_ID = re.compile(r"^tr-[0-9a-f]{32}$")
 CHAT_MESSAGE_NAMESPACE = uuid.UUID("f57eb6ca-f4f8-4ef2-8727-35ff89bbac40")
+EVALUATION_RUN_NAMESPACE = uuid.UUID("9fbe315e-3d32-4d4f-82b1-4f7b1079d2db")
 CHAT_TERMINAL_STATUSES = frozenset({"COMPLETED", "CANCELED", "ERROR"})
 CHAT_ACTIVE_STATUSES = frozenset({"QUEUED", "STREAMING", "CANCEL_REQUESTED"})
 CHAT_RUN_STALE_MINUTES = 30
@@ -47,6 +49,12 @@ EVALUATION_ACTIVE_STATUS_SQL = ", ".join(
 PREP_SUBMISSION_RETRY_BASE_SECONDS = 30.0
 PREP_SUBMISSION_RETRY_MAX_SECONDS = 300.0
 PREP_SUBMISSION_INFLIGHT_RETRY_MS = 1000
+EVALUATION_SUBMISSION_RETRY_BASE_SECONDS = 30.0
+EVALUATION_SUBMISSION_RETRY_MAX_SECONDS = 300.0
+EVALUATION_SUBMISSION_INFLIGHT_RETRY_MS = 1000
+EVALUATION_SUBMISSION_REJECTED_MESSAGE = (
+    "Lakeflow Jobを開始できませんでした。Job設定と権限を確認してください。"
+)
 PREP_RUN_COLUMNS = """
     prep_run_id, project_id, run_type, target_variant_id, status, current_step,
     completed_steps, total_steps, error_message, config_hash, job_run_id,
@@ -107,6 +115,14 @@ class Repository:
         self._prep_submission_inflight: set[str] = set()
         self._prep_submission_retries: dict[str, tuple[int, float]] = {}
         self._prep_submission_claims: dict[str, int] = {}
+        # Evaluation rows use eval_run_id as the durable Jobs idempotency
+        # token.  These process-local values only reduce duplicate API/SQL
+        # calls; recovery after an App restart remains safe because run_now
+        # receives that same token again.
+        self._evaluation_submission_lock = threading.Lock()
+        self._evaluation_submission_inflight: set[str] = set()
+        self._evaluation_submission_retries: dict[str, tuple[int, float]] = {}
+        self._evaluation_submission_claims: dict[str, int] = {}
         self._monotonic = time.monotonic
         # Delta tables do not enforce a UNIQUE constraint on sequence_no.  The
         # durable MERGE statements below are the cross-process idempotency
@@ -3347,20 +3363,22 @@ class Repository:
                 "精度評価Jobが未設定です。AppへEVAL_JOB_IDを追加してください。",
                 missing=["EVAL_JOB_ID"],
             )
-        eval_run_id = str(uuid.uuid4())
         request_data = request.model_dump(mode="json")
         canonical = json.dumps(request_data, ensure_ascii=False,
                                sort_keys=True, separators=(",", ":"))
         config_hash = hashlib.sha256(canonical.encode()).hexdigest()
+        eval_run_id = _evaluation_run_id(project_id, principal, idempotency_key)
         table = self.table("toyota_rag_eval_runs")
         previous = self.gateway.query(f"""
             SELECT eval_run_id, phase_id, status, config_hash,
-                   expected_trials, completed_trials
+                   expected_trials, completed_trials, error_message, job_run_id,
+                   CAST(created_at AS STRING) AS created_at,
+                   CAST(completed_at AS STRING) AS completed_at
             FROM {table}
             WHERE project_id={sql_string(project_id)}
               AND requested_by={sql_string(principal)}
               AND get_json_object(config_json, '$._idempotency_key')={sql_string(idempotency_key)}
-            ORDER BY phase_id
+            ORDER BY created_at, eval_run_id, phase_id
         """)
         if previous:
             if any(row.get("config_hash") != config_hash for row in previous):
@@ -3370,22 +3388,21 @@ class Repository:
                     status_code=409,
                 )
             existing_id = str(previous[0]["eval_run_id"])
-            return {
-                "eval_run_id": existing_id,
-                "status": str(previous[0]["status"]),
-                "config_hash": config_hash,
-                "selected_case_count": len(selected_case_ids),
-                "phases": [
-                    {
-                        "phase_id": row["phase_id"],
-                        "status": row["status"],
-                        "expected_trials": _int_or_none(row.get("expected_trials")) or 0,
-                        "completed_trials": _int_or_none(row.get("completed_trials")) or 0,
-                    }
-                    for row in previous
-                ],
-                "status_url": f"/api/projects/{project_id}/evaluation-runs/{existing_id}",
-            }
+            existing_rows = [
+                row for row in previous if str(row.get("eval_run_id")) == existing_id
+            ]
+            response = self._evaluation_response(
+                project_id, existing_id, existing_rows
+            )
+            response = self._ensure_evaluation_job(project_id, response)
+            response.update(
+                config_hash=config_hash,
+                selected_case_count=len(selected_case_ids),
+                status_url=(
+                    f"/api/projects/{project_id}/evaluation-runs/{existing_id}"
+                ),
+            )
+            return response
         stored_config = json.dumps(
             {**request_data, "_idempotency_key": idempotency_key},
             ensure_ascii=False,
@@ -3393,52 +3410,85 @@ class Repository:
             separators=(",", ":"),
         )
         expected_trials = len(selected_case_ids) * int(request.trial_count)
-        rows = []
+        source_rows = []
         for phase in request.phase_ids:
-            rows.append("(" + ", ".join([
-                sql_string(project_id), sql_string(eval_run_id), sql_string(phase),
-                sql_string(request.variant_id), sql_string(request.dataset_version),
-                sql_string(request.dataset_split), sql_string(request.answer_model_key),
-                sql_string(request.judge_model_key), str(request.trial_count),
-              sql_string(principal), "'QUEUED'", str(expected_trials), "0", sql_string(stored_config),
-                sql_string(config_hash), "current_timestamp()",
-            ]) + ")")
-        self.gateway.execute_sql(f"""
-            INSERT INTO {table} (
+            source_rows.append("SELECT " + ", ".join([
+                f"{sql_string(project_id)} AS project_id",
+                f"{sql_string(eval_run_id)} AS eval_run_id",
+                f"{sql_string(phase)} AS phase_id",
+                f"{sql_string(request.variant_id)} AS variant_id",
+                f"{sql_string(request.dataset_version)} AS dataset_version",
+                f"{sql_string(request.dataset_split)} AS dataset_split",
+                f"{sql_string(request.answer_model_key)} AS answer_model_key",
+                f"{sql_string(request.judge_model_key)} AS judge_model_key",
+                f"{int(request.trial_count)} AS trial_count",
+                f"{sql_string(principal)} AS requested_by",
+                "'QUEUED' AS status",
+                f"{expected_trials} AS expected_trials",
+                "0 AS completed_trials",
+                f"{sql_string(stored_config)} AS config_json",
+                f"{sql_string(config_hash)} AS config_hash",
+            ]))
+        merge_statement = f"""
+            MERGE INTO {table} AS target
+            USING ({' UNION ALL '.join(source_rows)}) AS source
+            ON target.project_id=source.project_id
+              AND target.eval_run_id=source.eval_run_id
+              AND target.phase_id=source.phase_id
+            WHEN NOT MATCHED THEN INSERT (
               project_id, eval_run_id, phase_id, variant_id, dataset_version,
               dataset_split, answer_model_key, judge_model_key, trial_count,
               requested_by, status, expected_trials, completed_trials,
               config_json, config_hash, created_at
-            ) VALUES {', '.join(rows)}
-        """)
+            ) VALUES (
+              source.project_id, source.eval_run_id, source.phase_id,
+              source.variant_id, source.dataset_version, source.dataset_split,
+              source.answer_model_key, source.judge_model_key,
+              source.trial_count, source.requested_by, source.status,
+              source.expected_trials, source.completed_trials,
+              source.config_json, source.config_hash, current_timestamp()
+            )
+        """
         try:
-            job_run_id = self.gateway.run_job(self.settings.eval_job_id, "eval_run_id", eval_run_id)
-            self.gateway.execute_sql(f"""
-                UPDATE {table} SET job_run_id={job_run_id}
-                WHERE project_id={sql_string(project_id)} AND eval_run_id={sql_string(eval_run_id)}
-            """)
+            self.gateway.execute_sql(merge_statement)
         except Exception:
-            self.gateway.execute_sql(f"""
-                UPDATE {table} SET status='FAILED', error_message='Jobを開始できませんでした'
-                WHERE project_id={sql_string(project_id)} AND eval_run_id={sql_string(eval_run_id)}
-            """)
-            raise
-        return {
-            "eval_run_id": eval_run_id,
-            "status": "QUEUED",
-            "config_hash": config_hash,
-            "selected_case_count": len(selected_case_ids),
-            "phases": [
-                {
-                    "phase_id": phase,
-                    "status": "QUEUED",
-                    "expected_trials": expected_trials,
-                    "completed_trials": 0,
-                }
-                for phase in request.phase_ids
-            ],
-            "status_url": f"/api/projects/{project_id}/evaluation-runs/{eval_run_id}",
-        }
+            # A concurrent App replica can commit the same deterministic rows
+            # first. Replaying the key-only MERGE cannot duplicate a Phase.
+            time.sleep(0.05)
+            self.gateway.execute_sql(merge_statement)
+
+        created = self.gateway.query(f"""
+            SELECT eval_run_id, phase_id, status, config_hash,
+                   expected_trials, completed_trials, error_message, job_run_id,
+                   CAST(created_at AS STRING) AS created_at,
+                   CAST(completed_at AS STRING) AS completed_at
+            FROM {table}
+            WHERE project_id={sql_string(project_id)}
+              AND eval_run_id={sql_string(eval_run_id)}
+            ORDER BY phase_id
+        """)
+        expected_phases = set(request.phase_ids)
+        if not created:
+            raise ResourceNotReadyError(
+                "精度評価の受付状態を確認できません。少し待ってから再試行してください。"
+            )
+        if (
+            any(str(row.get("config_hash") or "") != config_hash for row in created)
+            or {str(row.get("phase_id") or "") for row in created} != expected_phases
+        ):
+            raise AppError(
+                "IDEMPOTENCY_CONFLICT",
+                "同じIdempotency-Keyが異なる評価設定で使用されています。",
+                status_code=409,
+            )
+        response = self._evaluation_response(project_id, eval_run_id, created)
+        response = self._ensure_evaluation_job(project_id, response)
+        response.update(
+            config_hash=config_hash,
+            selected_case_count=len(selected_case_ids),
+            status_url=f"/api/projects/{project_id}/evaluation-runs/{eval_run_id}",
+        )
+        return response
 
     def _validate_evaluation_case_selection(
         self,
@@ -3504,6 +3554,25 @@ class Repository:
         if not rows:
             raise NotFoundError("精度評価runが見つかりません。")
 
+        response = self._evaluation_response(project_id, eval_run_id, rows)
+        return self._ensure_evaluation_job(project_id, response)
+
+    def _evaluation_response(
+        self,
+        project_id: str,
+        eval_run_id: str,
+        source_rows: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Build one public response and reconcile a persisted Job state.
+
+        Job submission recovery is deliberately kept in
+        ``_ensure_evaluation_job``.  This method is also used by the POST path,
+        where an idempotency-key retry can find an existing active control row.
+        """
+
+        rows = [dict(row) for row in source_rows]
+        table = self.table("toyota_rag_eval_runs")
+
         normalized_job_run_ids = [
             _int_or_none(row.get("job_run_id")) for row in rows
         ]
@@ -3515,9 +3584,7 @@ class Repository:
         present_job_run_ids = {
             job_run_id for job_run_id in normalized_job_run_ids if job_run_id is not None
         }
-        if has_invalid_job_run_id or len(present_job_run_ids) > 1 or (
-            present_job_run_ids and any(job_run_id is None for job_run_id in normalized_job_run_ids)
-        ):
+        if has_invalid_job_run_id or len(present_job_run_ids) > 1:
             # Every phase is inserted and assigned to one Lakeflow Job as a
             # single logical evaluation run. Fail closed instead of querying an
             # arbitrary Job when the control rows no longer agree.
@@ -3525,6 +3592,25 @@ class Repository:
                 "精度評価runのJob情報に不整合があります。管理者に確認してください。"
             )
         job_run_id = next(iter(present_job_run_ids), None)
+        if job_run_id is not None and any(
+            candidate is None for candidate in normalized_job_run_ids
+        ):
+            # Concurrent insert-only Delta MERGEs can commit an identical
+            # control row after another App replica has persisted the shared
+            # Job run ID.  The deterministic Jobs idempotency token proves
+            # that the one present positive ID belongs to this logical run, so
+            # repair late rows instead of leaving the UI on a permanent 503.
+            try:
+                self.gateway.execute_sql(f"""
+                    UPDATE {table} SET job_run_id={job_run_id}
+                    WHERE project_id={sql_string(project_id)}
+                      AND eval_run_id={sql_string(eval_run_id)}
+                      AND job_run_id IS NULL
+                """)
+            except ResourceNotReadyError:
+                # Continue with the known-safe ID and retry the repair on the
+                # next status request if the Warehouse is temporarily busy.
+                pass
         for row in rows:
             row["expected_trials"] = _int_or_none(row.get("expected_trials")) or 0
             row["completed_trials"] = _int_or_none(row.get("completed_trials")) or 0
@@ -3532,10 +3618,24 @@ class Repository:
             row.pop("job_run_id", None)
         statuses = {str(row["status"]) for row in rows}
         overall = _overall_evaluation_status(statuses)
+        created_values = [
+            str(row["created_at"]) for row in rows if row.get("created_at")
+        ]
+        completed_values = [
+            str(row["completed_at"])
+            for row in rows
+            if row.get("completed_at")
+        ]
         response: dict[str, Any] = {
             "eval_run_id": eval_run_id,
             "status": overall,
-            "phases": rows,
+            "phases": _collapse_evaluation_phase_rows(rows),
+            # The browser restores its elapsed timer from the durable run
+            # timestamp after a reload or history selection. Concurrent,
+            # identical control rows can differ by a few milliseconds, so use
+            # the oldest creation and latest completion across all phases.
+            "created_at": min(created_values) if created_values else None,
+            "completed_at": max(completed_values) if completed_values else None,
             "job_run_id": job_run_id,
             "job_run_url": None,
             "job_state": None,
@@ -3554,6 +3654,8 @@ class Repository:
         try:
             job = self.gateway.get_job_run(job_run_id)
         except (ResourceNotReadyError, AttributeError):
+            if "CANCEL_REQUESTED" in statuses:
+                self._request_evaluation_job_cancel(job_run_id)
             response.update(
                 job_state="UNKNOWN",
                 job_state_message="Lakeflow Jobの状態を一時的に取得できません。",
@@ -3570,6 +3672,12 @@ class Repository:
             str(job.get("job_state") or ""),
             str(job.get("result_state") or ""),
         )
+        if reconciled is None and "CANCEL_REQUESTED" in statuses:
+            self._request_evaluation_job_cancel(job_run_id)
+            response.update(
+                job_state_message="Lakeflow Jobへ停止を要求しています。",
+                queue_reason="CANCEL_REQUESTED",
+            )
         if reconciled is None or not statuses.intersection(EVALUATION_ACTIVE_STATUSES):
             return response
 
@@ -3593,10 +3701,258 @@ class Repository:
             if row["status"] in EVALUATION_ACTIVE_STATUSES:
                 row["status"] = next_status
                 row["error_message"] = public_error
+        response["phases"] = _collapse_evaluation_phase_rows(rows)
         response["status"] = _overall_evaluation_status(
             {str(row["status"]) for row in rows}
         )
         return response
+
+    def _ensure_evaluation_job(
+        self,
+        project_id: str,
+        run: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Recover an evaluation Job whose run ID was not durably saved.
+
+        ``run_now`` can reach Databricks while the App observes a timeout, and
+        the following Delta UPDATE can fail independently.  The durable
+        ``eval_run_id`` is always reused as the Jobs idempotency token, so a
+        later POST/GET recovers the original run instead of launching a second
+        evaluation.  A cancellation request follows the same recovery path in
+        order to find and stop an ambiguously submitted Job.
+        """
+
+        eval_run_id = require_uuid(str(run["eval_run_id"]), "eval_run_id")
+        job_run_id = _int_or_none(run.get("job_run_id"))
+        phase_statuses = {
+            str(phase.get("status") or "").upper()
+            for phase in run.get("phases", [])
+            if isinstance(phase, dict)
+        }
+        has_active_phase = bool(phase_statuses.intersection(EVALUATION_ACTIVE_STATUSES))
+        cancel_requested = "CANCEL_REQUESTED" in phase_statuses
+        if job_run_id is not None:
+            self._clear_evaluation_submission_state(eval_run_id)
+            return run
+        if not has_active_phase:
+            self._clear_evaluation_submission_state(eval_run_id)
+            return run
+
+        now = self._monotonic()
+        with self._evaluation_submission_lock:
+            if eval_run_id in self._evaluation_submission_inflight:
+                return self._evaluation_submission_wait_response(
+                    run,
+                    queue_reason="JOB_SUBMITTING",
+                    retry_after_ms=EVALUATION_SUBMISSION_INFLIGHT_RETRY_MS,
+                    cancel_requested=cancel_requested,
+                )
+            cached_job_run_id = self._evaluation_submission_claims.get(eval_run_id)
+            retry = self._evaluation_submission_retries.get(eval_run_id)
+            if (
+                cached_job_run_id is None
+                and retry is not None
+                and now < retry[1]
+            ):
+                retry_after_ms = max(1, int((retry[1] - now) * 1000))
+                return self._evaluation_submission_wait_response(
+                    run,
+                    queue_reason="SUBMISSION_RETRY",
+                    retry_after_ms=retry_after_ms,
+                    cancel_requested=cancel_requested,
+                )
+            self._evaluation_submission_inflight.add(eval_run_id)
+
+        table = self.table("toyota_rag_eval_runs")
+        try:
+            job_run_id = cached_job_run_id
+            if job_run_id is None:
+                try:
+                    job_run_id = self.gateway.run_job(
+                        self.settings.eval_job_id,
+                        "eval_run_id",
+                        eval_run_id,
+                    )
+                except JobSubmissionRejectedError:
+                    # A 4xx Jobs response is definitive.  Persist a terminal
+                    # state and return the same safe App error so the progress
+                    # UI stops immediately instead of retrying forever.
+                    self.gateway.execute_sql(f"""
+                        UPDATE {table}
+                        SET status='FAILED',
+                            error_message={sql_string(EVALUATION_SUBMISSION_REJECTED_MESSAGE)},
+                            completed_at=current_timestamp()
+                        WHERE project_id={sql_string(project_id)}
+                          AND eval_run_id={sql_string(eval_run_id)}
+                          AND status IN ({EVALUATION_ACTIVE_STATUS_SQL})
+                    """)
+                    self._clear_evaluation_submission_state(eval_run_id)
+                    raise
+                except Exception:
+                    # Never mark the Delta rows FAILED: an exception cannot
+                    # distinguish rejection from a successful server-side
+                    # submission whose response was lost.
+                    failed_at = self._monotonic()
+                    with self._evaluation_submission_lock:
+                        previous_attempts = self._evaluation_submission_retries.get(
+                            eval_run_id, (0, failed_at)
+                        )[0]
+                        attempts = previous_attempts + 1
+                        delay_seconds = min(
+                            EVALUATION_SUBMISSION_RETRY_BASE_SECONDS
+                            * (2 ** min(attempts - 1, 4)),
+                            EVALUATION_SUBMISSION_RETRY_MAX_SECONDS,
+                        )
+                        self._evaluation_submission_retries[eval_run_id] = (
+                            attempts,
+                            failed_at + delay_seconds,
+                        )
+                    return self._evaluation_submission_wait_response(
+                        run,
+                        queue_reason="SUBMISSION_RETRY",
+                        retry_after_ms=int(delay_seconds * 1000),
+                        cancel_requested=cancel_requested,
+                    )
+
+                normalized_job_run_id = _int_or_none(job_run_id)
+                if normalized_job_run_id is None or normalized_job_run_id <= 0:
+                    raise ResourceNotReadyError(
+                        "精度評価Jobの受付結果が不正です。自動的に再確認します。"
+                    )
+                job_run_id = normalized_job_run_id
+                with self._evaluation_submission_lock:
+                    self._evaluation_submission_claims[eval_run_id] = job_run_id
+                    self._evaluation_submission_retries.pop(eval_run_id, None)
+
+            try:
+                self.gateway.execute_sql(f"""
+                    UPDATE {table} SET job_run_id={job_run_id}
+                    WHERE project_id={sql_string(project_id)}
+                      AND eval_run_id={sql_string(eval_run_id)}
+                      AND job_run_id IS NULL
+                """)
+            except Exception:
+                # The process-local claim makes the next poll retry only this
+                # persistence step.  After an App restart, run_now with the
+                # same idempotency token safely recovers the same Job run.
+                cancel_requested = self._evaluation_cancel_was_requested(
+                    project_id,
+                    eval_run_id,
+                    fallback=cancel_requested,
+                )
+                # Keep observing the known Job even while its ID cannot yet be
+                # saved. Otherwise a completed Job would remain displayed as
+                # QUEUED forever during a persistent Warehouse write issue.
+                observed = self._evaluation_response(
+                    project_id,
+                    eval_run_id,
+                    [
+                        {**phase, "job_run_id": job_run_id}
+                        for phase in run.get("phases", [])
+                        if isinstance(phase, dict)
+                    ],
+                )
+                recovered = {**run, **observed}
+                if not recovered.get("job_state_message"):
+                    recovered["job_state_message"] = (
+                        "停止対象のLakeflow Jobを確認しています。"
+                        if cancel_requested
+                        else "Lakeflow Jobの受付結果を保存しています。"
+                    )
+                if cancel_requested:
+                    self._request_evaluation_job_cancel(job_run_id)
+                return recovered
+
+            with self._evaluation_submission_lock:
+                self._evaluation_submission_claims.pop(eval_run_id, None)
+
+            # Cancellation can win while run_now or the Delta UPDATE is in
+            # progress. Re-read after the Job ID is durable so a successful
+            # cancel response never depends on a later browser poll.
+            cancel_requested = self._evaluation_cancel_was_requested(
+                project_id,
+                eval_run_id,
+                fallback=cancel_requested,
+            )
+            recovered = {
+                **run,
+                "job_run_id": job_run_id,
+                "job_state": "QUEUED",
+                "job_state_message": (
+                    "Lakeflow Jobへ停止を要求しています。"
+                    if cancel_requested
+                    else "Lakeflow Jobの開始を待っています。"
+                ),
+                "queue_reason": (
+                    "CANCEL_REQUESTED" if cancel_requested else run.get("queue_reason")
+                ),
+            }
+            if cancel_requested:
+                self._request_evaluation_job_cancel(job_run_id)
+            return recovered
+        finally:
+            with self._evaluation_submission_lock:
+                self._evaluation_submission_inflight.discard(eval_run_id)
+
+    def _clear_evaluation_submission_state(self, eval_run_id: str) -> None:
+        with self._evaluation_submission_lock:
+            self._evaluation_submission_retries.pop(eval_run_id, None)
+            self._evaluation_submission_claims.pop(eval_run_id, None)
+
+    def _evaluation_cancel_was_requested(
+        self,
+        project_id: str,
+        eval_run_id: str,
+        *,
+        fallback: bool,
+    ) -> bool:
+        try:
+            latest_rows = self.gateway.query(f"""
+                SELECT status
+                FROM {self.table('toyota_rag_eval_runs')}
+                WHERE project_id={sql_string(project_id)}
+                  AND eval_run_id={sql_string(eval_run_id)}
+            """)
+        except ResourceNotReadyError:
+            return fallback
+        return fallback or any(
+            str(row.get("status") or "").upper() == "CANCEL_REQUESTED"
+            for row in latest_rows
+        )
+
+    def _evaluation_submission_wait_response(
+        self,
+        run: dict[str, Any],
+        *,
+        queue_reason: str,
+        retry_after_ms: int,
+        cancel_requested: bool,
+    ) -> dict[str, Any]:
+        response = dict(run)
+        if cancel_requested:
+            message = "停止対象のLakeflow Jobを確認しています。"
+        elif queue_reason == "JOB_SUBMITTING":
+            message = "Lakeflow Jobへの登録処理が進行中です。"
+        else:
+            message = (
+                "Lakeflow Jobの受付結果を確認できなかったため、自動的に再確認します。"
+                "長時間続く場合はJob権限と設定を確認してください。"
+            )
+        response.update(
+            job_state="QUEUED",
+            job_state_message=message,
+            queue_reason=queue_reason,
+            retry_after_ms=max(1, retry_after_ms),
+        )
+        return response
+
+    def _request_evaluation_job_cancel(self, job_run_id: int) -> None:
+        try:
+            self.gateway.cancel_job_run(job_run_id)
+        except (ResourceNotReadyError, AttributeError):
+            # The durable cancel_requested_at flag remains authoritative and
+            # every later status poll retries the Jobs cancellation request.
+            pass
 
     def list_evaluation_runs(self, project_id: str) -> list[dict[str, Any]]:
         """Return recent Project-scoped runs so completed comparisons are reusable."""
@@ -3629,14 +3985,33 @@ class Repository:
                 "completed_at": row.get("completed_at"),
                 "phases": [],
             })
-            run["phases"].append({
-                "phase_id": row.get("phase_id"),
-                "status": str(row.get("status") or "UNKNOWN"),
-            })
+            phase_id = str(row.get("phase_id") or "")
+            phase_status = str(row.get("status") or "UNKNOWN").upper()
+            existing_phase = next(
+                (
+                    phase for phase in run["phases"]
+                    if str(phase.get("phase_id") or "") == phase_id
+                ),
+                None,
+            )
+            if existing_phase is None:
+                run["phases"].append({
+                    "phase_id": phase_id,
+                    "status": phase_status,
+                })
+            else:
+                existing_phase["status"] = _overall_evaluation_status({
+                    str(existing_phase.get("status") or "UNKNOWN"),
+                    phase_status,
+                })
+            candidate_job_run_id = _int_or_none(row.get("job_run_id"))
+            if run.get("job_run_id") is None and candidate_job_run_id is not None:
+                run["job_run_id"] = candidate_job_run_id
             if row.get("completed_at") and not run.get("completed_at"):
                 run["completed_at"] = row.get("completed_at")
 
         for run in grouped.values():
+            run["phases"].sort(key=lambda phase: str(phase.get("phase_id") or ""))
             statuses = {str(item["status"]) for item in run["phases"]}
             run["status"] = _overall_evaluation_status(statuses)
         return list(grouped.values())[:50]
@@ -3689,7 +4064,7 @@ class Repository:
                 })
         return {"eval_run_id": eval_run_id, "metrics": metrics, "suggestions": public_suggestions}
 
-    def request_evaluation_cancel(self, project_id: str, eval_run_id: str) -> None:
+    def request_evaluation_cancel(self, project_id: str, eval_run_id: str) -> str:
         eval_run_id = require_uuid(eval_run_id, "eval_run_id")
         table = self.table("toyota_rag_eval_runs")
         rows = self.gateway.query(f"""
@@ -3713,16 +4088,76 @@ class Repository:
             WHERE project_id={sql_string(project_id)} AND eval_run_id={sql_string(eval_run_id)}
               AND status IN ('QUEUED', 'RUNNING', 'PARTIAL')
         """)
-        # The durable flag is the source of truth and is checked between
-        # trials. Also cancel the Lakeflow run so a blocked FMAPI/search call
-        # does not keep compute alive until the Job timeout. If the Jobs API is
-        # temporarily unavailable, the durable flag still stops at the next
-        # safe checkpoint.
-        if job_run_ids:
-            try:
-                self.gateway.cancel_job_run(next(iter(job_run_ids)))
-            except (ResourceNotReadyError, AttributeError):
-                pass
+        # Re-read after the guarded UPDATE. Completion may have won the race;
+        # in that case the API must not claim that cancellation was accepted.
+        # For an active row, this same read also recovers a missing Job run ID
+        # and issues (or retries) the Jobs cancellation request.
+        response = self.get_evaluation_run(project_id, eval_run_id)
+        final_status = str(response.get("status") or "").upper()
+        if final_status not in {"CANCEL_REQUESTED", "CANCELED"}:
+            raise AppError(
+                "EVALUATION_ALREADY_FINISHED",
+                "精度評価はすでに終了しているため、停止する必要はありません。",
+                status_code=409,
+            )
+        return final_status
+
+
+def _collapse_evaluation_phase_rows(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return one deterministic public row per Phase.
+
+    Delta does not enforce a unique key for control tables, so concurrent
+    insert-only MERGEs may materialize identical rows.  Retrieval and Job
+    execution are idempotent by ``eval_run_id``; this fold prevents duplicate
+    rows from inflating UI progress while retaining the most conservative
+    observable status and the highest completed-trial count.
+    """
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        phase_id = str(row.get("phase_id") or "")
+        grouped.setdefault(phase_id, []).append(row)
+
+    collapsed: list[dict[str, Any]] = []
+    for phase_id in sorted(grouped):
+        duplicates = grouped[phase_id]
+        representative = dict(duplicates[0])
+        representative["phase_id"] = phase_id
+        representative["status"] = _overall_evaluation_status({
+            str(row.get("status") or "UNKNOWN").upper() for row in duplicates
+        })
+        representative["expected_trials"] = max(
+            (_int_or_none(row.get("expected_trials")) or 0 for row in duplicates),
+            default=0,
+        )
+        representative["completed_trials"] = max(
+            (_int_or_none(row.get("completed_trials")) or 0 for row in duplicates),
+            default=0,
+        )
+        representative["error_message"] = next(
+            (
+                str(row["error_message"])
+                for row in duplicates
+                if row.get("error_message")
+            ),
+            None,
+        )
+        created_values = [
+            str(row["created_at"]) for row in duplicates if row.get("created_at")
+        ]
+        completed_values = [
+            str(row["completed_at"])
+            for row in duplicates
+            if row.get("completed_at")
+        ]
+        if created_values:
+            representative["created_at"] = min(created_values)
+        if completed_values:
+            representative["completed_at"] = max(completed_values)
+        collapsed.append(representative)
+    return collapsed
 
 
 def _title_from_filename(filename: str) -> str:
@@ -4210,6 +4645,21 @@ def _chat_request_hash(user_message: str, config: dict[str, Any]) -> str:
         separators=(",", ":"),
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _evaluation_run_id(
+    project_id: str,
+    principal: str,
+    idempotency_key: str,
+) -> str:
+    """Return a non-reversible, scope-bound ID for one evaluation request."""
+
+    canonical_scope = json.dumps(
+        [project_id, principal, idempotency_key],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return str(uuid.uuid5(EVALUATION_RUN_NAMESPACE, canonical_scope))
 
 
 def _prep_status_from_job(

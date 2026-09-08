@@ -170,6 +170,26 @@ The evaluation Job resolves cases from the persisted run's Project,
 trial runs. Re-import all notebook sources and reset the existing Jobs whenever
 the checked-in implementation changes.
 
+The App derives one stable `eval_run_id` from the Project, requesting principal,
+and browser `Idempotency-Key`. The same ID is passed to Lakeflow Jobs as its
+idempotency token. If the `run-now` response or the following `job_run_id` write
+is lost, a later POST or status GET recovers the same Job instead of launching
+another one. Temporary submission failures use a 30-to-300-second backoff and
+return `retry_after_ms`; definitive invalid-ID, bad-request, not-found,
+permission, or authentication failures end the evaluation as `FAILED`.
+
+Delta does not enforce uniqueness for `(eval_run_id, phase_id)`. If concurrent
+insert-only MERGEs produce identical Phase rows, `job_common.py` validates that
+all frozen batch fields match and collapses the duplicates before running any
+trial. A conflicting duplicate still fails closed. Re-import `job_common.py`
+and `evaluation_job.py` together when this contract changes.
+
+AI Search may omit `columns_to_sync` from an Index GET response when all source
+columns are synchronized. `job_common.py` accepts that omitted response shape
+only because the source-schema and search-manifest checks still verify the
+required retrieval columns. If GET returns either `columns_to_sync` or
+`columns_to_index`, the explicit list must exactly match the required columns.
+
 Before importing the updated notebooks, run `sql/01_foundation.sql`,
 `sql/02_seed_core.sql`, `sql/08_seed_starter_evaluation.sql`, and
 `deployment/app_uc_grants.sql` in that order. The first two create and seed the

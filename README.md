@@ -6,7 +6,7 @@ PDF、検索Index、チャット履歴、評価Dataset、評価結果はすべ�
 
 現行UIでは、任意の文書情報を閉じたパネルにまとめ、Qwen3 Embedding 0.6Bを利用可能時の既定値にしています。PDF解析後はFMAPIで20〜30字の概要を作り、回答の根拠はチャンク本文ではなくProject認可済みPDF原文リンクで示します。ログインユーザーのメール、使用中のDatabricks機能、Project／PDF／会話の削除、評価用サンプル質問3件、登録済み質問の個別・一括選択、正解情報、過去の精度評価結果も画面から確認できます。PDF単体の削除では、登録と監査履歴を残したまま検索対象から外し、影響するVariantを残存PDFだけで再構築します。解析に失敗したPDFは、同じファイルを再アップロードせずカタログから再解析できます。
 
-RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索データ、回答LLM、採点LLMがそろった場合だけ開始できます。繰り返し回数の既定値は1です。1問と全5 Phaseを選んだ最小確認は最大5試行になります。開始要求中から回転表示、工程、完了試行数、割合、経過時間を表示し、再読込や画面移動の後もProject内の実行中評価を復元します。停止時は評価Tableへ要求を保存すると同時にLakeflow Jobへ取消を依頼し、完了・失敗・停止のいずれかへ確定するまで監視します。
+RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索データ、回答LLM、採点LLMがそろった場合だけ開始できます。繰り返し回数の既定値は1です。1問と全5 Phaseを選んだ最小確認は最大5試行になります。開始要求中から回転表示、工程、完了試行数、割合、経過時間を表示し、再読込や画面移動の後もProject内の実行中評価を復元します。通信が途切れた場合も同じ受付番号で安全に再確認し、評価runやLakeflow Jobを二重に作りません。Job状態を一時的に取得できない場合は回転表示を続け、確定した設定・権限エラーだけを失敗として終了します。停止時は評価Tableへ要求を保存すると同時にLakeflow Jobへ取消を依頼し、停止APIの応答が一時的に失われても再確認しながら、完了・失敗・停止のいずれかへ確定するまで監視します。
 
 > [!CAUTION]
 > `output/pdf`のトヨタ車種関連PDFは、汎用RAGを比較するために同梱した評価シナリオです。すべて非公式・架空であり、実車の操作、整備、救助、購入判断には使用できません。トヨタ自動車株式会社とは関係ありません。
@@ -47,7 +47,7 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 
 ## 現在の構築状態
 
-2026-09-08にasset `1.4.5`を新規Databricks AppへGitHubの`main/app`からデプロイし、Deployment、health、既存Index Variant一覧、実RAGチャット、MLflow Trace、PDFリンク引用を確認しました。現行sourceは評価UIを改善したasset `1.4.6`で、remote実測前は`PENDING`として扱います。既存Index専用モードでは、管理者の許可リストに一致するVariantだけを画面へ表示し、過去に作成された許可外Variantは一覧から除外します。実検索時の許可リスト検証はfail-closedのままです。公開用Markdownには実測IDを含めません。
+2026-09-08にasset `1.4.5`を新規Databricks AppへGitHubの`main/app`からデプロイし、Deployment、health、既存Index Variant一覧、実RAGチャット、MLflow Trace、PDFリンク引用を確認しました。現行sourceは評価UIと評価開始・停止・結果取得の回復処理を改善したasset `1.4.7`です。Python 334件とUI 37件、合計371件の自動テストに合格していますが、asset `1.4.7`のremote実測前は`PENDING`として扱います。既存Index専用モードでは、管理者の許可リストに一致するVariantだけを画面へ表示し、過去に作成された許可外Variantは一覧から除外します。実検索時の許可リスト検証はfail-closedのままです。公開用Markdownには実測IDを含めません。
 
 | 項目 | 状態 | 実測 |
 |---|---|---|
@@ -73,7 +73,7 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 | RAG検索データ作成E2E | `SUCCESS` | Semantic／512のsource 6行、Index 6行、別Project行0、Index READY |
 | 汎用RAG migration／再デプロイ／非車両PDF E2E | `SUCCESS` | migration、汎用化source、登録・解析・Variant・チャット・引用・評価を実環境で確認 |
 | Chat多重送信・停止 | `SUCCESS` | 旧asset `1.4.1`のremote履歴。同一request再送後も保存message 2件、停止API `CANCEL_REQUESTED`、terminal `run.cancelled`、履歴 `CANCELLED` |
-| 現行sourceの回帰テスト | `SUCCESS` | asset `1.4.6`、Python 311件、Chat UI 32件、差分check成功 |
+| 現行sourceの回帰テスト | `SUCCESS` | asset `1.4.7`、Python 334件、UI 37件、合計371件、差分check成功 |
 | 評価質問の選択 | `SUCCESS` | Project／評価データ版／用途内の登録済み質問を初期全選択。個別選択、すべて選択、選択解除、正解状態・期待回答・正解PDF／ページ、選択件数・最大試行数を表示し、0件では開始不可。API／Jobは選択IDだけを凍結・評価 |
 | PDF viewer | `SUCCESS` | 旧assetのremote content APIでPDF 200、Range 206、ETag 304、private cacheを確認。現行assetは削除前後のPDF 200を確認。ローカル再表示296 ms、Project切替時は保持iframeを破棄 |
 | PDF単体の論理削除 | `SUCCESS` | asset `1.4.4`でProject `<RESOURCE_ID>`のPDF `<RESOURCE_ID>`をDELETE 202。孤児Chat run 2件とassistant messageを`ERROR`へ整合後、影響旧Variant 4件から後継Variant 2件をREADY化。両Indexで削除PDF hit 0、保持PDFだけを検索 |
@@ -95,6 +95,16 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 - Classic増強構成は障害時に同じJob IDへ戻せるよう、[`deployment/jobs/data_preparation_job_classic_fallback.json`](deployment/jobs/data_preparation_job_classic_fallback.json)へ保持しています。Instance Poolはidle instanceを常時warmにするAzure VM費用が発生するため採用していません。
 - Serverless JobsはUnity CatalogとStandard access modeを前提とし、Instance Pool、init script、compute-scoped library、Spark UI、compute event logを使いません。Standard memoryは16 GB、High memory 32 GBはPreviewのため、想定最大PDF数でもメモリを確認します。
 - Serverlessの実行要件と制約は、Azure Databricks公式の[Serverless Jobs](https://learn.microsoft.com/azure/databricks/jobs/run-serverless-jobs)、[Environment](https://learn.microsoft.com/azure/databricks/compute/serverless/dependencies)、[制約](https://learn.microsoft.com/azure/databricks/compute/serverless/limitations)に合わせています。
+
+### RAG精度評価の監視と自己回復
+
+- 評価開始の応答が失われても、ブラウザは同じ`Idempotency-Key`を最大3回再利用します。サーバーはProject、利用者、keyから同じ`eval_run_id`を決定し、Lakeflow Jobにも同じidempotency tokenを渡すため、評価runとJobを二重に作りません。
+- 評価履歴から実行中runへ戻るときの最初のstatus GETも、1回25秒でtimeoutし、一時的な通信失敗ではspinnerを保ったまま最大3回再接続します。評価を新しく作り直しません。
+- Job受付が一時的に不明な場合は30〜300秒のbackoffと`retry_after_ms`で再確認します。Jobs APIの状態を取得できない`UNKNOWN`ではspinnerを続け、Job ID、設定、権限の確定的な拒否だけを`FAILED`へ収束します。
+- Deltaに同一設定のPhase行が重複しても、API、履歴、Evaluation JobはPhaseごとに1件へ集約します。設定が違う重複行は拒否します。
+- 「評価を停止」は専用の通信経路で最大3回再確認し、Job登録中でも同じ`eval_run_id`から対象Jobを回復して取消します。status監視が先に完了・失敗・停止を確認した場合は、待機中の遅い停止POSTを中止し、取得済みの終端状態と結果表示を維持します。完了が先なら完了状態を上書きしません。
+- Evaluation Jobが終端になった後も、結果取得中はspinnerと「結果取得中」を表示します。結果APIは1回45秒、最大3回まで再試行し、それでも取得できない場合は「評価履歴」を更新して同じrunを選び直すと再取得できます。
+- `PREP_JOB_ID`と`EVAL_JOB_ID`は、先頭ゼロや空白を含まない正の整数としてApp起動時に検証します。
 
 ### Phase 1〜5の実測比較
 
@@ -416,12 +426,13 @@ Appの説明やuser scopeを更新するときも、7件のresourceを含むfull
 
 2026-09-08にローカルで次を確認しました。
 
-- `app/.venv/bin/python -m pytest app/tests jobs/tests -q`: Python 264 tests pass
-- `cd app && npm run test:chat-ui`: Chat UI 21 tests pass
+- `app/.venv/bin/python -m pytest app/tests jobs/tests -q`: Python 334 tests pass
+- `cd app && npm run test:chat-ui`: UI 37 tests pass
+- 自動テスト合計: 371 tests pass
 - JavaScript構文2ファイル、Python compile 51ファイル、JSON 19ファイル: pass
 - 4画面とPhase 1〜5のUI確認: browser console error 0
 
-直前のremote実測asset `1.4.5`はGitHubの`main/app`から新規Appへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health HTTP 200、binding 7件を確認しました。許可済み既存Index Variant 1件だけが一覧に表示され、AI Search 10件取得、回答、Trace、PDFリンク引用、`run.completed`まで成功しています。現行source asset `1.4.6`はローカル検証済みで、remote実測はデプロイ後に追記します。評価質問選択とPDF削除の詳細はasset `1.4.4`の検証履歴として保持します。
+直前のremote実測asset `1.4.5`はGitHubの`main/app`から新規Appへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health HTTP 200、binding 7件を確認しました。許可済み既存Index Variant 1件だけが一覧に表示され、AI Search 10件取得、回答、Trace、PDFリンク引用、`run.completed`まで成功しています。現行source asset `1.4.7`はローカル検証済みで、remote実測は`PENDING`です。評価質問選択とPDF削除の詳細はasset `1.4.4`の検証履歴として保持します。
 
 ## デプロイ記録
 

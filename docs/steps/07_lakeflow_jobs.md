@@ -92,6 +92,10 @@ Performance optimizedは起動時間を優先し、Standard performance modeは�
 
 Evaluation作成APIから質問IDが指定された場合は、1〜1000件、空・重複なし、同じProject・評価データ版・用途への所属を検証し、`evaluation_case_ids`を`config_json`と`config_hash`へ固定します。Evaluation Jobはその固定済みIDだけを再取得し、全IDが一致することを確認してからPhase比較を実行します。`evaluation_case_ids`を持たない既存runは、後方互換のため同じProject・版・用途の全質問を処理します。
 
+Evaluationの受付では、Project、利用者、`Idempotency-Key`から同じ`eval_run_id`を決定し、そのIDをLakeflow Jobsのidempotency tokenにも使います。Job受付応答または`job_run_id`の保存だけが失われても、同じIDで元のJobを回復し、別Jobを増やしません。一時的な受付失敗は30〜300秒のbackoffと`retry_after_ms`で再確認します。Job ID不正、Bad Request、Not Found、Permission Denied、Unauthenticatedなど確定的な拒否は評価行を`FAILED`へ更新して終了します。
+
+Delta Tableは一意制約を強制しないため、同時MERGEで同一Phaseの同じ制御行が複数見える可能性があります。すべての固定設定が一致する重複行だけをJob側でPhase 1件へ集約し、試行を重複実行しません。固定設定が異なる重複行は評価batchの契約違反として拒否します。
+
 Data PreparationがVariantとIndexを正常に作成した後、そのProjectに`starter-v1`のサンプル質問3件を冪等に登録します。これらは期待回答と正解ページを空にした試用データで、正解ラベルを捏造しません。
 
 PDF単体の論理削除も、同じData Preparation Jobで後継Variantを作ります。Appは、削除PDFを含む既存Variantの保存済み設定と`source_document_ids`をサーバー側で検証し、削除PDFを除いた文書IDだけの`BUILD_VARIANT` runを作ります。旧Variantは上書きせず`SUPERSEDED`とします。元のactive Variantの後継だけが`activate_on_success=true`、その他の後継は`false`となり、複数Jobの完了順でactive pointerが変わらないようにします。残るPDFがないVariantに空の後継Indexは作りません。
@@ -112,6 +116,8 @@ Data Preparationの重複防止と回復契約:
 - 同じ`prep_run_id`を再確認してもJob runが重複せず、NULLの`job_run_id`を自己回復できる。
 - Evaluationは同じProject、Dataset、Variant、モデル、設定hashだけを処理する。
 - `evaluation_case_ids`があるEvaluation runは指定IDだけを処理し、別Project・別version・別splitへの逸脱を拒否する。fieldのない旧runは全件評価を維持する。
+- 同じ`Idempotency-Key`とpayloadを再送しても、同じ`eval_run_id`、同じLakeflow Job、Phaseごとに1つの論理結果へ収束する。
+- Job受付応答や`job_run_id`保存が一時失敗しても同じJobを回復し、確定的なJob拒否だけを`FAILED`へ収束する。
 - Data Preparation成功後にProject内だけへスターター質問3件があり、別ProjectのPDF URIが混入しない。
 - PDF削除で作られた後継runは、元Variantの設定を保持し、削除PDFの`document_id`を含まない。非active Variantの後継が先に完了してもProjectのactive pointerを上書きしない。
 - 後継IndexがREADYとなり、sourceとIndexのどちらにも削除PDFのchunkが0件である。
@@ -128,6 +134,8 @@ Data Preparationの重複防止と回復契約:
 - 正常な`BUILD_VARIANT`行で`job_run_id`だけがNULLなら、新しいrunを手作業で増やさず、Appの個別run GET／active-run GETによる自己回復を待ちます。
 - server-side run rowが改変されている、Project／run type／設定hashが不一致、または終端済みなら同じIDを再利用しません。原因を直してAppから新しいrunを作ります。
 - 選択評価で件数が合わない場合は、Eval runの`config_json`／`config_hash`、`evaluation_case_ids`、case TableのProject・version・splitを確認します。Job parameterへcase IDや物理Table名を追加して回避しません。
+- 評価が`JOB_SUBMITTING`／`SUBMISSION_RETRY`のままなら、新しいrunを手作業で増やさず、同じ`eval_run_id`の`job_run_id`、App log、Job設定、App SPの`CAN MANAGE RUN`を確認します。一時エラーは`retry_after_ms`後に自動再確認されます。
+- 同じPhase行が複数ある場合は、固定設定と`config_hash`が完全一致するか確認します。一致する行はJobが1 Phaseへ集約しますが、不一致行を手動で選んで実行しません。
 - PDF削除の後継runが失敗した場合は、旧`SUPERSEDED` Variantを手動で検索可能に戻しません。対象`prep_run_id`とJob logで原因を修正し、削除PDFを含まない同じ構成の新しいVariantを作成します。
 
 ## この環境の実測結果
@@ -155,7 +163,7 @@ PDF削除専用の後継Build／Syncは`SUCCESS`です。最新の`job_common.py
 
 過去のscan ProjectではStandard／256のVariant `<RESOURCE_ID>`も作成し、source 8行、Index 8行、`ready=true`、別Project行0、App SPへの個別`SELECT`を確認済みです。実Workspaceで確認済みのprofileはStandard／256とSemantic／512の2組で、残り7組は`PENDING`です。
 
-重複防止、冪等再試行、単一poller、queue表示、Project再表示後の評価run復元、poll再接続、`job_run_id`自己回復、trial単位の進捗、Lakeflow Job取消、terminal収束、選択した評価caseだけの実行、PDF削除後の後継Build、既存Index許可外Variantの一覧除外を含む現行App／Job sourceは、Python 311件とChat UI 32件の自動テストですべて成功しています。評価中runが0件であることを確認し、asset `1.4.6`の4 Notebookを同じWorkspaceディレクトリへ再importし、既存Evaluation Jobを同じID・既存設定のままresetしました。task timeout 14,400秒、同時実行数1も維持しています。直前のremote Appはasset `1.4.5`で、asset `1.4.6`のremote評価結果はStep 8〜9へ追記します。選択評価run `<RESOURCE_ID>`はasset `1.4.4`でcase `figure-001`だけを処理し、Job `<DATABRICKS_RESOURCE_ID>`／task `<DATABRICKS_RESOURCE_ID>`が`TERMINATED`／`SUCCESS`、結果1行、選択外0行、error 0、MLflow run `<RESOURCE_ID>`でした。
+重複防止、冪等再試行、単一poller、queue表示、Project再表示後の評価run復元、poll再接続、`job_run_id`自己回復、trial単位の進捗、Lakeflow Job取消、terminal収束、選択した評価caseだけの実行、Evaluationの同一key再送／Job冪等化／重複Phase集約、評価結果取得のtimeout／再試行、PDF削除後の後継Build、既存Index許可外Variantの一覧除外を含む現行App／Job source asset `1.4.7`は、Python 334件とUI 37件、合計371件の自動テストですべて成功しています。asset `1.4.6`の4 Notebookを同じWorkspaceディレクトリへ再importし、既存Evaluation Jobを同じID・既存設定のままresetした履歴は保持します。task timeout 14,400秒、同時実行数1も維持しています。asset `1.4.7`のNotebook再importとremote評価は`PENDING`です。直前のremote Appはasset `1.4.5`です。選択評価run `<RESOURCE_ID>`はasset `1.4.4`でcase `figure-001`だけを処理し、Job `<DATABRICKS_RESOURCE_ID>`／task `<DATABRICKS_RESOURCE_ID>`が`TERMINATED`／`SUCCESS`、結果1行、選択外0行、error 0、MLflow run `<RESOURCE_ID>`でした。
 
 同じassetのPDF削除では、後継prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`がREADYとなりsource 8行、削除PDF 0行、保持PDF 8行でした。もう一つの後継prep `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`／Variant `<RESOURCE_ID>`もREADYとなりsource 4行、削除PDF 0行、保持PDF 4行でした。両AI Search実検索は保持document `<RESOURCE_ID>`だけを返し、削除documentを返しませんでした。
 

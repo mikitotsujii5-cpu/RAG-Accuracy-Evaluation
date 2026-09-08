@@ -53,8 +53,14 @@ const state = {
   evaluationRunId: null,
   evaluationPoll: null,
   evaluationController: null,
+  evaluationCancelController: null,
+  evaluationCancelPending: false,
+  evaluationTerminalStatus: null,
   evaluationOperation: 0,
   evaluationSubmitting: false,
+  evaluationSubmissionProjectId: null,
+  evaluationSubmissionKey: null,
+  evaluationSubmissionFingerprint: null,
   evaluationRunStartedAt: null,
   evaluationElapsedTimer: null,
   evaluationPollFailures: 0,
@@ -79,6 +85,17 @@ const EVALUATION_TERMINAL_STATUSES = new Set(["SUCCEEDED", "PARTIAL", "FAILED", 
 const EVALUATION_POLL_INTERVAL_MS = 4000;
 const EVALUATION_RETRY_INTERVAL_MS = 8000;
 const EVALUATION_REQUEST_TIMEOUT_MS = 25000;
+const EVALUATION_STATUS_MAX_ATTEMPTS = 3;
+const EVALUATION_STATUS_RETRY_DELAY_MS = 1500;
+const EVALUATION_SUBMISSION_TIMEOUT_MS = 30000;
+const EVALUATION_SUBMISSION_MAX_ATTEMPTS = 3;
+const EVALUATION_SUBMISSION_RETRY_DELAY_MS = 1500;
+const EVALUATION_CANCEL_TIMEOUT_MS = 20000;
+const EVALUATION_CANCEL_MAX_ATTEMPTS = 3;
+const EVALUATION_RESULTS_TIMEOUT_MS = 45000;
+const EVALUATION_RESULTS_MAX_ATTEMPTS = 3;
+const EVALUATION_RESULTS_RETRY_DELAY_MS = 2000;
+const EVALUATION_SUBMISSION_STORAGE_PREFIX = "rag-eval-pending-evaluation:";
 const BUILD_BUTTON_LABEL = "RAG検索データを作成・同期";
 const MAX_CUSTOM_METADATA_FIELDS = 20;
 const MAX_BUILD_DOCUMENTS = 100;
@@ -945,6 +962,10 @@ function resetEvaluationUi() {
   state.evaluationPoll = null;
   state.evaluationController?.abort();
   state.evaluationController = null;
+  state.evaluationCancelController?.abort();
+  state.evaluationCancelController = null;
+  state.evaluationCancelPending = false;
+  state.evaluationTerminalStatus = null;
   stopEvaluationElapsedTimer();
   state.evaluationOperation += 1;
   state.evaluationRunId = null;
@@ -1776,35 +1797,47 @@ async function openEvaluationRun(runId, { restored = false } = {}) {
   const operation = ++state.evaluationOperation;
   state.evaluationRunId = runId;
   state.evaluationSubmitting = true;
+  state.evaluationCancelPending = false;
+  state.evaluationTerminalStatus = null;
   state.evaluationPollFailures = 0;
   const context = { ...scope, runId, operation };
   setEvaluationRunningUi(true, "状態を確認中…");
   $("#evaluation-progress-card").classList.remove("hidden");
   setEvaluationProgressPending(restored ? "実行中の評価を再接続中" : "評価結果を読み込み中", "保存された実行状態を確認しています。");
   try {
-    const run = await api(`/api/projects/${scope.projectId}/evaluation-runs/${runId}`);
+    const run = await fetchEvaluationStatusWithRecovery(context, { restored });
     if (!isCurrentEvaluationContext(context)) return;
     state.evaluationSubmitting = false;
     setEvaluationRunStartTime(run.created_at);
     renderEvaluationProgress(run);
-    const active = EVALUATION_ACTIVE_STATUSES.has(String(run.status || "").toUpperCase());
-    setEvaluationRunningUi(active, active ? "評価を実行中…" : "RAG精度を比較");
-    $("#cancel-evaluation").classList.toggle("hidden", !active);
+    const runStatus = String(run.status || "").toUpperCase();
+    const active = EVALUATION_ACTIVE_STATUSES.has(runStatus);
     if (active) {
+      state.evaluationCancelPending = runStatus === "CANCEL_REQUESTED";
+      setEvaluationRunningUi(true, "評価を実行中…");
+      const cancelButton = $("#cancel-evaluation");
+      cancelButton.classList.remove("hidden");
+      if (state.evaluationCancelPending) {
+        cancelButton.disabled = true;
+        cancelButton.textContent = "停止要求済み";
+      }
       startEvaluationElapsedTimer();
       if (restored) toast("実行中の評価へ再接続しました。");
       pollEvaluation(context);
     }
     else {
-      if (!restored && String(run.status || "").toUpperCase() === "SUCCEEDED") {
-        $("#evaluation-progress-title").textContent = "保存済みの評価結果";
-        $("#evaluation-progress-description").textContent = "この実行の指標とAI改善提案を読み込みました。";
-      }
-      await loadEvaluationResults(context);
+      state.evaluationCancelPending = false;
+      state.evaluationTerminalStatus = runStatus;
+      $("#cancel-evaluation").classList.add("hidden");
+      await loadEvaluationResults(context, {
+        terminalStatus: runStatus,
+        saved: !restored,
+      });
     }
   } catch (error) {
     if (!isCurrentEvaluationContext(context)) return;
     state.evaluationSubmitting = false;
+    state.evaluationCancelPending = false;
     setEvaluationRunningUi(false);
     setEvaluationProgressFailure("評価状態を読み込めませんでした。", error?.message);
     showError(error);
@@ -3590,6 +3623,8 @@ async function startEvaluation() {
   const operation = ++state.evaluationOperation;
   state.evaluationRunId = null;
   state.evaluationSubmitting = true;
+  state.evaluationCancelPending = false;
+  state.evaluationTerminalStatus = null;
   state.evaluationPollFailures = 0;
   state.evaluationRunStartedAt = Date.now();
   renderMetrics([]);
@@ -3609,12 +3644,11 @@ async function startEvaluation() {
     })),
   });
   try {
-    const run = await api(`/api/projects/${scope.projectId}/evaluation-runs`, {
-      method: "POST", headers: { "Idempotency-Key": crypto.randomUUID().replaceAll("-", "") }, body: JSON.stringify(payload),
-    });
+    const run = await submitEvaluationWithRecovery(scope, payload, operation);
     if (!isCurrentProjectScope(scope) || operation !== state.evaluationOperation) return;
     state.evaluationSubmitting = false;
     state.evaluationRunId = run.eval_run_id;
+    clearEvaluationSubmission(scope.projectId);
     void loadEvaluationRuns(scope);
     setEvaluationRunningUi(true, "評価を実行中…");
     $("#cancel-evaluation").classList.remove("hidden");
@@ -3631,6 +3665,10 @@ async function startEvaluation() {
   } catch (error) {
     if (!isCurrentProjectScope(scope) || operation !== state.evaluationOperation) return;
     state.evaluationSubmitting = false;
+    state.evaluationController = null;
+    if (isDefinitiveEvaluationSubmissionError(error)) {
+      clearEvaluationSubmission(scope.projectId);
+    }
     stopEvaluationElapsedTimer();
     setEvaluationProgressFailure("評価を開始できませんでした", error?.message);
     showError(error);
@@ -3638,10 +3676,133 @@ async function startEvaluation() {
   }
 }
 
+function evaluationSubmissionStorageKey(projectId) {
+  return `${EVALUATION_SUBMISSION_STORAGE_PREFIX}${projectId}`;
+}
+
+function evaluationPayloadFingerprint(payload) {
+  return JSON.stringify(payload);
+}
+
+function evaluationSubmission(projectId, payload) {
+  const fingerprint = evaluationPayloadFingerprint(payload);
+  if (
+    state.evaluationSubmissionKey
+    && state.evaluationSubmissionProjectId === projectId
+    && state.evaluationSubmissionFingerprint === fingerprint
+  ) {
+    return { key: state.evaluationSubmissionKey, fingerprint };
+  }
+  let stored = null;
+  try {
+    stored = JSON.parse(
+      sessionStorage.getItem(evaluationSubmissionStorageKey(projectId)) || "null",
+    );
+  } catch (_) {
+    stored = null;
+  }
+  const stillRecent = Number.isFinite(Number(stored?.saved_at))
+    && Date.now() - Number(stored.saved_at) < 24 * 60 * 60 * 1000;
+  const key = stillRecent && stored?.fingerprint === fingerprint
+    && typeof stored?.key === "string" && stored.key
+    ? stored.key
+    : crypto.randomUUID().replaceAll("-", "");
+  state.evaluationSubmissionProjectId = projectId;
+  state.evaluationSubmissionKey = key;
+  state.evaluationSubmissionFingerprint = fingerprint;
+  try {
+    sessionStorage.setItem(
+      evaluationSubmissionStorageKey(projectId),
+      JSON.stringify({ key, fingerprint, saved_at: Date.now() }),
+    );
+  } catch (_) {
+    // Process-local reuse still prevents duplicate requests in this page.
+  }
+  return { key, fingerprint };
+}
+
+function clearEvaluationSubmission(projectId) {
+  if (
+    state.evaluationSubmissionProjectId
+    && state.evaluationSubmissionProjectId !== projectId
+  ) return;
+  state.evaluationSubmissionProjectId = null;
+  state.evaluationSubmissionKey = null;
+  state.evaluationSubmissionFingerprint = null;
+  try {
+    sessionStorage.removeItem(evaluationSubmissionStorageKey(projectId));
+  } catch (_) {
+    // The server-side idempotency contract remains authoritative.
+  }
+}
+
+function isDefinitiveEvaluationSubmissionError(error) {
+  if (error?.details?.retryable === false) return true;
+  if (error?.details?.retryable === true) return false;
+  const status = Number(error?.status || 0);
+  return status >= 400 && status < 500 && ![408, 425, 429].includes(status);
+}
+
+function evaluationRequestCanRetry(error, timedOut) {
+  if (timedOut) return true;
+  if (error?.name === "AbortError") return false;
+  if (isDefinitiveEvaluationSubmissionError(error)) return false;
+  const status = Number(error?.status || 0);
+  return !status || status >= 500 || [408, 425, 429].includes(status);
+}
+
+async function submitEvaluationWithRecovery(scope, payload, operation) {
+  const submission = evaluationSubmission(scope.projectId, payload);
+  let lastError = null;
+  for (let attempt = 1; attempt <= EVALUATION_SUBMISSION_MAX_ATTEMPTS; attempt += 1) {
+    if (!isCurrentProjectScope(scope) || operation !== state.evaluationOperation) {
+      throw new DOMException("Evaluation submission was superseded", "AbortError");
+    }
+    const controller = new AbortController();
+    state.evaluationController?.abort();
+    state.evaluationController = controller;
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, EVALUATION_SUBMISSION_TIMEOUT_MS);
+    try {
+      const run = await api(`/api/projects/${scope.projectId}/evaluation-runs`, {
+        method: "POST",
+        headers: { "Idempotency-Key": submission.key },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (state.evaluationController === controller) state.evaluationController = null;
+      return run;
+    } catch (error) {
+      clearTimeout(timeout);
+      if (state.evaluationController === controller) state.evaluationController = null;
+      lastError = error;
+      const canRetry = evaluationRequestCanRetry(error, timedOut);
+      if (!canRetry || attempt === EVALUATION_SUBMISSION_MAX_ATTEMPTS) break;
+      setEvaluationProgressPending(
+        "評価の受付結果を確認しています",
+        `通信が途切れたため、同じ受付番号で安全に再確認しています（${attempt + 1}/${EVALUATION_SUBMISSION_MAX_ATTEMPTS}）。`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, EVALUATION_SUBMISSION_RETRY_DELAY_MS));
+    }
+  }
+  throw lastError || new Error("精度評価を開始できませんでした。");
+}
+
 function isCurrentEvaluationContext(context) {
   return Boolean(isCurrentProjectScope(context)
     && state.evaluationOperation === context.operation
     && state.evaluationRunId === context.runId);
+}
+
+function isEvaluationCancellationActive(context) {
+  return isCurrentEvaluationContext(context)
+    && !EVALUATION_TERMINAL_STATUSES.has(
+      String(state.evaluationTerminalStatus || "").toUpperCase(),
+    );
 }
 
 function isEvaluationRunning() {
@@ -3679,6 +3840,52 @@ function setEvaluationStartButtonBusy(active, label) {
   button.replaceChildren(content);
 }
 
+async function fetchEvaluationStatusWithRecovery(context, { restored = false } = {}) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= EVALUATION_STATUS_MAX_ATTEMPTS; attempt += 1) {
+    if (!isCurrentEvaluationContext(context)) {
+      throw new DOMException("Evaluation status request was superseded", "AbortError");
+    }
+    const controller = new AbortController();
+    state.evaluationController?.abort();
+    state.evaluationController = controller;
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, EVALUATION_REQUEST_TIMEOUT_MS);
+    try {
+      const run = await api(
+        `/api/projects/${context.projectId}/evaluation-runs/${context.runId}`,
+        { signal: controller.signal },
+      );
+      clearTimeout(timeout);
+      if (!isCurrentEvaluationContext(context) || state.evaluationController !== controller) {
+        throw new DOMException("Evaluation status request was superseded", "AbortError");
+      }
+      state.evaluationController = null;
+      return run;
+    } catch (error) {
+      clearTimeout(timeout);
+      if (state.evaluationController === controller) state.evaluationController = null;
+      if (!isCurrentEvaluationContext(context)) throw error;
+      lastError = timedOut
+        ? new Error("評価状態の確認に時間がかかっています。通信状態を確認して、もう一度お試しください。")
+        : error;
+      if (
+        !evaluationRequestCanRetry(error, timedOut)
+        || attempt === EVALUATION_STATUS_MAX_ATTEMPTS
+      ) break;
+      setEvaluationProgressPending(
+        restored ? "実行中の評価へ再接続しています" : "評価状態を再確認しています",
+        `通信が途切れたため自動で再確認しています（${attempt + 1}/${EVALUATION_STATUS_MAX_ATTEMPTS}）。`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, EVALUATION_STATUS_RETRY_DELAY_MS));
+    }
+  }
+  throw lastError || new Error("評価状態を取得できませんでした。");
+}
+
 function pollEvaluation(context) {
   if (!isCurrentEvaluationContext(context)) return;
   clearTimeout(state.evaluationPoll);
@@ -3701,15 +3908,22 @@ function pollEvaluation(context) {
       state.evaluationPollFailures = 0;
       renderEvaluationProgress(run);
       const status = String(run.status || "").toUpperCase();
+      if (status === "CANCEL_REQUESTED") state.evaluationCancelPending = true;
       if (EVALUATION_TERMINAL_STATUSES.has(status)) {
         state.evaluationSubmitting = false;
-        stopEvaluationElapsedTimer();
-        setEvaluationRunningUi(false);
+        state.evaluationCancelPending = false;
+        state.evaluationTerminalStatus = status;
+        state.evaluationCancelController?.abort();
+        state.evaluationCancelController = null;
         $("#cancel-evaluation").classList.add("hidden");
-        await loadEvaluationResults(context);
+        await loadEvaluationResults(context, { terminalStatus: status });
         return;
       }
-      state.evaluationPoll = setTimeout(poll, EVALUATION_POLL_INTERVAL_MS);
+      const requestedDelay = Number(run?.retry_after_ms);
+      const pollDelay = Number.isFinite(requestedDelay) && requestedDelay > 0
+        ? Math.min(300000, Math.max(EVALUATION_POLL_INTERVAL_MS, Math.ceil(requestedDelay)))
+        : EVALUATION_POLL_INTERVAL_MS;
+      state.evaluationPoll = setTimeout(poll, pollDelay);
     } catch (error) {
       clearTimeout(timeout);
       if (!isCurrentEvaluationContext(context)) return;
@@ -3728,14 +3942,19 @@ function pollEvaluation(context) {
 
 function renderEvaluationProgress(run) {
   $("#evaluation-progress-card").classList.remove("hidden");
-  const status = String(run.status || "RUNNING").toUpperCase();
+  const rawStatus = String(run.status || "RUNNING").toUpperCase();
+  const terminal = EVALUATION_TERMINAL_STATUSES.has(rawStatus);
+  const cancellationPending = !terminal
+    && (rawStatus === "CANCEL_REQUESTED" || state.evaluationCancelPending);
+  const status = cancellationPending ? "CANCEL_REQUESTED" : rawStatus;
   const phases = run.phases || [];
   const expected = phases.reduce((sum, item) => sum + Number(item.expected_trials || 0), 0);
   const completed = phases.reduce((sum, item) => sum + Number(item.completed_trials || 0), 0);
   const ratio = expected ? Math.min(1, completed / expected) : 0;
-  const terminal = EVALUATION_TERMINAL_STATUSES.has(status);
-  const jobWaiting = ["PENDING", "QUEUED", "BLOCKED", "WAITING_FOR_RETRY"].includes(String(run.job_state || "").toUpperCase());
-  let visualPercent = terminal ? 100 : status === "SUBMITTING" ? 3 : jobWaiting || !expected ? 8 : Math.min(94, Math.round(12 + ratio * 82));
+  const jobState = String(run.job_state || "").toUpperCase();
+  const jobWaiting = ["PENDING", "QUEUED", "BLOCKED", "WAITING_FOR_RETRY"].includes(jobState);
+  const jobUnavailable = jobState === "UNKNOWN";
+  let visualPercent = terminal ? 100 : status === "SUBMITTING" ? 3 : jobWaiting || jobUnavailable || !expected ? 8 : Math.min(94, Math.round(12 + ratio * 82));
   if (status === "CANCEL_REQUESTED") visualPercent = Math.max(visualPercent, 8);
   $("#evaluation-progress-label").textContent = expected ? `${completed} / ${expected} 試行` : "Jobの開始待ち";
   $("#evaluation-progress-percent").textContent = terminal
@@ -3754,7 +3973,7 @@ function renderEvaluationProgress(run) {
 
   let activeStage = "trials";
   if (status === "SUBMITTING") activeStage = "accepted";
-  else if (jobWaiting || !expected) activeStage = "job";
+  else if (jobWaiting || jobUnavailable || !expected) activeStage = "job";
   else if (ratio >= 1 && !terminal) activeStage = "advice";
   if (terminal && ["SUCCEEDED", "PARTIAL"].includes(status)) activeStage = "complete";
   updateEvaluationStages(activeStage, status);
@@ -3769,13 +3988,16 @@ function renderEvaluationProgress(run) {
     $("#evaluation-progress-description").textContent = "現在の処理を安全に終了しています。完了状態まで自動で確認します。";
   } else if (terminal) {
     const terminalCopy = {
-      SUCCEEDED: ["評価が完了しました", "指標とAI改善提案を表示しました。"],
-      PARTIAL: ["一部のPhaseが完了しました", "取得できた結果を表示しています。失敗したPhaseはJobログを確認してください。"],
+      SUCCEEDED: ["評価処理が完了しました", "指標とAI改善提案を取得しています。"],
+      PARTIAL: ["一部のPhaseが完了しました", "取得できた指標とAI改善提案を確認しています。"],
       FAILED: ["評価を完了できませんでした", phases.find((phase) => phase.error_message)?.error_message || "Lakeflow Jobログで失敗した工程を確認してください。"],
       CANCELED: ["評価を停止しました", "停止前に完了した結果がある場合は、下に表示します。"],
     }[status] || ["評価を終了しました", "結果を確認してください。"];
     $("#evaluation-progress-title").textContent = terminalCopy[0];
     $("#evaluation-progress-description").textContent = terminalCopy[1];
+  } else if (jobUnavailable) {
+    $("#evaluation-progress-title").textContent = "Jobの状態を再確認しています";
+    $("#evaluation-progress-description").textContent = run.job_state_message || "Lakeflow Jobの状態を一時的に取得できません。評価は継続しています。";
   } else if (jobWaiting || !expected) {
     $("#evaluation-progress-title").textContent = "コンピュートを準備しています";
     $("#evaluation-progress-description").textContent = run.job_state_message || "Lakeflow Jobの開始を待っています。初回は数分かかることがあります。";
@@ -3863,16 +4085,119 @@ function updateEvaluationElapsed() {
   $("#evaluation-elapsed").textContent = `経過 ${formatElapsed(elapsed)}`;
 }
 
-async function loadEvaluationResults(context) {
-  if (!isCurrentEvaluationContext(context)) return;
-  try {
-    const result = await api(`/api/projects/${context.projectId}/evaluation-runs/${context.runId}/results`);
-    if (!isCurrentEvaluationContext(context)) return;
-    renderMetrics(result.metrics || []); renderSuggestions(result.suggestions || []);
-    void loadEvaluationRuns(context);
-  } catch (error) {
-    if (isCurrentEvaluationContext(context)) showError(error);
+function setEvaluationResultsLoadingUi(terminalStatus, attempt, saved) {
+  setEvaluationRunningUi(
+    true,
+    saved ? "保存済み結果を読み込み中…" : "評価結果を読み込み中…",
+  );
+  $("#cancel-evaluation").classList.add("hidden");
+  $("#evaluation-progress-title").textContent = saved
+    ? "保存済みの評価結果を読み込んでいます"
+    : "評価結果を読み込んでいます";
+  $("#evaluation-progress-description").textContent =
+    `指標とAI改善提案を取得しています（${attempt}/${EVALUATION_RESULTS_MAX_ATTEMPTS}）。`;
+  const status = $("#evaluation-overall-status");
+  status.textContent = "結果取得中";
+  status.className = "status-pill info";
+  updateEvaluationStages("metrics", "RUNNING");
+}
+
+function setEvaluationResultsLoadedUi(terminalStatus, saved) {
+  stopEvaluationElapsedTimer();
+  setEvaluationRunningUi(false);
+  $("#cancel-evaluation").classList.add("hidden");
+  const status = String(terminalStatus || "SUCCEEDED").toUpperCase();
+  const overall = $("#evaluation-overall-status");
+  overall.textContent = formatStatus(status);
+  overall.className = `status-pill ${statusClass(status)}`;
+  if (saved) {
+    $("#evaluation-progress-title").textContent = "保存済みの評価結果";
+    $("#evaluation-progress-description").textContent = "この実行の指標とAI改善提案を読み込みました。";
+  } else if (status === "SUCCEEDED") {
+    $("#evaluation-progress-title").textContent = "評価が完了しました";
+    $("#evaluation-progress-description").textContent = "指標とAI改善提案を表示しました。";
+  } else if (status === "PARTIAL") {
+    $("#evaluation-progress-title").textContent = "一部のPhaseが完了しました";
+    $("#evaluation-progress-description").textContent = "取得できた指標とAI改善提案を表示しました。";
+  } else if (status === "FAILED") {
+    $("#evaluation-progress-title").textContent = "評価を完了できませんでした";
+    $("#evaluation-progress-description").textContent = "取得できた指標を表示しました。Jobログで失敗した工程を確認してください。";
+  } else if (status === "CANCELED") {
+    $("#evaluation-progress-title").textContent = "評価を停止しました";
+    $("#evaluation-progress-description").textContent = "停止前に完了した指標がある場合は表示しています。";
   }
+  if (["SUCCEEDED", "PARTIAL"].includes(status)) {
+    updateEvaluationStages("complete", status);
+  } else {
+    updateEvaluationStages("trials", status);
+  }
+}
+
+function setEvaluationResultsFailureUi(error) {
+  stopEvaluationElapsedTimer();
+  setEvaluationRunningUi(false);
+  $("#cancel-evaluation").classList.add("hidden");
+  $("#evaluation-progress-title").textContent = "評価は終了しましたが、結果を取得できませんでした";
+  $("#evaluation-progress-description").textContent =
+    "評価履歴を更新し、この実行を選び直すと結果を再取得できます。";
+  const status = $("#evaluation-overall-status");
+  status.textContent = "結果取得エラー";
+  status.className = "status-pill error";
+  updateEvaluationStages("metrics", "FAILED");
+  showError(error);
+}
+
+async function loadEvaluationResults(
+  context,
+  { terminalStatus = "SUCCEEDED", saved = false } = {},
+) {
+  if (!isCurrentEvaluationContext(context)) return false;
+  let lastError = null;
+  for (let attempt = 1; attempt <= EVALUATION_RESULTS_MAX_ATTEMPTS; attempt += 1) {
+    if (!isCurrentEvaluationContext(context)) return false;
+    setEvaluationResultsLoadingUi(terminalStatus, attempt, saved);
+    const controller = new AbortController();
+    state.evaluationController?.abort();
+    state.evaluationController = controller;
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, EVALUATION_RESULTS_TIMEOUT_MS);
+    try {
+      const result = await api(
+        `/api/projects/${context.projectId}/evaluation-runs/${context.runId}/results`,
+        { signal: controller.signal },
+      );
+      clearTimeout(timeout);
+      if (!isCurrentEvaluationContext(context) || state.evaluationController !== controller) {
+        return false;
+      }
+      state.evaluationController = null;
+      renderMetrics(result.metrics || []);
+      updateEvaluationStages("advice", terminalStatus);
+      renderSuggestions(result.suggestions || []);
+      setEvaluationResultsLoadedUi(terminalStatus, saved);
+      void loadEvaluationRuns(context);
+      return true;
+    } catch (error) {
+      clearTimeout(timeout);
+      if (!isCurrentEvaluationContext(context)) return false;
+      if (state.evaluationController === controller) state.evaluationController = null;
+      if (error?.name === "AbortError" && !timedOut) return false;
+      lastError = error;
+      if (
+        !evaluationRequestCanRetry(error, timedOut)
+        || attempt === EVALUATION_RESULTS_MAX_ATTEMPTS
+      ) break;
+      await new Promise((resolve) => setTimeout(resolve, EVALUATION_RESULTS_RETRY_DELAY_MS));
+    }
+  }
+  if (isCurrentEvaluationContext(context)) {
+    setEvaluationResultsFailureUi(lastError || new Error("評価結果を取得できませんでした。"));
+    void loadEvaluationRuns(context);
+  }
+  return false;
 }
 
 function renderMetrics(metrics) {
@@ -3961,10 +4286,11 @@ async function cancelEvaluation() {
     runId: state.evaluationRunId,
     operation: state.evaluationOperation,
   };
-  if (!isCurrentEvaluationContext(context)) return;
+  if (!isEvaluationCancellationActive(context)) return;
   const button = $("#cancel-evaluation");
   if (button.disabled) return;
   button.disabled = true;
+  state.evaluationCancelPending = true;
   const busy = node("span", "button-content");
   busy.append(node("span", "button-spinner"), node("span", "", "停止を要求中…"));
   button.replaceChildren(busy);
@@ -3973,16 +4299,79 @@ async function cancelEvaluation() {
   const status = $("#evaluation-overall-status");
   status.textContent = "停止処理中";
   status.className = "status-pill warning";
+  // Replace a potentially long SUBMISSION_RETRY timer immediately.  Status
+  // monitoring and the cancellation request use separate controllers so the
+  // stop button remains responsive even when either HTTP request is delayed.
+  clearTimeout(state.evaluationPoll);
+  state.evaluationPoll = null;
+  pollEvaluation(context);
   try {
-    await api(`/api/projects/${context.projectId}/evaluation-runs/${context.runId}:cancel`, { method: "POST", body: "{}" });
-    if (!isCurrentEvaluationContext(context)) return;
+    await requestEvaluationCancelWithRecovery(context);
+    if (!isEvaluationCancellationActive(context)) return;
     button.textContent = "停止要求済み";
     toast("評価の停止をリクエストしました。");
+    // A prior SUBMISSION_RETRY response can schedule the next poll up to five
+    // minutes later.  Cancellation must be observable immediately, so replace
+    // that timer with a fresh status request now.
+    clearTimeout(state.evaluationPoll);
+    state.evaluationPoll = null;
+    pollEvaluation(context);
   } catch (error) {
-    if (!isCurrentEvaluationContext(context)) return;
+    if (!isEvaluationCancellationActive(context)) return;
+    if (isDefinitiveEvaluationSubmissionError(error)) {
+      state.evaluationCancelPending = false;
+    }
     setBusy(button, false, "評価を停止");
     showError(error);
   }
+}
+
+async function requestEvaluationCancelWithRecovery(context) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= EVALUATION_CANCEL_MAX_ATTEMPTS; attempt += 1) {
+    if (!isEvaluationCancellationActive(context)) {
+      return { status: state.evaluationTerminalStatus || "CANCELED" };
+    }
+    const controller = new AbortController();
+    state.evaluationCancelController?.abort();
+    state.evaluationCancelController = controller;
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, EVALUATION_CANCEL_TIMEOUT_MS);
+    try {
+      const result = await api(
+        `/api/projects/${context.projectId}/evaluation-runs/${context.runId}:cancel`,
+        { method: "POST", body: "{}", signal: controller.signal },
+      );
+      clearTimeout(timeout);
+      if (state.evaluationCancelController === controller) {
+        state.evaluationCancelController = null;
+      }
+      return result;
+    } catch (error) {
+      clearTimeout(timeout);
+      if (state.evaluationCancelController === controller) {
+        state.evaluationCancelController = null;
+      }
+      if (!isEvaluationCancellationActive(context)) {
+        return { status: state.evaluationTerminalStatus || "CANCELED" };
+      }
+      lastError = error;
+      if (
+        !evaluationRequestCanRetry(error, timedOut)
+        || attempt === EVALUATION_CANCEL_MAX_ATTEMPTS
+      ) break;
+      $("#evaluation-progress-description").textContent =
+        `停止APIの応答を再確認しています（${attempt + 1}/${EVALUATION_CANCEL_MAX_ATTEMPTS}）。`;
+      clearTimeout(state.evaluationPoll);
+      state.evaluationPoll = null;
+      pollEvaluation(context);
+      await new Promise((resolve) => setTimeout(resolve, EVALUATION_SUBMISSION_RETRY_DELAY_MS));
+    }
+  }
+  throw lastError || new Error("評価の停止を要求できませんでした。");
 }
 
 async function refreshPage() {
@@ -4026,6 +4415,10 @@ function stopActiveStreams() {
   state.evaluationPoll = null;
   state.evaluationController?.abort();
   state.evaluationController = null;
+  state.evaluationCancelController?.abort();
+  state.evaluationCancelController = null;
+  state.evaluationCancelPending = false;
+  state.evaluationTerminalStatus = null;
   state.evaluationSubmitting = false;
   stopEvaluationElapsedTimer();
   clearInterval(state.streamTimer);
