@@ -2263,12 +2263,25 @@ class Repository:
               AND coalesce(lifecycle_status, 'READY')='READY'
             ORDER BY created_at DESC LIMIT 200
         """)
+        # A project can still contain historical Variants created before the
+        # App was switched to administrator-provisioned existing Indexes.  Do
+        # not let one such legacy row make the whole selector unavailable.
+        # Listing is restricted to the same exact resource-pair allow-list
+        # that resolve_search_target enforces when a search actually runs.
+        profiles_by_pair = {
+            (profile.source_table, profile.index_name): profile
+            for profile in self.settings.resolved_index_profiles
+        }
         items = []
         for row in rows:
-            profile = self._profile_for_resource_pair(
-                str(row.get("source_table") or ""),
-                str(row.get("index_name") or ""),
+            profile = profiles_by_pair.get(
+                (
+                    str(row.get("source_table") or ""),
+                    str(row.get("index_name") or ""),
+                )
             )
+            if profile is None:
+                continue
             items.append({
                 **row,
                 "index_profile_key": profile.profile_key,
