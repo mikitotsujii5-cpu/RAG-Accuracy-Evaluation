@@ -210,14 +210,14 @@ https://<APP_HOST>
 
 ## この環境の実測結果
 
-現行source asset `1.5.0`はPDF全画面viewerを含むUIテスト40件に合格しています。Python 344件とGitHubからのremote配置はasset `1.4.9`の確認記録です。
+現行source asset `1.5.0`はPDF全画面viewerを含むUIテスト40件に合格しています。field-eng-eastへのremote配置、health、resource binding 7件も確認済みです。Python 344件はasset `1.4.9`の確認記録です。
 
 | 項目 | 実測 |
 |---|---|
 | App | `<APP_NAME>`、汎用RAGの説明文 |
-| Deployment | GitHub `main/app`のasset `1.4.9`、`SUCCEEDED`。実IDは非掲載 |
+| Deployment | GitHub `main/app`のasset `1.5.0`、field-eng-eastで`SUCCEEDED`。実IDは非掲載 |
 | App／compute | `RUNNING`／`ACTIVE` |
-| Health | version `1.4.9`、`databricks_ready=true` |
+| Health | version `1.5.0`、`databricks_ready=true` |
 | Resources／scope | binding 7件、`iam.access-control:read`、`iam.current-user:read`、`model-serving` |
 | ログインユーザー | `/api/me` HTTP 200、`<DATABRICKS_USER_EMAIL>` |
 | App SP権限 | grant 30文成功。`toyota_index_variants`の`MODIFY`はStatement `<STATEMENT_ID>`、`SELECT`＋`MODIFY`の確認は`<STATEMENT_ID>` |

@@ -47,7 +47,7 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 
 ## 現在の構築状態
 
-現行source asset `1.5.0`はPDF全画面viewerを含むUIテスト40件に合格しています。Python 344件とremote配置の最終確認はasset `1.4.9`の記録です。公開用Markdownには実測ID、メール、App URL、Workspace IDを含めません。
+現行source asset `1.5.0`はPDF全画面viewerを含むUIテスト40件に合格しています。field-eng-eastへの配置後、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.5.0`、resource binding 7件を確認しました。Python 344件はasset `1.4.9`の確認記録です。公開用Markdownには実測ID、メール、App URL、Workspace IDを含めません。
 
 | 項目 | 状態 | 実測 |
 |---|---|---|
@@ -60,9 +60,9 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 | Phase 1〜5 Evaluation Job | `SUCCESS` | Job `<EVALUATION_JOB_ID>`、run `<DATABRICKS_RESOURCE_ID>`、60結果、エラー0、Trace 60、LLM改善提案5 |
 | 未ラベルstarter評価 | `SUCCESS` | eval `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`。Phase 1×3 trial、error 0、Answer Correctness `NULL`、提案1件 |
 | MLflow Trace | `SUCCESS` | 全60 Traceで`AGENT`配下の`RETRIEVER`／`CHAT_MODEL`／`EVALUATOR`を確認 |
-| Databricks App | `SUCCESS` | GitHub `main/app`のasset `1.4.9`。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件 |
+| Databricks App | `SUCCESS` | GitHub `main/app`のasset `1.5.0`。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件 |
 | App live read APIs | `SUCCESS` | health HTTP 200、`/api/me`でログインメールを取得、Project別PDF／Variant／評価データ／評価履歴を取得 |
-| デプロイ済みasset | `SUCCESS` | GitHub `main/app`、health version `1.4.9`／`databricks_ready=true`、Workspace機能リンク13件 |
+| デプロイ済みasset | `SUCCESS` | GitHub `main/app`、health version `1.5.0`／`databricks_ready=true`、PDF全画面viewer |
 | Phase 1評価の再表示 | `SUCCESS` | asset `1.4.7`で実行済みの1問×1回runをasset `1.4.8`のremote APIで取得。`SUCCEEDED`、1／1、`elapsed_seconds=774`、指標1件、改善提案1件 |
 | PDF概要監査（直近snapshot） | `SUCCESS` | 20件時点で空欄0件、20〜30字違反0件。`AI_GENERATED=10`、`AI_GENERATED_NORMALIZED=9`、`USER=1`。その後追加された削除E2E用2件へは外挿しない |
 | App SP権限 | `SUCCESS` | 既存権限checkに加え、`toyota_index_variants`の`SELECT`／`MODIFY`を確認 |
@@ -433,7 +433,7 @@ Appの説明やuser scopeを更新するときも、7件のresourceを含むfull
 - JavaScript構文2ファイル、Python compile 51ファイル、JSON 19ファイル: pass
 - 4画面とPhase 1〜5のUI確認: browser console error 0
 
-現行remote asset `1.4.9`はGitHubの`main/app`から配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.9`／`databricks_ready=true`、binding 7件を確認しました。機能リンク13件、必須12種類の存在と安全なWorkspace host、質問例9件、「比較条件を選択」、個人名の固定表示がないことも認証付きremote APIで確認しました。asset `1.4.7`で実行済みだったPhase 1 runをasset `1.4.8`で再表示した結果は過去の証跡として保持し、今回の実行とは混同しません。TTFTと残り7 profileは`PENDING`です。
+現行remote asset `1.5.0`はGitHubの`main/app`からfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.5.0`／`databricks_ready=true`、binding 7件を確認しました。認証付きremote APIで全画面viewer、別タブ表示、ダウンロード用要素を確認しました。
 
 ## デプロイ記録
 
@@ -446,7 +446,7 @@ Appの説明やuser scopeを更新するときも、7件のresourceを含むfull
 | Data preparation Classic増強履歴 | run `<DATABRICKS_RESOURCE_ID>` | 2026-09-08 | D16 Driver／D8 Worker×2、Standard／512／Qwen3、3 chunks、Index READY。Setup 382秒、実処理169秒、合計552.328秒。fallback JSONとして保持 |
 | Evaluation Job | `<EVALUATION_JOB_ID>`／run `<DATABRICKS_RESOURCE_ID>` | 2026-09-06 | `SUCCESS`、Phase 1〜5／development 60結果・エラー0・Trace 60・提案5件 |
 | Index sync Job | `<INDEX_SYNC_JOB_ID>`／run `<DATABRICKS_RESOURCE_ID>` | 2026-09-06 | `SUCCESS`、triggered sync |
-| Databricks App | 実ID／URLは非掲載 | 2026-09-09 | GitHub `main/app`、asset `1.4.9`、`SUCCEEDED`／`RUNNING`／`ACTIVE`、health `databricks_ready=true`、binding 7件、機能リンク13件 |
+| Databricks App | 実ID／URLは非掲載 | 2026-09-09 | GitHub `main/app`、asset `1.5.0`、`SUCCEEDED`／`RUNNING`／`ACTIVE`、health `databricks_ready=true`、binding 7件、PDF全画面viewer |
 | Phase 1評価の再表示 | 実run IDは非掲載 | 2026-09-09 | asset `1.4.7`で実行済みの1問×1回runをasset `1.4.8`で再表示。1／1、774秒、指標1件、提案1件、error 0 |
 | 選択評価smoke | eval run `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>` | 2026-09-08 | `TERMINATED`／`SUCCESS`。`figure-001`だけ、結果1行、選択外0、error 0。MLflow run `<RESOURCE_ID>` |
 | 孤児Chat run回復付きPDF削除 | Project `<RESOURCE_ID>`／document `<RESOURCE_ID>` | 2026-09-08 | DELETE 202、deletion request `<RESOURCE_ID>`。後継prep `<RESOURCE_ID>`／`<RESOURCE_ID>`は両方READY、削除PDF行／hit 0 |

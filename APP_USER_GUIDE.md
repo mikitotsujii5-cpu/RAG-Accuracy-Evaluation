@@ -7,7 +7,7 @@
 対象Workspaceは`field-eng-east`（ID `<WORKSPACE_ID>`）です。Databricksへサインインし、このAppの利用権限を持つアカウントで開いてください。
 
 > [!NOTE]
-> 現行sourceはasset version `1.5.0`です。PDF全画面viewerを含むUIテスト40件に合格しています。Python 344件とremote配置はasset `1.4.9`の確認記録です。
+> 現行sourceはasset version `1.5.0`です。PDF全画面viewerを含むUIテスト40件に合格し、field-eng-eastへのremote配置、health、Resource Binding 7件を確認済みです。Python 344件はasset `1.4.9`の確認記録です。
 
 > [!CAUTION]
 > 付属のトヨタ車種関連PDFはすべて架空の評価データです。内容を実車の操作、整備、救助、購入判断に使わないでください。これらは同梱シナリオであり、アプリは車両以外のPDFにも使えます。
@@ -415,7 +415,7 @@ advisorにはRecall／Precision／nDCGだけでなく、Answer Correctness、Gro
 - 旧asset `1.4.1`のトヨタ互換回帰でも期待回答`60`と一致し、Trace `<TRACE_ID>`、引用2件を確認済みです。
 - baseline Projectの使用中検索データは`baseline-standard-512-v1`へ復元済みです。
 - 旧asset `1.4.1`のremote回帰では、同一requestの保存がuser／assistant各1件であること、停止要求が`run.cancelled`／永続状態`CANCELLED`になることを確認済みです。評価履歴再表示、`ERROR` PDF再解析、PDFリンクだけを返すlive citationは現行sourceでも回帰済みです。
-- 現行asset `1.4.9`はGitHubの`main/app`から配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.9`／`databricks_ready=true`、resource binding 7件、Workspace機能リンク13件を確認しました。
+- 現行asset `1.5.0`はGitHubの`main/app`からfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.5.0`／`databricks_ready=true`、resource binding 7件、PDF全画面viewerを確認しました。
 - asset `1.4.7`で実行済みだったPhase 1・1問・1回runをasset `1.4.8`のremote status／results APIで取得し、`SUCCEEDED`、1／1試行、`elapsed_seconds=774`を確認しました。Lakeflow run totalは777.125秒、指標1件、改善提案1件、Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msです。これはasset `1.4.8`で新規評価を実行した証跡ではありません。
 - Phase横並び、結果画面、経過時間「12分54秒」が3秒後も固定されることは、ローカルSSO代替画面で目視確認済みです。SSO済みremoteブラウザによる手操作、TTFT、残り7 profileは未確認です。
 - 現行deployment `<DEPLOYMENT_ID>`では、Project `<RESOURCE_ID>`に残っていた30分超の孤児Chat run 2件とassistant messageを`ERROR`へ整合した後、document `<RESOURCE_ID>`の削除がHTTP 202で完了しました。影響旧Variant 4件から後継Variant 2件を作り、両方を`READY`まで確認しました。source／AI Searchは削除PDF 0件で、保持document `<RESOURCE_ID>`だけを返します。

@@ -73,7 +73,7 @@ find app -maxdepth 2 \( -name '.venv' -o -name '__pycache__' -o -name '.pytest_c
 
 テストには、PDFだけの登録、タイトル自動補完、汎用メタデータ、Project限定Metadata Filteringに加え、FMAPIモデルによって拒否されるoptional sampling値を送らないこと、最終回答で参照した引用だけを保存すること、同一`client_request_id`を冪等化すること、停止と完了の競合を正しく閉じること、Chat Trace IDを履歴と画面へ渡すこと、MLflow Trace階層の契約が含まれます。さらに現行sourceでは、20〜30字の概要生成、Qwen3の既定値とfallback表示、ログインユーザー取得、Project／会話削除、PDFの`Range`／`ETag`、PDF原文リンク、prefetch、`ERROR` PDF再解析、評価履歴再表示、未ラベルCorrectness除外、advisorの回答品質根拠、評価質問の個別／一括選択と固定、評価runの復元／停止／終端収束、同一`Idempotency-Key`による評価開始再送、`eval_run_id`によるJob冪等化、`retry_after_ms`、一時的な`UNKNOWN`状態、確定的Job拒否の`FAILED`収束、停止APIの再試行、重複Phase集約、結果取得中spinner、結果APIの45秒timeout／最大3回再試行、評価履歴からの結果再取得、Job IDの正整数検証、AI Search GETで同期列が省略される応答、PDF単体削除の権限／競合／冪等性／後継Variant／最後のPDF、30分超の孤児Chat run回復、既存Index許可外の旧Variantを一覧から除外する回帰も対象です。remote配置と評価再表示の実測はStep 8〜9へ記録します。
 
-現行source asset `1.5.0`はUI 40件を確認済みです。Python 344件とremote配置はasset `1.4.9`で`SUCCESS`を確認した過去の記録です。
+現行source asset `1.5.0`はUI 40件を確認済みです。field-eng-eastへのremote配置も`SUCCESS`です。Python 344件はasset `1.4.9`の確認記録です。
 
 削除E2E helperがSQL Statement Execution APIを呼ぶときは、両helperで`ExecuteStatementRequestOnWaitTimeout`をimportし、`on_wait_timeout=ExecuteStatementRequestOnWaitTimeout.CONTINUE`を渡します。文字列`"CONTINUE"`ではSDK内部で`AttributeError: 'str' object has no attribute 'value'`となることを実環境で検出し、enumへ修正後にfresh helperがexit 0となりました。`jobs/tests/test_deployment_contract.py`の2件の契約testで、このenum指定を固定しています。
 
