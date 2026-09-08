@@ -27,6 +27,8 @@
 
 `app.yaml`では、Workspaceリソースを`valueFrom`で`app-warehouse`、`toyota-volume`、`baseline-index`、`default-llm`、`prep-job`、`eval-job`、`mlflow-experiment`から解決します。Databricks App service principalには、Warehouseの`CAN USE`、必要なTableの`SELECT`／`MODIFY`、Volumeの`READ VOLUME`／`WRITE VOLUME`、Indexの`SELECT`、LLM endpointの`CAN QUERY`、Jobの`CAN MANAGE RUN`、Experimentの`CAN EDIT`を用途に応じて付与します。資格情報を環境変数から直接読み取ったり、ログへ出力したりするコードはありません。`WorkspaceClient()`がAppsのOAuth認証を使用します。
 
+既存Index専用モードでは、`GET /api/projects/{project_id}/variants`は`RAG_INDEX_PROFILES_JSON`、またはbaseline fallbackのsource Table／Indexと完全一致する行だけを返します。Projectに旧方式のVariantが残っていても一覧全体を失敗させず、その行だけを除外します。チャット／評価でVariantを解決するときは同じ許可リストを再確認し、許可外の物理Indexへはfail-closedで接続しません。
+
 ## ローカル起動
 
 ```bash

@@ -190,18 +190,18 @@ https://<APP_HOST>
 
 ## この環境の実測結果
 
-現行source asset `1.4.4`を実環境へ配置し、App状態、health、resource binding、登録済み評価質問の選択run、孤児Chat run回復付きPDF単体削除の認証付きremote E2Eまで確認しました。旧asset `1.4.1`で実行した非車両G01のChat／評価は、履歴として下表に残します。
+現行source asset `1.4.5`をGitHubの`main/app`から新規Appへ配置し、App状態、health、resource binding、既存Index Variant一覧、実RAGチャット、MLflow Trace、PDFリンク引用まで確認しました。登録済み評価質問の選択runと孤児Chat run回復付きPDF単体削除はasset `1.4.4`の検証履歴です。旧asset `1.4.1`で実行した非車両G01のChat／評価も履歴として下表に残します。
 
 | 項目 | 実測 |
 |---|---|
 | App | `<APP_NAME>`、汎用RAGの説明文 |
 | Deployment | `<DEPLOYMENT_ID>`、`SUCCEEDED` |
 | App／compute | `RUNNING`／`ACTIVE` |
-| Health | HTTP 200、asset `1.4.4` |
+| Health | HTTP 200、asset `1.4.5` |
 | Resources／scope | binding 7件、`iam.access-control:read`、`iam.current-user:read`、`model-serving` |
 | ログインユーザー | `/api/me` HTTP 200、`<DATABRICKS_USER_EMAIL>` |
 | App SP権限 | grant 30文成功。`toyota_index_variants`の`MODIFY`はStatement `<STATEMENT_ID>`、`SELECT`＋`MODIFY`の確認は`<STATEMENT_ID>` |
-| Source test | asset `1.4.4`、Python 264件、Chat UI 21件（合計285件）成功。Python compile 51、JavaScript構文、JSON検証も成功 |
+| Source test | asset `1.4.5`、Python 306件、Chat UI 27件、差分check成功 |
 | App起動 | deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`。旧deploymentのnpm失敗履歴は現行Appと分けて記録 |
 | PDF概要 | 20件snapshotで空欄0件、20〜30字違反0件。`AI_GENERATED=10`、`AI_GENERATED_NORMALIZED=9`、`USER=1`。最新registry 22件全体の監査値ではない |
 | PDF content API | 通常取得200、byte Range 206、ETag再検証304、`private, max-age=300` |

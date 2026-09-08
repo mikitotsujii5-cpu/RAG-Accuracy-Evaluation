@@ -7,7 +7,7 @@
 対象Workspaceは`field-eng-east`（ID `<WORKSPACE_ID>`）です。Databricksへサインインし、このAppの利用権限を持つアカウントで開いてください。
 
 > [!NOTE]
-> 現行sourceはasset version `1.4.4`です。deployment `<DEPLOYMENT_ID>`は2026-09-08に`SUCCEEDED`となり、App `RUNNING`、compute `ACTIVE`、health HTTP 200、resource binding 7件を確認しました。Python 264件とChat UI 21件（合計285件）の自動テスト、Python compile 51ファイル、JavaScript構文、JSON検証、およびPDF単体削除の実Workspace E2Eも確認しています。ストリーミングTTFT、未実施のchunk profile、SSO済みブラウザ4画面の手操作は、確認が終わるまで`PENDING`です。
+> 現行sourceはasset version `1.4.5`です。GitHubの`main/app`から新規Appへデプロイし、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health HTTP 200、resource binding 7件を確認しました。Python 306件とChat UI 27件の自動テストに加え、既存Index Variant一覧、AI Search 10件取得、LLM回答、MLflow Trace、PDFリンク引用まで認証付きAPIで確認しています。ストリーミングTTFT、未実施のchunk profile、SSO済みブラウザ4画面の手操作は、確認が終わるまで`PENDING`です。
 
 > [!CAUTION]
 > 付属のトヨタ車種関連PDFはすべて架空の評価データです。内容を実車の操作、整備、救助、購入判断に使わないでください。これらは同梱シナリオであり、アプリは車両以外のPDFにも使えます。
@@ -24,6 +24,8 @@ Projectは、同じ目的で使うPDF、検索Index、会話履歴、評価Datas
 4. 画面上部に作成したProject名が表示されたことを確認する。
 
 別のデータ群を扱うときは、新しいProjectを作ります。PDF、Variant、会話、評価結果を別Projectへ混ぜないでください。
+
+既存Index専用のAppでは、管理者が登録したDelta Table／AI Search Indexの組だけが検索データの選択肢に出ます。過去の許可外VariantがProjectに残っていても画面には表示されません。選択肢が0件の場合は、データを作り直さず、管理者に既存Index設定の確認を依頼してください。
 
 同梱データの推奨構成は次のとおりです。まず非車両文書で汎用動作を確認し、その後にトヨタ評価シナリオを使ってPhaseを比較できます。
 

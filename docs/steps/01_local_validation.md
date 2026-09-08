@@ -64,9 +64,9 @@ find app -maxdepth 2 \( -name '.venv' -o -name '__pycache__' -o -name '.pytest_c
 
 ## この環境の実測結果
 
-`SUCCESS`。2026-09-08に現行source asset `1.4.4`の`app/tests`と`jobs/tests`を統合実行し、Python 264件すべてが合格しました。加えてChat UIのjsdom回帰テスト21件、合計285件が合格しています。Python compile 51ファイル、JavaScript構文、JSON検証も合格しています。ローカルBrowserの既存実測ではEnter連打、spinner、停止、履歴切替、下書き、390 px表示を確認し、console errorは0件でした。PDF viewerは初回3,057 ms、同じProject・PDF・pageの再表示296 msを確認しました。
+`SUCCESS`。2026-09-08に現行source asset `1.4.5`の`app/tests`と`jobs/tests`を統合実行し、Python 306件すべてが合格しました。加えてChat UIのjsdom回帰テスト27件が合格しています。差分checkも合格しました。ローカルBrowserの既存実測ではEnter連打、spinner、停止、履歴切替、下書き、390 px表示を確認し、console errorは0件でした。PDF viewerは初回3,057 ms、同じProject・PDF・pageの再表示296 msを確認しました。
 
-テストには、PDFだけの登録、タイトル自動補完、汎用メタデータ、Project限定Metadata Filteringに加え、FMAPIモデルによって拒否されるoptional sampling値を送らないこと、最終回答で参照した引用だけを保存すること、同一`client_request_id`を冪等化すること、停止と完了の競合を正しく閉じること、Chat Trace IDを履歴と画面へ渡すこと、MLflow Trace階層の契約が含まれます。さらに現行sourceでは、20〜30字の概要生成、Qwen3の既定値とfallback表示、ログインユーザー取得、Project／会話削除、PDFの`Range`／`ETag`、PDF原文リンク、prefetch、`ERROR` PDF再解析、評価履歴再表示、未ラベルCorrectness除外、advisorの回答品質根拠、評価質問の個別／一括選択と固定、PDF単体削除の権限／競合／冪等性／後継Variant／最後のPDF、30分超の孤児Chat run回復も回帰対象です。現行asset `1.4.4`はdeployment `<DEPLOYMENT_ID>`へ配置し、Step 8〜9でremote削除E2Eも確認しました。
+テストには、PDFだけの登録、タイトル自動補完、汎用メタデータ、Project限定Metadata Filteringに加え、FMAPIモデルによって拒否されるoptional sampling値を送らないこと、最終回答で参照した引用だけを保存すること、同一`client_request_id`を冪等化すること、停止と完了の競合を正しく閉じること、Chat Trace IDを履歴と画面へ渡すこと、MLflow Trace階層の契約が含まれます。さらに現行sourceでは、20〜30字の概要生成、Qwen3の既定値とfallback表示、ログインユーザー取得、Project／会話削除、PDFの`Range`／`ETag`、PDF原文リンク、prefetch、`ERROR` PDF再解析、評価履歴再表示、未ラベルCorrectness除外、advisorの回答品質根拠、評価質問の個別／一括選択と固定、PDF単体削除の権限／競合／冪等性／後継Variant／最後のPDF、30分超の孤児Chat run回復、既存Index許可外の旧Variantを一覧から除外する回帰も対象です。現行asset `1.4.5`は新規Appへ配置し、Step 8〜9でremote RAGチャットまで確認しました。
 
 現行sourceは、上記284件の自動テストとdeployment `<DEPLOYMENT_ID>`のremote E2Eを別々の根拠として確認済みです。旧asset `1.4.1`の240件成功とasset `1.4.3`の277件成功は履歴であり、現行機能の合格件数へ混ぜません。
 

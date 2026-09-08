@@ -778,7 +778,7 @@ source Tableが空の場合、検索可能行数が0でも初期構築として�
 4. GitHub側の許可済みIndex一覧とResource Bindingへ追加します。
 5. Appを再デプロイし、App専用SPにそのIndexの`SELECT`が付いたことを確認します。
 
-たとえば、`Semantic／256`と`Parent-child／1024`は同じIndexを共用しません。選択したEmbedding modelもIndexの作成設定と一致させます。対応する既存Indexが未登録の条件は、アプリで実行不可として表示します。App／Jobが不足Indexを自動作成する設計にはしません。追加Indexを1件Bindingすると、後述のResource Binding件数は`7件 + 追加Index件数`になります。本編では追加せず7件のまま進めます。
+たとえば、`Semantic／256`と`Parent-child／1024`は同じIndexを共用しません。選択したEmbedding modelもIndexの作成設定と一致させます。対応する既存Indexが未登録の条件は、アプリで実行不可として表示します。App／Jobが不足Indexを自動作成する設計にはしません。Project Tableに過去の許可外Variantが残っていても、その行は画面の選択肢から除外されます。許可済みVariantまで表示されない場合は、物理Indexを作り直さず、source Table／Indexの完全修飾名が管理者の許可リストと一致するか確認します。追加Indexを1件Bindingすると、後述のResource Binding件数は`7件 + 追加Index件数`になります。本編では追加せず7件のまま進めます。
 
 ## 14. Step 9：MLflow Experimentを作成する
 

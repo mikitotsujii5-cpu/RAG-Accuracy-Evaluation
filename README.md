@@ -45,7 +45,7 @@ PDF、検索Index、チャット履歴、評価Dataset、評価結果はすべ�
 
 ## 現在の構築状態
 
-2026-09-08に現行source asset `1.4.4`を対象Workspaceへ再デプロイし、Deployment、health、評価質問選択API、PDF単体削除E2Eを確認しました。公開用Markdownには実測IDを含めません。`PENDING`は実測していない項目であり、成功扱いにはしません。
+2026-09-08に現行source asset `1.4.5`を新規Databricks AppへGitHubの`main/app`からデプロイし、Deployment、health、既存Index Variant一覧、実RAGチャット、MLflow Trace、PDFリンク引用を確認しました。既存Index専用モードでは、管理者の許可リストに一致するVariantだけを画面へ表示し、過去に作成された許可外Variantは一覧から除外します。実検索時の許可リスト検証はfail-closedのままです。公開用Markdownには実測IDを含めません。`PENDING`は実測していない項目であり、成功扱いにはしません。
 
 | 項目 | 状態 | 実測 |
 |---|---|---|
@@ -60,7 +60,7 @@ PDF、検索Index、チャット履歴、評価Dataset、評価結果はすべ�
 | MLflow Trace | `SUCCESS` | 全60 Traceで`AGENT`配下の`RETRIEVER`／`CHAT_MODEL`／`EVALUATOR`を確認 |
 | Databricks App | `SUCCESS` | deployment `<DEPLOYMENT_ID>`、`SUCCEEDED`／`RUNNING`／`ACTIVE`、resource binding 7件 |
 | App live read APIs | `SUCCESS` | health HTTP 200、`/api/me`でログインメールを取得、Project別PDF／Variant／評価データ／評価履歴を取得 |
-| デプロイ済みasset | `SUCCESS` | health HTTP 200、asset version `1.4.4` |
+| デプロイ済みasset | `SUCCESS` | GitHub `main/app`、health HTTP 200、asset version `1.4.5` |
 | PDF概要監査（直近snapshot） | `SUCCESS` | 20件時点で空欄0件、20〜30字違反0件。`AI_GENERATED=10`、`AI_GENERATED_NORMALIZED=9`、`USER=1`。その後追加された削除E2E用2件へは外挿しない |
 | App SP権限 | `SUCCESS` | 既存権限checkに加え、`toyota_index_variants`の`SELECT`／`MODIFY`を確認 |
 | Local Browser UI | `SUCCESS` | Enter 5連打で質問1件、思考中表示、停止直後の入力復帰、履歴往復277／284 ms、下書き保持、390 px表示、console error 0 |
@@ -71,7 +71,7 @@ PDF、検索Index、チャット履歴、評価Dataset、評価結果はすべ�
 | RAG検索データ作成E2E | `SUCCESS` | Semantic／512のsource 6行、Index 6行、別Project行0、Index READY |
 | 汎用RAG migration／再デプロイ／非車両PDF E2E | `SUCCESS` | migration、汎用化source、登録・解析・Variant・チャット・引用・評価を実環境で確認 |
 | Chat多重送信・停止 | `SUCCESS` | 旧asset `1.4.1`のremote履歴。同一request再送後も保存message 2件、停止API `CANCEL_REQUESTED`、terminal `run.cancelled`、履歴 `CANCELLED` |
-| 現行sourceの回帰テスト | `SUCCESS` | asset `1.4.4`、Python 264件、Chat UI 21件（合計285件）、Python compile 51ファイル、JavaScript構文、JSON検証成功 |
+| 現行sourceの回帰テスト | `SUCCESS` | asset `1.4.5`、Python 306件、Chat UI 27件、差分check成功 |
 | 評価質問の選択 | `SUCCESS` | Project／評価データ版／用途内の登録済み質問を初期全選択。個別選択、すべて選択、選択解除、正解状態・期待回答・正解PDF／ページ、選択件数・最大試行数を表示し、0件では開始不可。API／Jobは選択IDだけを凍結・評価 |
 | PDF viewer | `SUCCESS` | 旧assetのremote content APIでPDF 200、Range 206、ETag 304、private cacheを確認。現行assetは削除前後のPDF 200を確認。ローカル再表示296 ms、Project切替時は保持iframeを破棄 |
 | PDF単体の論理削除 | `SUCCESS` | asset `1.4.4`でProject `<RESOURCE_ID>`のPDF `<RESOURCE_ID>`をDELETE 202。孤児Chat run 2件とassistant messageを`ERROR`へ整合後、影響旧Variant 4件から後継Variant 2件をREADY化。両Indexで削除PDF hit 0、保持PDFだけを検索 |
@@ -419,7 +419,7 @@ Appの説明やuser scopeを更新するときも、7件のresourceを含むfull
 - JavaScript構文2ファイル、Python compile 51ファイル、JSON 19ファイル: pass
 - 4画面とPhase 1〜5のUI確認: browser console error 0
 
-現行source asset `1.4.4`はdeployment `<DEPLOYMENT_ID>`で`SUCCEEDED`／`RUNNING`／`ACTIVE`、health HTTP 200、binding 7件です。評価質問の選択APIは1〜1000件を受け付け、Project／評価データ版／用途への所属を検証して`config_json`と`config_hash`へ固定します。PDF削除E2Eでは、30分を超えた孤児Chat run 2件をguard付きで`ERROR`へ収束し、HTTP 202で削除を開始しました。影響旧Variant 4件から後継2件を`READY`まで確認し、両AI Searchで削除PDF hit 0、保持PDFだけが返ることを確認しています。SQL Warehouseによるno-op構文検証も成功しています。source testだけを本番稼働の根拠にはしていません。
+現行source asset `1.4.5`はGitHubの`main/app`から新規Appへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health HTTP 200、binding 7件を確認しました。許可済み既存Index Variant 1件だけが一覧に表示され、AI Search 10件取得、回答、Trace、PDFリンク引用、`run.completed`まで成功しています。評価質問選択とPDF削除の詳細はasset `1.4.4`の検証履歴として保持します。source testだけを本番稼働の根拠にはしていません。
 
 ## デプロイ記録
 
@@ -432,7 +432,7 @@ Appの説明やuser scopeを更新するときも、7件のresourceを含むfull
 | Data preparation Classic増強履歴 | run `<DATABRICKS_RESOURCE_ID>` | 2026-09-08 | D16 Driver／D8 Worker×2、Standard／512／Qwen3、3 chunks、Index READY。Setup 382秒、実処理169秒、合計552.328秒。fallback JSONとして保持 |
 | Evaluation Job | `<EVALUATION_JOB_ID>`／run `<DATABRICKS_RESOURCE_ID>` | 2026-09-06 | `SUCCESS`、Phase 1〜5／development 60結果・エラー0・Trace 60・提案5件 |
 | Index sync Job | `<INDEX_SYNC_JOB_ID>`／run `<DATABRICKS_RESOURCE_ID>` | 2026-09-06 | `SUCCESS`、triggered sync |
-| Databricks App | `<APP_URL>`／deployment `<DEPLOYMENT_ID>` | 2026-09-08 | `SUCCEEDED`／`RUNNING`／`ACTIVE`、health HTTP 200、asset `1.4.4`、binding 7件 |
+| Databricks App | `<APP_URL>`／deployment `<DEPLOYMENT_ID>` | 2026-09-08 | GitHub `main/app`、`SUCCEEDED`／`RUNNING`／`ACTIVE`、health HTTP 200、asset `1.4.5`、binding 7件 |
 | 選択評価smoke | eval run `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>` | 2026-09-08 | `TERMINATED`／`SUCCESS`。`figure-001`だけ、結果1行、選択外0、error 0。MLflow run `<RESOURCE_ID>` |
 | 孤児Chat run回復付きPDF削除 | Project `<RESOURCE_ID>`／document `<RESOURCE_ID>` | 2026-09-08 | DELETE 202、deletion request `<RESOURCE_ID>`。後継prep `<RESOURCE_ID>`／`<RESOURCE_ID>`は両方READY、削除PDF行／hit 0 |
 | PDF単体削除E2E（2件→1件） | Project `<RESOURCE_ID>` | 2026-09-08 | helper exit 0。初期Variant `<RESOURCE_ID>`を`SUPERSEDED`にし、後継 `<RESOURCE_ID>`／Index 6行、削除PDF hit 0、保持PDF hit 1を確認 |

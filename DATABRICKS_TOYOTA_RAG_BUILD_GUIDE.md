@@ -2628,7 +2628,7 @@ ProjectへPDFを追加し、Document Parsing、チャンク、Embedding、Index 
 | セマンティックメタデータ | raw本文／enriched Embedding文脈を切替 |
 | RAG検索データを作成 | 新しいDelta TableとProject × Variant Indexを作成し、Triggered sync |
 | 進捗 | PDFを保存 → 文書を解析 → 検索データを作成 → RAG検索を有効化、の4工程を表示 |
-| Variant一覧 | method、size、Embedding、作成時刻、source snapshot、Index状態を比較 |
+| Variant一覧 | method、size、Embedding、作成時刻、source snapshot、Index状態を比較。既存Index専用モードでは管理者のsource Table／Index許可リストに一致する行だけを表示 |
 
 セクション見出しは「02 検索する文書のチャンク化・ベクトル化」とする。Qwen3 Embedding 0.6Bが対象workspaceで利用可能なら既定値として選び、「推奨・日本語対応」と表示する。利用不可ならREADY／selectableな候補へfallbackし、利用不可モデルを選択させない。別のfallback候補へ「推奨」を付ける場合でも、「日本語対応」はQwen3 Embedding 0.6B以外へ誤表示しない。
 
@@ -2802,7 +2802,7 @@ MLflow Review AppをDatabricks Appsへ埋め込めるとは想定しない。独
 | `GET /api/projects/{project_id}/documents` | PDFカタログ一覧 |
 | `HEAD/GET /api/projects/{project_id}/documents/{document_id}/content` | 認可済みPDFを返す。`ETag`、private cache、単一byte `Range`に対応 |
 | `DELETE /api/projects/{project_id}/documents/{document_id}` | OWNER／EDITORがPDFを論理削除。`202`と影響Variant／後継runを返し、原本と過去履歴は保持 |
-| `GET /api/projects/{project_id}/variants` | 現在のProjectで利用できるIndex Variant一覧 |
+| `GET /api/projects/{project_id}/variants` | 現在のProjectで利用できる、管理者許可済みの既存Index Variant一覧。許可外の旧Variantは除外し、検索時も同じ許可リストを再検証 |
 | `GET /api/projects/{project_id}/evaluation-datasets` | 現在のProjectにある評価データ版、用途、質問数を返す |
 | `GET /api/projects/{project_id}/evaluation-cases` | 指定した評価データ版・用途の評価質問を返す |
 | `POST /api/projects/{project_id}/evaluation-cases` | 現在のProjectへ正解付き評価質問を1件登録 |
@@ -4575,7 +4575,7 @@ Trial: 1
 
 このsmokeではHybrid SearchのPhase 2が検索3指標を改善した一方、Metadata Filtering以降はRecallが低下し、Query Optimizationを含むPhase 5はlatencyが増えた。改善機能を増やすこと自体を目的にせず、Phase別提案と失敗Traceから次の一変更を選んで再評価する。
 
-現行asset `1.4.4`はdeployment `<DEPLOYMENT_ID>`へ配置し、`SUCCEEDED`／`RUNNING`／`ACTIVE`、health HTTP 200、resource binding 7件を確認した。Python 264件、Chat UI 21件（合計285件）、Python compile 51ファイル、JavaScript構文、JSON検証にも合格している。PDF viewerはローカルで初回3,057 ms、同一Project・PDF・pageの再表示296 msを確認し、Project切替時に保持iframeを破棄した。旧asset `1.4.1`のremote content APIではPDF 200、byte Range 206、ETag再検証304、private cacheを確認した履歴を保持する。
+現行asset `1.4.5`はGitHubの`main/app`から新規Appへ配置し、`SUCCEEDED`／`RUNNING`／`ACTIVE`、health HTTP 200、resource binding 7件を確認した。Python 306件、Chat UI 27件、差分checkに合格している。許可済み既存Index Variant 1件だけを一覧表示し、AI Search 10件取得、回答、Trace、PDFリンク引用、`run.completed`まで認証付きremote APIで確認した。PDF viewerはローカルで初回3,057 ms、同一Project・PDF・pageの再表示296 msを確認し、Project切替時に保持iframeを破棄した。旧asset `1.4.1`のremote content APIではPDF 200、byte Range 206、ETag再検証304、private cacheを確認した履歴を保持する。
 
 asset `1.4.4`では評価画面にProject／version／split内の質問一覧、初期全選択、個別／一括選択、正解状態／詳細、選択件数／最大試行数、0件開始禁止、折りたたみ追加フォームを実装した。作成APIは1〜1000件の`evaluation_case_ids`を所属検証して`config_json`／`config_hash`へ固定し、Evaluation Jobは選択IDだけを処理する。fieldを持たない旧runの全件評価は後方互換として維持する。選択評価run `<RESOURCE_ID>`はcase `figure-001`だけを処理し、Job `<DATABRICKS_RESOURCE_ID>`／task `<DATABRICKS_RESOURCE_ID>`が`TERMINATED`／`SUCCESS`となった。結果1行、選択外0行、error 0、MLflow run `<RESOURCE_ID>`を確認した。
 
