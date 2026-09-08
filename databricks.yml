@@ -88,38 +88,6 @@ resources:
           experiment:
             experiment_id: ${var.mlflow_experiment_id}
             permission: CAN_EDIT
-      config:
-        command:
-          - python
-          - main.py
-        env:
-          - name: DATABRICKS_WAREHOUSE_ID
-            value_from: app-warehouse
-          - name: UC_CATALOG
-            value: ${var.uc_catalog}
-          - name: UC_SCHEMA
-            value: ${var.uc_schema}
-          - name: UC_VOLUME
-            value_from: toyota-volume
-          - name: VECTOR_SEARCH_ENDPOINT
-            value: ${var.vector_search_endpoint}
-          - name: DEFAULT_INDEX_NAME
-            value_from: baseline-index
-          - name: DEFAULT_LLM_ENDPOINT
-            value_from: default-llm
-          - name: PREP_JOB_ID
-            value_from: prep-job
-          - name: EVAL_JOB_ID
-            value_from: eval-job
-          - name: MLFLOW_EXPERIMENT_ID
-            value_from: mlflow-experiment
-          - name: MLFLOW_TRACKING_URI
-            value: databricks
-          - name: MLFLOW_TRACING_SQL_WAREHOUSE_ID
-            value_from: app-warehouse
-          - name: DATABRICKS_WORKSPACE_UI_HOST
-            value: ${workspace.host}
-
 targets:
   prod:
     mode: production
