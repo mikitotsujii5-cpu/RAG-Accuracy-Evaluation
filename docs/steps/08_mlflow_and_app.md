@@ -210,18 +210,18 @@ https://<APP_HOST>
 
 ## この環境の実測結果
 
-現行source asset `1.5.1`はPDF全画面viewerを含むUIテスト40件に合格しています。field-eng-eastへのremote配置、health、resource binding 7件も確認済みです。Python 344件はasset `1.4.9`の確認記録です。
+現行source asset `1.6.0`は評価用検索データの自動選択とPDF全画面viewerを含むUIテスト42件に合格しています。field-eng-eastへのremote配置、health、resource binding 7件も確認済みです。Python 344件はasset `1.4.9`の確認記録です。
 
 | 項目 | 実測 |
 |---|---|
 | App | `<APP_NAME>`、汎用RAGの説明文 |
-| Deployment | GitHub `main/app`のasset `1.5.1`、field-eng-eastで`SUCCEEDED`。実IDは非掲載 |
+| Deployment | GitHub `main/app`のasset `1.6.0`、field-eng-eastで`SUCCEEDED`。実IDは非掲載 |
 | App／compute | `RUNNING`／`ACTIVE` |
-| Health | version `1.5.1`、`databricks_ready=true` |
+| Health | version `1.6.0`、`databricks_ready=true` |
 | Resources／scope | binding 7件、`iam.access-control:read`、`iam.current-user:read`、`model-serving` |
 | ログインユーザー | `/api/me` HTTP 200、`<DATABRICKS_USER_EMAIL>` |
 | App SP権限 | grant 30文成功。`toyota_index_variants`の`MODIFY`はStatement `<STATEMENT_ID>`、`SELECT`＋`MODIFY`の確認は`<STATEMENT_ID>` |
-| Source test | asset `1.5.1`、PDF全画面viewerを含むUI 40件、差分check成功。Python 344件はasset `1.4.9`の記録 |
+| Source test | asset `1.6.0`、評価用検索データの自動選択とPDF全画面viewerを含むUI 42件、差分check成功。Python 344件はasset `1.4.9`の記録 |
 | App起動 | deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`。旧deploymentのnpm失敗履歴は現行Appと分けて記録 |
 | 評価status／results | asset `1.4.7`で実行済みのPhase 1・1問・1回runをasset `1.4.8`のremote APIで取得。`SUCCEEDED`、1／1、774秒、指標1件、改善提案1件 |
 | 評価結果 | Recall／Correctness／Groundedness／Citation各1.0、error rate 0、p50 5,479 ms。Lakeflow run total 777.125秒 |

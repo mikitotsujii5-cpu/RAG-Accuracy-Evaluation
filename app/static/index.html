@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="DatabricksでPDFを検索するRAGを作り、検索精度・回答品質・応答時間を比べるアプリ">
   <title>RAG精度評価アプリ</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=1.5.1">
+  <link rel="stylesheet" href="/assets/styles.css?v=1.6.0">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f3e58'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='Arial' font-weight='700' font-size='18' fill='%23a8e6cf'%3ER%3C/text%3E%3C/svg%3E">
 </head>
 <body>
@@ -432,10 +432,23 @@
           </div>
           <div class="evaluation-config-grid">
             <label>繰り返し回数<input id="trial-count" type="number" min="1" max="10" value="1"></label>
-            <label>比較する検索データ<select id="evaluation-variant"><option value="">読み込み中…</option></select></label>
             <label>回答用LLM<select id="evaluation-model"><option value="">読み込み中…</option></select></label>
             <label>採点用LLM<select id="judge-model"><option value="">読み込み中…</option></select></label>
-            <div id="evaluation-index-detail" class="model-detail muted-panel evaluation-index-detail">使用するIndexを選択してください。</div>
+          </div>
+          <div id="evaluation-data-context" class="evaluation-data-context loading" role="status" aria-live="polite">
+            <span class="evaluation-data-icon" aria-hidden="true">◇</span>
+            <div class="evaluation-data-copy">
+              <span>評価に使うRAG検索データ</span>
+              <strong id="evaluation-variant-name">確認中…</strong>
+              <small id="evaluation-index-detail">このProjectの使用中データを確認しています。</small>
+            </div>
+            <div class="evaluation-data-actions">
+              <button id="evaluation-open-preparation" class="secondary-button hidden" type="button" data-navigate="data-preparation">データ準備へ</button>
+              <details id="evaluation-variant-switcher" class="evaluation-variant-switcher hidden">
+                <summary>検索データを変更</summary>
+                <label><span class="sr-only">評価に使うRAG検索データ</span><select id="evaluation-variant"><option value="">読み込み中…</option></select></label>
+              </details>
+            </div>
           </div>
           <div class="evaluation-launch-actions">
             <p id="evaluation-run-estimate" class="evaluation-run-estimate">質問とPhaseを選択すると実行数を表示します。</p>
@@ -545,6 +558,6 @@
     </div>
   </div>
 
-  <script src="/assets/app.js?v=1.5.1" defer></script>
+  <script src="/assets/app.js?v=1.6.0" defer></script>
 </body>
 </html>

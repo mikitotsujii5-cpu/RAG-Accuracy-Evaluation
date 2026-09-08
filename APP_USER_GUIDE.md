@@ -7,7 +7,7 @@
 対象Workspaceは`field-eng-east`（ID `<WORKSPACE_ID>`）です。Databricksへサインインし、このAppの利用権限を持つアカウントで開いてください。
 
 > [!NOTE]
-> 現行sourceはasset version `1.5.1`です。PDF全画面viewerを含むUIテスト40件に合格し、field-eng-eastへのremote配置、health、Resource Binding 7件を確認済みです。Python 344件はasset `1.4.9`の確認記録です。
+> 現行sourceはasset version `1.6.0`です。評価用検索データの自動選択とPDF全画面viewerを含むUIテスト42件に合格し、field-eng-eastへのremote配置、health、Resource Binding 7件を確認済みです。Python 344件はasset `1.4.9`の確認記録です。
 
 > [!CAUTION]
 > 付属のトヨタ車種関連PDFはすべて架空の評価データです。内容を実車の操作、整備、救助、購入判断に使わないでください。これらは同梱シナリオであり、アプリは車両以外のPDFにも使えます。
@@ -306,12 +306,14 @@ G01の登録例:
    - Phaseは全幅のカードに左から1〜5の順で表示される。横幅が足りない場合はカード部分を横へスクロールする。
 4. 「繰り返し回数」を選ぶ。既定値は1。最初の動作確認は1、正式比較は事前に決めた同じ回数を使う。
 5. 表示された「最大○試行」が意図した件数か確認する。
-6. 「比較する検索データ」を1つ選ぶ。
+6. 「評価に使うRAG検索データ」を確認する。Projectの使用中データが自動で選ばれるため、通常は操作不要。
+   - 利用可能なデータが複数ある場合だけ「検索データを変更」が表示される。
+   - 未作成の場合は「データ準備へ」を押し、先にRAG検索データを作成・同期する。
 7. 回答LLMとJudge LLMを選ぶ。
 8. 「選択した○問でRAG精度を比較」を押す。
 9. 進捗が完了し、Phase比較表とグラフが表示されるまで待つ。
 
-質問が1問、Phaseが5つ、繰り返しが1回なら、画面には「5試行」と表示されます。開始ボタンは、質問、Phase、検索データ、回答LLM、採点LLMがすべて選ばれた場合だけ有効です。質問を0件にすると「質問を選択してください」となり、評価を開始できません。APIも1〜1000件の質問IDだけを受け付け、すべてが現在のProject・評価データ版・用途に属することを再確認します。受付後は選択した質問IDを設定とhashへ固定し、Lakeflow Evaluation Jobはその質問だけを全Phaseで評価します。
+質問が1問、Phaseが5つ、繰り返しが1回なら、画面には「5試行」と表示されます。開始ボタンは、質問、Phase、自動選択された検索データ、回答LLM、採点LLMがすべてそろった場合だけ有効です。検索データがない場合は「先にRAG検索データを作成」、質問が0件の場合は「質問を選択してください」と表示されます。APIも1〜1000件の質問IDだけを受け付け、すべてが現在のProject・評価データ版・用途に属することを再確認します。受付後は選択した質問IDを設定とhashへ固定し、Lakeflow Evaluation Jobはその質問だけを全Phaseで評価します。
 
 開始ボタンを押すと、Jobの登録完了を待たずに回転表示と進捗カードが現れます。進捗カードでは次を確認できます。
 
@@ -415,7 +417,7 @@ advisorにはRecall／Precision／nDCGだけでなく、Answer Correctness、Gro
 - 旧asset `1.4.1`のトヨタ互換回帰でも期待回答`60`と一致し、Trace `<TRACE_ID>`、引用2件を確認済みです。
 - baseline Projectの使用中検索データは`baseline-standard-512-v1`へ復元済みです。
 - 旧asset `1.4.1`のremote回帰では、同一requestの保存がuser／assistant各1件であること、停止要求が`run.cancelled`／永続状態`CANCELLED`になることを確認済みです。評価履歴再表示、`ERROR` PDF再解析、PDFリンクだけを返すlive citationは現行sourceでも回帰済みです。
-- 現行asset `1.5.1`はGitHubの`main/app`からfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.5.1`／`databricks_ready=true`、resource binding 7件、PDF全画面viewerを確認しました。静的asset URLも`v=1.5.1`へ更新し、旧JavaScript／CSSのブラウザキャッシュを破棄します。
+- 現行asset `1.6.0`はGitHubの`main/app`からfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.6.0`／`databricks_ready=true`、resource binding 7件、評価用検索データの自動選択、未準備時の「データ準備へ」、PDF全画面viewerを確認しました。
 - asset `1.4.7`で実行済みだったPhase 1・1問・1回runをasset `1.4.8`のremote status／results APIで取得し、`SUCCEEDED`、1／1試行、`elapsed_seconds=774`を確認しました。Lakeflow run totalは777.125秒、指標1件、改善提案1件、Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msです。これはasset `1.4.8`で新規評価を実行した証跡ではありません。
 - Phase横並び、結果画面、経過時間「12分54秒」が3秒後も固定されることは、ローカルSSO代替画面で目視確認済みです。SSO済みremoteブラウザによる手操作、TTFT、残り7 profileは未確認です。
 - 現行deployment `<DEPLOYMENT_ID>`では、Project `<RESOURCE_ID>`に残っていた30分超の孤児Chat run 2件とassistant messageを`ERROR`へ整合した後、document `<RESOURCE_ID>`の削除がHTTP 202で完了しました。影響旧Variant 4件から後継Variant 2件を作り、両方を`READY`まで確認しました。source／AI Searchは削除PDF 0件で、保持document `<RESOURCE_ID>`だけを返します。

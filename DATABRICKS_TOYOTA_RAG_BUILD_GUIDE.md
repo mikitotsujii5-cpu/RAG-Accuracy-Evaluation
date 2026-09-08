@@ -2726,7 +2726,7 @@ idle → submitting → streaming → stopping → cancelled
 | サンプル質問 | Data Preparation成功後に`starter-v1`／`development`へ概要、重要点3つ、手順／条件の3件を登録。期待回答と正解ページは空 |
 | 正解情報 | 質問ごとに回答正解／検索正解の登録状態を表示。「正解を確認」で期待回答、正解PDF、正解ページ、認可済みPDFリンクを表示 |
 | 評価質問の追加 | 初期状態で閉じたフォームを必要なときだけ開き、質問、正解PDF、正解ページ、データ版、用途を登録。期待回答は任意。回答可能な質問では解析済みPDFとPDF内のページ番号を必須にする |
-| 実行設定 | Phase 1～5、trial数、Variant、回答LLM、judge LLM、dataset version／split、選択case ID。trialの既定値は1。選択件数と`case × Phase × trial`の最大試行数を表示し、質問、Phase、Variant、両LLMのいずれかが未選択なら開始不可 |
+| 実行設定 | Phase 1～5、trial数、回答LLM、judge LLM、dataset version／split、選択case ID。VariantはProjectの`active_variant_id`を優先して自動選択し、候補が複数ある場合だけ変更操作を表示する。未作成時は選択欄ではなく「データ準備へ」を表示する。trialの既定値は1。選択件数と`case × Phase × trial`の最大試行数を表示し、質問、Phase、Variant、両LLMのいずれかが未選択なら開始不可 |
 | 進捗 | 開始要求中からspinnerを表示し、受付、Job起動、Phase評価、指標集計、改善提案の5工程、全体とPhase別の完了試行数、割合、経過時間、cancelを表示。経過時間はstatus APIの`elapsed_seconds`を基準に更新し、terminal状態で固定 |
 
 チャットの空画面には、要点、結論と根拠、手順、注意事項、対象範囲、数値条件、専門用語、版差分、不足情報を確認する9件の汎用質問例を表示する。Phase選択領域の見出しは「比較条件を選択」とする。
@@ -2738,7 +2738,7 @@ idle → submitting → streaming → stopping → cancelled
 | ケース詳細 | 質問、回答、PDF引用、検索結果メタデータ、judge rationale、品質／性能Traceリンク。チャンク本文は画面へ露出しない |
 | 改善提案 | Phaseごとの診断、優先変更、期待効果、trade-off、再評価方法 |
 
-Phase 1〜5は全幅カード内へ横並びで置く。デスクトップでもカード幅が足りなければこの領域だけを横スクロールし、Phaseの追加順を崩さない。狭い画面では実行条件、工程、指標群を1列へ切り替え、結果表には横スクロールの案内を表示する。
+Phase 1〜5は全幅カード内へ横並びで置く。デスクトップでもカード幅が足りなければこの領域だけを横スクロールし、Phaseの追加順を崩さない。検索データは通常操作させず、選択結果を読み取り専用の要約カードで見せる。狭い画面では実行条件、工程、指標群を1列へ切り替え、結果表には横スクロールの案内を表示する。
 
 開始ボタンは、評価質問、1つ以上のPhase、既存Indexに対応するVariant、回答LLM、judge LLMがそろった場合だけ有効にする。たとえば1問、Phase 1〜5、trial 1なら最大5試行である。送信直後はJob run作成APIの応答前でも`SUBMITTING`として進捗カードを表示し、利用者が二重に開始しないよう設定と開始ボタンを無効化する。
 
@@ -4619,9 +4619,9 @@ Trial: 1
 
 このsmokeではHybrid SearchのPhase 2が検索3指標を改善した一方、Metadata Filtering以降はRecallが低下し、Query Optimizationを含むPhase 5はlatencyが増えた。改善機能を増やすこと自体を目的にせず、Phase別提案と失敗Traceから次の一変更を選んで再評価する。
 
-現行source asset `1.5.1`はPDF全画面viewerを含むUIテスト40件と差分checkに合格した。field-eng-eastへのremote配置、health、resource binding 7件も確認した。Python 344件はasset `1.4.9`の確認記録である。
+現行source asset `1.6.0`は評価用検索データの自動選択とPDF全画面viewerを含むUIテスト42件と差分checkに合格した。field-eng-eastへのremote配置、health、resource binding 7件も確認した。Python 344件はasset `1.4.9`の確認記録である。
 
-同日にGitHubの`main/app`からasset `1.5.1`をfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.5.1`／`databricks_ready=true`、resource binding 7件を確認した。静的asset URLを`v=1.5.1`へ更新し、認証付きremote画面でPDF全画面viewer、別タブ表示、ダウンロード用要素を確認した。実ID、メール、App URL、Workspace IDは公開記録へ含めない。
+同日にGitHubの`main/app`からasset `1.6.0`をfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.6.0`／`databricks_ready=true`、resource binding 7件を確認した。認証付きremote画面でProjectの検索データ未作成時に不自然な選択欄を出さず「データ準備へ」を表示すること、PDF全画面viewer、別タブ表示、ダウンロード用要素を確認した。実ID、メール、App URL、Workspace IDは公開記録へ含めない。
 
 2026-09-09にGitHubの`main/app`からasset `1.4.8`を配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.8`／`databricks_ready=true`、resource binding 7件を確認した。asset `1.4.7`で実行済みだったPhase 1・1問・1回runをasset `1.4.8`のremote status／results APIで取得し、`SUCCEEDED`、1／1試行、`elapsed_seconds=774`、Lakeflow run total 777.125秒、指標1件、改善提案1件を確認した。Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msである。ローカルSSO代替画面では、Phase横並び、結果画面、経過時間12分54秒が3秒後も固定されることを目視確認した。評価の実行はasset `1.4.7`、状態と結果の互換性確認はasset `1.4.8`の証跡であり、asset `1.4.8`による新規評価実行とは扱わない。SSO済みremoteブラウザ手操作、TTFT、残り7 profileは`PENDING`である。
 

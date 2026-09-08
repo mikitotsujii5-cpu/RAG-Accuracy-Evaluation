@@ -744,16 +744,41 @@ function variantIndexName(variant) {
 }
 
 function updateRuntimeIndexDetails() {
-  const pairs = [
-    [$("#chat-variant"), $("#chat-index-detail")],
-    [$("#evaluation-variant"), $("#evaluation-index-detail")],
-  ];
-  pairs.forEach(([select, detail]) => {
-    if (!select || !detail) return;
-    const variant = state.variants.find((item) => item.variant_id === select.value);
-    const name = variantIndexName(variant);
-    detail.textContent = name ? `使用するIndex: ${name}` : "使用するIndexを選択してください。";
-  });
+  const chatSelect = $("#chat-variant");
+  const chatDetail = $("#chat-index-detail");
+  if (chatSelect && chatDetail) {
+    const chatVariant = state.variants.find((item) => item.variant_id === chatSelect.value);
+    const chatIndexName = variantIndexName(chatVariant);
+    chatDetail.textContent = chatIndexName ? `使用するIndex: ${chatIndexName}` : "使用するIndexを選択してください。";
+  }
+
+  const select = $("#evaluation-variant");
+  const context = $("#evaluation-data-context");
+  const summary = $("#evaluation-variant-name");
+  const detail = $("#evaluation-index-detail");
+  const prepareButton = $("#evaluation-open-preparation");
+  const switcher = $("#evaluation-variant-switcher");
+  if (!select || !context || !summary || !detail || !prepareButton || !switcher) return;
+  const readyVariants = state.variants.filter(
+    (item) => String(item.status || "READY").toUpperCase() === "READY",
+  );
+  const variant = readyVariants.find((item) => item.variant_id === select.value);
+  context.classList.remove("loading", "ready", "empty");
+  context.classList.add(variant ? "ready" : "empty");
+  prepareButton.classList.toggle("hidden", Boolean(variant));
+  switcher.classList.toggle("hidden", readyVariants.length <= 1);
+  if (readyVariants.length <= 1) switcher.open = false;
+  if (!variant) {
+    summary.textContent = "RAG検索データがありません";
+    detail.textContent = "先に「データ準備」でPDFを検索できる状態にしてください。";
+    return;
+  }
+  const method = formatChunkMethod(variant.chunk_method);
+  summary.textContent = `${method}${variant.chunk_size ? ` / ${variant.chunk_size} tokens` : ""}`;
+  const indexName = variantIndexName(variant);
+  detail.textContent = indexName
+    ? `このProjectの使用中データを自動選択 · AI Search: ${indexName}`
+    : "このProjectの使用中データを自動選択しました。";
 }
 
 function openProjectModal() {
@@ -2126,9 +2151,14 @@ function updateEvaluationSelectionUi() {
     }
   }
   if (start && !running) {
-    const configurationReady = Boolean(phases && $("#evaluation-variant").value && $("#evaluation-model").value && $("#judge-model").value);
+    const variantReady = Boolean($("#evaluation-variant").value);
+    const configurationReady = Boolean(phases && variantReady && $("#evaluation-model").value && $("#judge-model").value);
     start.disabled = selectedCount === 0 || !configurationReady;
-    start.textContent = selectedCount ? `選択した${selectedCount}問でRAG精度を比較` : "質問を選択してください";
+    start.textContent = !variantReady
+      ? "先にRAG検索データを作成"
+      : selectedCount
+        ? `選択した${selectedCount}問でRAG精度を比較`
+        : "質問を選択してください";
   }
 }
 
@@ -3668,7 +3698,8 @@ async function startEvaluation() {
     evaluation_case_ids: evaluationCaseIds,
     answer_model_key: $("#evaluation-model").value, judge_model_key: $("#judge-model").value, final_k: 10,
   };
-  if (!phases.length || !payload.dataset_version || !evaluationCaseIds.length || !payload.variant_id || !payload.answer_model_key || !payload.judge_model_key) return showError(new Error("評価質問、Phase、検索データ、回答モデル、採点モデルを選択してください。"));
+  if (!payload.variant_id) return showError(new Error("先にデータ準備でRAG検索データを作成してください。"));
+  if (!phases.length || !payload.dataset_version || !evaluationCaseIds.length || !payload.answer_model_key || !payload.judge_model_key) return showError(new Error("評価質問、Phase、回答モデル、採点モデルを選択してください。"));
   if (!Number.isInteger(payload.trial_count) || payload.trial_count < 1 || payload.trial_count > 10) return showError(new Error("繰り返し回数は1〜10で指定してください。"));
   clearTimeout(state.evaluationPoll);
   state.evaluationPoll = null;

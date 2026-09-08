@@ -158,8 +158,8 @@ app/.venv/bin/python scripts/smoke_test_last_document_deletion.py \
 
 確認済み項目は`SUCCESS`です。
 
-- 現行source asset `1.5.1`はPDF全画面viewerを含むUI 40件と差分checkが成功しました。Python 344件はasset `1.4.9`の確認記録です。
-- 現行asset `1.5.1`はGitHubの`main/app`からfield-eng-eastへ配置済みです。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.5.1`／`databricks_ready=true`、resource binding 7件を確認しました。静的asset URLを`v=1.5.1`へ更新し、認証付きremote画面で全画面viewer、別タブ表示、ダウンロード用要素を確認しました。実ID、メール、App URL、Workspace IDは公開記録へ含めていません。
+- 現行source asset `1.6.0`は評価用検索データの自動選択とPDF全画面viewerを含むUI 42件と差分checkが成功しました。Python 344件はasset `1.4.9`の確認記録です。
+- 現行asset `1.6.0`はGitHubの`main/app`からfield-eng-eastへ配置済みです。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.6.0`／`databricks_ready=true`、resource binding 7件を確認しました。認証付きremote画面で、検索データ未作成時の「データ準備へ」、通常時の自動選択、複数候補時だけの変更操作を確認しました。実ID、メール、App URL、Workspace IDは公開記録へ含めていません。
 - asset `1.4.7`で実行済みだったPhase 1・1問・1回runを、asset `1.4.8`のremote status／results APIで取得しました。状態は`SUCCEEDED`、1／1試行、`elapsed_seconds=774`、Lakeflow run totalは777.125秒、指標1件、改善提案1件、Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msです。asset `1.4.8`で新しい評価runを起動した証跡ではありません。
 - Phase横並び、結果画面、経過時間「12分54秒」が3秒後も固定されることは、ローカルSSO代替画面で目視確認しました。asset `1.4.5`の既存Index、実RAGチャット、Trace、PDFリンク引用は過去のremote履歴として保持します。
 - baseline Projectの使用中Variantを`baseline-standard-512-v1`へ復元し、UPDATE Statement `<STATEMENT_ID>`と検証SELECT `<STATEMENT_ID>`で確認しました。
