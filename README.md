@@ -47,7 +47,7 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 
 ## 現在の構築状態
 
-現行source asset `1.4.9`はPython 343件とUI 40件、合計383件の自動テストに合格しています。Databricks機能リンク、質問例9件、「比較条件を選択」、個人固有のCatalog名を持たないResource Binding解決を含みます。remote配置はこの変更のデプロイ完了後に更新します。直前のremote asset `1.4.8`はGitHubの`main/app`から配置済みで、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health `databricks_ready=true`、resource binding 7件を確認しています。公開用Markdownには実測ID、メール、App URL、Workspace IDを含めません。
+現行source asset `1.4.9`はPython 344件とUI 40件、合計384件の自動テストに合格しています。GitHubの`main/app`から配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.9`／`databricks_ready=true`、resource binding 7件を確認しました。Databricks機能リンク13件、必須リンク12種類、質問例9件、「比較条件を選択」、個人固有のCatalog名を持たないResource Binding解決も実環境で確認済みです。公開用Markdownには実測ID、メール、App URL、Workspace IDを含めません。
 
 | 項目 | 状態 | 実測 |
 |---|---|---|
@@ -60,9 +60,9 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 | Phase 1〜5 Evaluation Job | `SUCCESS` | Job `<EVALUATION_JOB_ID>`、run `<DATABRICKS_RESOURCE_ID>`、60結果、エラー0、Trace 60、LLM改善提案5 |
 | 未ラベルstarter評価 | `SUCCESS` | eval `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`。Phase 1×3 trial、error 0、Answer Correctness `NULL`、提案1件 |
 | MLflow Trace | `SUCCESS` | 全60 Traceで`AGENT`配下の`RETRIEVER`／`CHAT_MODEL`／`EVALUATOR`を確認 |
-| Databricks App | `SUCCESS` | GitHub `main/app`のasset `1.4.8`。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件 |
+| Databricks App | `SUCCESS` | GitHub `main/app`のasset `1.4.9`。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件 |
 | App live read APIs | `SUCCESS` | health HTTP 200、`/api/me`でログインメールを取得、Project別PDF／Variant／評価データ／評価履歴を取得 |
-| デプロイ済みasset | `SUCCESS` | GitHub `main/app`、health version `1.4.8`／`databricks_ready=true` |
+| デプロイ済みasset | `SUCCESS` | GitHub `main/app`、health version `1.4.9`／`databricks_ready=true`、Workspace機能リンク13件 |
 | Phase 1評価の再表示 | `SUCCESS` | asset `1.4.7`で実行済みの1問×1回runをasset `1.4.8`のremote APIで取得。`SUCCEEDED`、1／1、`elapsed_seconds=774`、指標1件、改善提案1件 |
 | PDF概要監査（直近snapshot） | `SUCCESS` | 20件時点で空欄0件、20〜30字違反0件。`AI_GENERATED=10`、`AI_GENERATED_NORMALIZED=9`、`USER=1`。その後追加された削除E2E用2件へは外挿しない |
 | App SP権限 | `SUCCESS` | 既存権限checkに加え、`toyota_index_variants`の`SELECT`／`MODIFY`を確認 |
@@ -74,7 +74,7 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 | RAG検索データ作成E2E | `SUCCESS` | Semantic／512のsource 6行、Index 6行、別Project行0、Index READY |
 | 汎用RAG migration／再デプロイ／非車両PDF E2E | `SUCCESS` | migration、汎用化source、登録・解析・Variant・チャット・引用・評価を実環境で確認 |
 | Chat多重送信・停止 | `SUCCESS` | 旧asset `1.4.1`のremote履歴。同一request再送後も保存message 2件、停止API `CANCEL_REQUESTED`、terminal `run.cancelled`、履歴 `CANCELLED` |
-| 現行sourceの回帰テスト | `SUCCESS` | asset `1.4.9`、Python 343件、UI 40件、合計383件、差分check成功 |
+| 現行sourceの回帰テスト | `SUCCESS` | asset `1.4.9`、Python 344件、UI 40件、合計384件、差分check成功 |
 | 評価質問の選択 | `SUCCESS` | Project／評価データ版／用途内の登録済み質問を初期全選択。個別選択、すべて選択、選択解除、正解状態・期待回答・正解PDF／ページ、選択件数・最大試行数を表示し、0件では開始不可。API／Jobは選択IDだけを凍結・評価 |
 | PDF viewer | `SUCCESS` | 旧assetのremote content APIでPDF 200、Range 206、ETag 304、private cacheを確認。現行assetは削除前後のPDF 200を確認。ローカル再表示296 ms、Project切替時は保持iframeを破棄 |
 | PDF単体の論理削除 | `SUCCESS` | asset `1.4.4`でProject `<RESOURCE_ID>`のPDF `<RESOURCE_ID>`をDELETE 202。孤児Chat run 2件とassistant messageを`ERROR`へ整合後、影響旧Variant 4件から後継Variant 2件をREADY化。両Indexで削除PDF hit 0、保持PDFだけを検索 |
@@ -425,15 +425,15 @@ Appの説明やuser scopeを更新するときも、7件のresourceを含むfull
 
 ## 現行sourceの検証結果
 
-2026-09-08にローカルで次を確認しました。
+2026-09-09にローカルで次を確認しました。
 
-- `app/.venv/bin/python -m pytest app/tests jobs/tests -q`: Python 337 tests pass
-- `cd app && npm run test:chat-ui`: UI 38 tests pass
-- 自動テスト合計: 375 tests pass
+- `app/.venv/bin/python -m pytest app/tests jobs/tests -q`: Python 344 tests pass
+- `cd app && npm run test:chat-ui`: UI 40 tests pass
+- 自動テスト合計: 384 tests pass
 - JavaScript構文2ファイル、Python compile 51ファイル、JSON 19ファイル: pass
 - 4画面とPhase 1〜5のUI確認: browser console error 0
 
-現行remote asset `1.4.8`はGitHubの`main/app`から配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.8`／`databricks_ready=true`、binding 7件を確認しました。asset `1.4.7`で実行済みだったPhase 1・1問・1回runをasset `1.4.8`のremote status／results APIで取得し、`SUCCEEDED`、1／1試行、`elapsed_seconds=774`、Lakeflow run total 777.125秒、指標1件、改善提案1件を確認しました。Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msです。ローカルSSO代替画面では、Phase横並び、結果画面、経過時間「12分54秒」が3秒後も固定されることを目視確認しました。評価実行はasset `1.4.7`、status／resultsの互換性確認はasset `1.4.8`であり、同じ証跡として混同しません。SSO済みremoteブラウザ手操作、TTFT、残り7 profileは`PENDING`です。asset `1.4.5`の既存Index、実RAGチャット、Trace、PDFリンク引用と、asset `1.4.4`の評価質問選択／PDF削除は過去の検証履歴として保持します。
+現行remote asset `1.4.9`はGitHubの`main/app`から配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.9`／`databricks_ready=true`、binding 7件を確認しました。機能リンク13件、必須12種類の存在と安全なWorkspace host、質問例9件、「比較条件を選択」、個人名の固定表示がないことも認証付きremote APIで確認しました。asset `1.4.7`で実行済みだったPhase 1 runをasset `1.4.8`で再表示した結果は過去の証跡として保持し、今回の実行とは混同しません。TTFTと残り7 profileは`PENDING`です。
 
 ## デプロイ記録
 
@@ -446,7 +446,7 @@ Appの説明やuser scopeを更新するときも、7件のresourceを含むfull
 | Data preparation Classic増強履歴 | run `<DATABRICKS_RESOURCE_ID>` | 2026-09-08 | D16 Driver／D8 Worker×2、Standard／512／Qwen3、3 chunks、Index READY。Setup 382秒、実処理169秒、合計552.328秒。fallback JSONとして保持 |
 | Evaluation Job | `<EVALUATION_JOB_ID>`／run `<DATABRICKS_RESOURCE_ID>` | 2026-09-06 | `SUCCESS`、Phase 1〜5／development 60結果・エラー0・Trace 60・提案5件 |
 | Index sync Job | `<INDEX_SYNC_JOB_ID>`／run `<DATABRICKS_RESOURCE_ID>` | 2026-09-06 | `SUCCESS`、triggered sync |
-| Databricks App | 実ID／URLは非掲載 | 2026-09-09 | GitHub `main/app`、asset `1.4.8`、`SUCCEEDED`／`RUNNING`／`ACTIVE`、health `databricks_ready=true`、binding 7件 |
+| Databricks App | 実ID／URLは非掲載 | 2026-09-09 | GitHub `main/app`、asset `1.4.9`、`SUCCEEDED`／`RUNNING`／`ACTIVE`、health `databricks_ready=true`、binding 7件、機能リンク13件 |
 | Phase 1評価の再表示 | 実run IDは非掲載 | 2026-09-09 | asset `1.4.7`で実行済みの1問×1回runをasset `1.4.8`で再表示。1／1、774秒、指標1件、提案1件、error 0 |
 | 選択評価smoke | eval run `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>` | 2026-09-08 | `TERMINATED`／`SUCCESS`。`figure-001`だけ、結果1行、選択外0、error 0。MLflow run `<RESOURCE_ID>` |
 | 孤児Chat run回復付きPDF削除 | Project `<RESOURCE_ID>`／document `<RESOURCE_ID>` | 2026-09-08 | DELETE 202、deletion request `<RESOURCE_ID>`。後継prep `<RESOURCE_ID>`／`<RESOURCE_ID>`は両方READY、削除PDF行／hit 0 |

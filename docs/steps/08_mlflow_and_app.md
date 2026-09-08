@@ -210,18 +210,18 @@ https://<APP_HOST>
 
 ## この環境の実測結果
 
-現行source asset `1.4.8`はPython 337件とUI 38件、合計375件の自動テストに合格しています。2026-09-09にGitHubの`main/app`から配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.8`／`databricks_ready=true`、resource binding 7件を確認しました。asset `1.4.7`で実行済みだったPhase 1・1問・1回runは、asset `1.4.8`のstatus／results APIで再表示できました。評価実行と再表示のassetを区別します。asset `1.4.5`の既存Index／Chat／Trace／PDF引用、asset `1.4.4`の評価質問選択／PDF削除、asset `1.4.1`の非車両G01は過去の検証履歴です。
+現行source asset `1.4.9`はPython 344件とUI 40件、合計384件の自動テストに合格しています。2026-09-09にGitHubの`main/app`から配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、health version `1.4.9`／`databricks_ready=true`、resource binding 7件を確認しました。認証付きremote APIでWorkspace機能リンク13件、必須12種類、安全なhost、質問例9件、「比較条件を選択」、個人名の固定表示なしも確認しています。
 
 | 項目 | 実測 |
 |---|---|
 | App | `<APP_NAME>`、汎用RAGの説明文 |
-| Deployment | GitHub `main/app`のasset `1.4.8`、`SUCCEEDED`。実IDは非掲載 |
+| Deployment | GitHub `main/app`のasset `1.4.9`、`SUCCEEDED`。実IDは非掲載 |
 | App／compute | `RUNNING`／`ACTIVE` |
-| Health | version `1.4.8`、`databricks_ready=true` |
+| Health | version `1.4.9`、`databricks_ready=true` |
 | Resources／scope | binding 7件、`iam.access-control:read`、`iam.current-user:read`、`model-serving` |
 | ログインユーザー | `/api/me` HTTP 200、`<DATABRICKS_USER_EMAIL>` |
 | App SP権限 | grant 30文成功。`toyota_index_variants`の`MODIFY`はStatement `<STATEMENT_ID>`、`SELECT`＋`MODIFY`の確認は`<STATEMENT_ID>` |
-| Source test | asset `1.4.8`、Python 337件、UI 38件、合計375件、差分check成功 |
+| Source test | asset `1.4.9`、Python 344件、UI 40件、合計384件、差分check成功 |
 | App起動 | deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`。旧deploymentのnpm失敗履歴は現行Appと分けて記録 |
 | 評価status／results | asset `1.4.7`で実行済みのPhase 1・1問・1回runをasset `1.4.8`のremote APIで取得。`SUCCEEDED`、1／1、774秒、指標1件、改善提案1件 |
 | 評価結果 | Recall／Correctness／Groundedness／Citation各1.0、error rate 0、p50 5,479 ms。Lakeflow run total 777.125秒 |

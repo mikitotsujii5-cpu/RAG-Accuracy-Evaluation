@@ -69,11 +69,11 @@ find app -maxdepth 2 \( -name '.venv' -o -name '__pycache__' -o -name '.pytest_c
 
 ## この環境の実測結果
 
-`SUCCESS`。2026-09-09に現行source asset `1.4.9`の`app/tests`と`jobs/tests`を統合実行し、Python 343件すべてが合格しました。加えてUIのjsdom回帰テスト40件が合格し、自動テストは合計383件です。Workspace機能リンクのhost／path検証、質問例9件、「比較条件を選択」、完全修飾Resource BindingからのCatalog／Schema判定も含みます。差分checkも合格しました。
+`SUCCESS`。2026-09-09に現行source asset `1.4.9`の`app/tests`と`jobs/tests`を統合実行し、Python 344件すべてが合格しました。加えてUIのjsdom回帰テスト40件が合格し、自動テストは合計384件です。Workspace機能リンクのhost／path検証、質問例9件、「比較条件を選択」、完全修飾Resource BindingからのCatalog／Schema判定も含みます。差分checkも合格しました。
 
 テストには、PDFだけの登録、タイトル自動補完、汎用メタデータ、Project限定Metadata Filteringに加え、FMAPIモデルによって拒否されるoptional sampling値を送らないこと、最終回答で参照した引用だけを保存すること、同一`client_request_id`を冪等化すること、停止と完了の競合を正しく閉じること、Chat Trace IDを履歴と画面へ渡すこと、MLflow Trace階層の契約が含まれます。さらに現行sourceでは、20〜30字の概要生成、Qwen3の既定値とfallback表示、ログインユーザー取得、Project／会話削除、PDFの`Range`／`ETag`、PDF原文リンク、prefetch、`ERROR` PDF再解析、評価履歴再表示、未ラベルCorrectness除外、advisorの回答品質根拠、評価質問の個別／一括選択と固定、評価runの復元／停止／終端収束、同一`Idempotency-Key`による評価開始再送、`eval_run_id`によるJob冪等化、`retry_after_ms`、一時的な`UNKNOWN`状態、確定的Job拒否の`FAILED`収束、停止APIの再試行、重複Phase集約、結果取得中spinner、結果APIの45秒timeout／最大3回再試行、評価履歴からの結果再取得、Job IDの正整数検証、AI Search GETで同期列が省略される応答、PDF単体削除の権限／競合／冪等性／後継Variant／最後のPDF、30分超の孤児Chat run回復、既存Index許可外の旧Variantを一覧から除外する回帰も対象です。remote配置と評価再表示の実測はStep 8〜9へ記録します。
 
-現行sourceは、上記343件のPython自動テストと40件のUIテスト、合計383件を確認済みです。asset `1.4.9`のremote配置はStep 8で確認します。asset `1.4.8`のremote配置と、asset `1.4.7`で実行済みのPhase 1 runをasset `1.4.8`で再表示した結果は過去の`SUCCESS`です。評価実行と再表示のassetを混同しません。
+現行sourceは、上記344件のPython自動テストと40件のUIテスト、合計384件を確認済みです。asset `1.4.9`のremote配置はStep 8で`SUCCESS`を確認しました。asset `1.4.8`のremote配置と、asset `1.4.7`で実行済みのPhase 1 runをasset `1.4.8`で再表示した結果は過去の`SUCCESS`です。評価実行と再表示のassetを混同しません。
 
 削除E2E helperがSQL Statement Execution APIを呼ぶときは、両helperで`ExecuteStatementRequestOnWaitTimeout`をimportし、`on_wait_timeout=ExecuteStatementRequestOnWaitTimeout.CONTINUE`を渡します。文字列`"CONTINUE"`ではSDK内部で`AttributeError: 'str' object has no attribute 'value'`となることを実環境で検出し、enumへ修正後にfresh helperがexit 0となりました。`jobs/tests/test_deployment_contract.py`の2件の契約testで、このenum指定を固定しています。
 
