@@ -20,7 +20,7 @@ WITH ranked_documents AS (
       PARTITION BY project_id ORDER BY document_id, doc_uri
     ) AS document_rank,
     count(*) OVER (PARTITION BY project_id) AS document_count
-  FROM mikito_toyota_rag_eval.rag_accuracy.toyota_document_registry
+  FROM rag_accuracy_demo.rag_accuracy.toyota_document_registry
   WHERE processing_status IN ('PARSED', 'READY')
     AND doc_uri IS NOT NULL
     AND trim(doc_uri) <> ''
@@ -61,14 +61,14 @@ candidate_source AS (
 source AS (
   SELECT candidate.*
   FROM candidate_source candidate
-  LEFT ANTI JOIN mikito_toyota_rag_eval.rag_accuracy.toyota_rag_eval_cases existing
+  LEFT ANTI JOIN rag_accuracy_demo.rag_accuracy.toyota_rag_eval_cases existing
     ON existing.project_id = candidate.project_id
    AND existing.dataset_version = 'starter-v1'
    AND existing.dataset_split = 'development'
    AND lower(trim(existing.question)) = lower(trim(candidate.question))
    AND existing.eval_case_id <> candidate.eval_case_id
 )
-MERGE INTO mikito_toyota_rag_eval.rag_accuracy.toyota_rag_eval_cases AS target
+MERGE INTO rag_accuracy_demo.rag_accuracy.toyota_rag_eval_cases AS target
 USING source
 ON target.project_id = source.project_id
 AND target.eval_case_id = source.eval_case_id
@@ -104,12 +104,12 @@ WHEN NOT MATCHED THEN INSERT (
 
 -- Select the starter dataset only when a Project does not already have an
 -- explicitly selected, human-labelled evaluation dataset.
-UPDATE mikito_toyota_rag_eval.rag_accuracy.toyota_rag_projects AS project
+UPDATE rag_accuracy_demo.rag_accuracy.toyota_rag_projects AS project
 SET active_dataset_version = 'starter-v1', updated_at = current_timestamp()
 WHERE active_dataset_version IS NULL
   AND EXISTS (
     SELECT 1
-    FROM mikito_toyota_rag_eval.rag_accuracy.toyota_rag_eval_cases eval_case
+    FROM rag_accuracy_demo.rag_accuracy.toyota_rag_eval_cases eval_case
     WHERE eval_case.project_id = project.project_id
       AND eval_case.dataset_version = 'starter-v1'
       AND eval_case.dataset_split = 'development'
@@ -123,7 +123,7 @@ SELECT
   count(*) AS starter_case_count,
   count_if(expected_answer IS NOT NULL OR size(expected_facts) > 0) AS fabricated_answer_labels,
   count_if(size(relevant_pages) > 0 OR size(relevance_judgments) > 0) AS fabricated_page_labels
-FROM mikito_toyota_rag_eval.rag_accuracy.toyota_rag_eval_cases
+FROM rag_accuracy_demo.rag_accuracy.toyota_rag_eval_cases
 WHERE dataset_version = 'starter-v1'
   AND dataset_split = 'development'
   AND question_type = 'starter_sample_unlabeled'

@@ -64,7 +64,7 @@ class DeploymentContractTest(unittest.TestCase):
             config["embedding_endpoint"],
             "databricks-qwen3-embedding-0-6b",
         )
-        self.assertIn("GRANT SELECT ON TABLE mikito_toyota_rag_eval.rag_accuracy.toyota_rag_model_defaults", grants)
+        self.assertIn("GRANT SELECT ON TABLE rag_accuracy_demo.rag_accuracy.toyota_rag_model_defaults", grants)
 
     def test_existing_and_future_projects_get_persisted_starter_questions(self) -> None:
         backfill = (REPO / "sql" / "08_seed_starter_evaluation.sql").read_text(
@@ -263,7 +263,7 @@ class DeploymentContractTest(unittest.TestCase):
         grants = (REPO / "deployment" / "app_uc_grants.sql").read_text(
             encoding="utf-8"
         )
-        table = "mikito_toyota_rag_eval.rag_accuracy.toyota_rag_eval_cases"
+        table = "rag_accuracy_demo.rag_accuracy.toyota_rag_eval_cases"
         self.assertIn(f"GRANT SELECT ON TABLE {table}", grants)
         self.assertIn(f"GRANT MODIFY ON TABLE {table}", grants)
         self.assertNotIn("REVOKE ", grants.upper())
@@ -273,7 +273,7 @@ class DeploymentContractTest(unittest.TestCase):
         grants = (REPO / "deployment" / "app_uc_grants.sql").read_text(
             encoding="utf-8"
         )
-        table = "mikito_toyota_rag_eval.rag_accuracy.toyota_index_variants"
+        table = "rag_accuracy_demo.rag_accuracy.toyota_index_variants"
         self.assertIn(f"GRANT SELECT ON TABLE {table}", grants)
         self.assertIn(f"GRANT MODIFY ON TABLE {table}", grants)
         self.assertNotIn("REVOKE ", grants.upper())

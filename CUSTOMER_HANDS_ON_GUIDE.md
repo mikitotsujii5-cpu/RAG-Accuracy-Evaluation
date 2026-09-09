@@ -11,7 +11,7 @@
 | AI Search Endpoint／Index | GitHub接続とAppの起動 |
 | Lakeflow Jobs 3件 | Resource Binding 7件 |
 | MLflow Experiment | ヘルスチェック |
-| Embedding／LLMの選択 | |
+| Index Profile用Embedding／回答・評価用LLMの設定 | |
 | Git認証と権限 | |
 
 ## 1. 設定値を記録する
@@ -180,7 +180,7 @@ FROM pdf_input;
 
 スクショ：`format => 'file'`、`ai_parse_document`、解析結果が見える画面。
 
-## 8. EmbeddingとLLMを選択する
+## 8. Index Profile用EmbeddingとLLMを設定する
 
 1. 左メニューから`Serving`を開きます。
 2. 利用可能なFMAPI endpointを確認します。
@@ -188,13 +188,15 @@ FROM pdf_input;
 
 | 用途 | 選択条件 |
 |---|---|
-| Embedding | `databricks-qwen3-embedding-0-6b`を優先。利用できない場合は日本語対応モデル |
+| Index Profile用Embedding | 管理者がbaseline Indexで固定するモデルendpoint |
 | 回答用LLM | Tool Calling対応モデル |
 | 評価用LLM | 評価に利用できるモデル |
 
 4. `Playground`で回答用LLMを選び、短い質問を送ります。
 
 確認：エラーなく回答が返る。
+
+Embeddingは管理者がAI Search Indexの作成時に固定します。そのIndexと完全に一致するIndex ProfileをAppとLakeflow Jobへ登録してください。Appの利用者はEmbeddingを個別に選択できず、登録済みProfile以外の値は表示されません。固定したEmbeddingを利用できない場合も別Embeddingへ自動で切り替わりません。
 
 スクショ：選択したendpoint名とPlaygroundの応答。
 
@@ -412,24 +414,18 @@ EVAL_JOB_ID
 
 1. App名が`RAG精度評価アプリ`であることを確認します。
 2. `新しいプロジェクト`からProjectを作成します。
-3. `1 データ準備`を開き、PDFをアップロードします。
-4. 次を選びます。
+3. `RAG検索データを作成・同期`を開き、PDFをアップロードします。
+4. 「利用できる検索設定」に、AppとLakeflow Jobへ登録したIndex Profileだけが表示されることを確認します。Profileが1件ならチャンク方式、チャンクサイズ、Embeddingが固定表示され、選択欄は表示されません。複数件なら登録済みProfileだけを選択でき、未登録の値は表示されません。
 
-| 項目 | 設定 |
-|---|---|
-| チャンク手法 | `Standard` |
-| チャンクサイズ | `512` |
-| Embedding | `Qwen3 Embedding 0.6B` |
-
-5. `新しいVariantをBuild / Sync`を押します。
+5. 対象PDFを選び、`RAG検索データを作成・同期`を押します。
 6. 状態が`READY`になるまで進捗表示を確認します。
-7. `2 データカタログ`でタイトル、概要、PDFリンクを確認します。
+7. `PDFカタログ`でタイトル、概要、PDFリンクを確認します。
 8. `PDFを開く`を押し、全画面で全ページをスクロールできることを確認します。
 9. `別タブで開く`、`ダウンロード`、Escで閉じる操作を確認します。
 
 ### 17.2 RAGチャット
 
-1. `3 チャットUI`を開きます。
+1. `RAGチャット`を開きます。
 2. テスト質問から質問を選びます。
 3. `Vector Search`で送信します。
 4. `Hybrid Search`でも同じ質問を送信します。
@@ -439,7 +435,7 @@ EVAL_JOB_ID
 
 ### 17.3 精度評価
 
-1. `4 RAG精度評価`を開きます。
+1. `RAG精度評価`を開きます。
 2. 正解付きの評価質問を3件登録します。
 
 | 質問 | 正解欄に登録する内容 |
@@ -470,7 +466,7 @@ TTFT、End-to-end latency、トークン使用量
 - [ ] SQL Warehouseが`Running`
 - [ ] Catalog、Schema、Volume、19個のDelta Tableが存在する
 - [ ] `FILE`型を使った`ai_parse_document`が成功する
-- [ ] Embedding、回答用LLM、評価用LLMが利用できる
+- [ ] Index Profileに固定したEmbedding、回答用LLM、評価用LLMが利用できる
 - [ ] AI Search Endpointが`Online`
 - [ ] baseline Indexが`Online／Idle`
 - [ ] Lakeflow Jobs 3件が存在する

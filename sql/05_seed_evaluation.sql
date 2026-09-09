@@ -25,7 +25,7 @@ registry_map AS (
        AND count(DISTINCT r.document_id) = 8
        AND count_if(
          r.doc_uri NOT LIKE concat(
-           '/Volumes/mikito_toyota_rag_eval/rag_accuracy/documents/projects/',
+           '/Volumes/rag_accuracy_demo/rag_accuracy/documents/projects/',
            '1f113047-82b3-4327-b2b5-7322ecd26ad9/source_pdfs/%'
          )
        ) = 0
@@ -39,7 +39,7 @@ registry_map AS (
       )
     END AS doc_uri_by_code
   FROM document_ids d
-  JOIN mikito_toyota_rag_eval.rag_accuracy.toyota_document_registry r
+  JOIN rag_accuracy_demo.rag_accuracy.toyota_document_registry r
     ON r.document_id = d.document_id
    AND r.project_id = '1f113047-82b3-4327-b2b5-7322ecd26ad9'
 ),
@@ -129,7 +129,7 @@ source AS (
     record.dataset_split AS dataset_split
   FROM resolved
 )
-MERGE INTO mikito_toyota_rag_eval.rag_accuracy.toyota_rag_eval_cases AS target
+MERGE INTO rag_accuracy_demo.rag_accuracy.toyota_rag_eval_cases AS target
 USING source
 ON target.project_id = source.project_id
 AND target.eval_case_id = source.eval_case_id
@@ -170,13 +170,13 @@ SELECT
   count_if(is_answerable) AS answerable_count,
   count_if(NOT is_answerable) AS unanswerable_count,
   sum(size(relevance_judgments)) AS qrel_count
-FROM mikito_toyota_rag_eval.rag_accuracy.toyota_rag_eval_cases
+FROM rag_accuracy_demo.rag_accuracy.toyota_rag_eval_cases
 WHERE project_id = '1f113047-82b3-4327-b2b5-7322ecd26ad9'
   AND dataset_version = 'v1.0.0';
 
 -- Expected: invalid_case_count = 0.  All qrels must resolve to D01-D08 Volume URIs.
 SELECT count(*) AS invalid_case_count
-FROM mikito_toyota_rag_eval.rag_accuracy.toyota_rag_eval_cases
+FROM rag_accuracy_demo.rag_accuracy.toyota_rag_eval_cases
 WHERE project_id = '1f113047-82b3-4327-b2b5-7322ecd26ad9'
   AND dataset_version = 'v1.0.0'
   AND (
@@ -184,7 +184,7 @@ WHERE project_id = '1f113047-82b3-4327-b2b5-7322ecd26ad9'
     OR size(filter(
       relevance_judgments,
       qrel -> qrel.doc_uri NOT LIKE concat(
-        '/Volumes/mikito_toyota_rag_eval/rag_accuracy/documents/projects/',
+        '/Volumes/rag_accuracy_demo/rag_accuracy/documents/projects/',
         '1f113047-82b3-4327-b2b5-7322ecd26ad9/source_pdfs/%'
       )
     )) > 0

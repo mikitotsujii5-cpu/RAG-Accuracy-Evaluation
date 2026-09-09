@@ -1,6 +1,6 @@
 -- Registry rows match the nine uploaded PDFs. D09 is isolated from the baseline Project.
 
-MERGE INTO mikito_toyota_rag_eval.rag_accuracy.toyota_document_registry AS target
+MERGE INTO rag_accuracy_demo.rag_accuracy.toyota_document_registry AS target
 USING (
   SELECT * FROM VALUES
     ('9ea03add-de22-4c9a-8cac-c8de8e234d6a', 'D01', '1f113047-82b3-4327-b2b5-7322ecd26ad9', '01_prius_2024_owners_guide_demo.pdf', 'Prius 2024 取扱クイックガイド', '2024年式Priusの安全機能を確認する取扱資料', 'Prius', 2024, 'owners_guide', 'passenger_car', '6580d949e2ea7e6931055c094f2198dc2fcff07cf9f6c68cdb1801e1ba1d55c7', 161262),
@@ -19,7 +19,7 @@ USING (
 ) AS source
 ON target.document_id = source.document_id AND target.project_id = source.project_id
 WHEN MATCHED THEN UPDATE SET
-  target.doc_uri = concat('/Volumes/mikito_toyota_rag_eval/rag_accuracy/documents/projects/', source.project_id, '/source_pdfs/', source.document_id, '.pdf'),
+  target.doc_uri = concat('/Volumes/rag_accuracy_demo/rag_accuracy/documents/projects/', source.project_id, '/source_pdfs/', source.document_id, '.pdf'),
   target.original_filename = source.original_filename,
   target.title = source.title,
   target.summary = source.summary,
@@ -67,7 +67,7 @@ WHEN NOT MATCHED THEN INSERT (
   uploaded_by, uploaded_at, processing_status, processing_message
 ) VALUES (
   source.document_id, source.project_id,
-  concat('/Volumes/mikito_toyota_rag_eval/rag_accuracy/documents/projects/', source.project_id, '/source_pdfs/', source.document_id, '.pdf'),
+  concat('/Volumes/rag_accuracy_demo/rag_accuracy/documents/projects/', source.project_id, '/source_pdfs/', source.document_id, '.pdf'),
   source.original_filename, source.title, source.summary, 'USER', 'READY', 5,
   source.model, source.model_year, source.document_type,
   source.vehicle_category, source.document_type,

@@ -18,7 +18,7 @@ from typing import Any
 from execute_sql_file import execute_statement
 
 
-CATALOG = "mikito_toyota_rag_eval"
+CATALOG = "rag_accuracy_demo"
 SCHEMA = "rag_accuracy"
 TABLE = f"{CATALOG}.{SCHEMA}.toyota_rag_model_catalog"
 

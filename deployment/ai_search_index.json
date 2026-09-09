@@ -1,11 +1,11 @@
 {
-  "name": "mikito_toyota_rag_eval.rag_accuracy.toyota_chunks_standard_512_v1_index",
+  "name": "rag_accuracy_demo.rag_accuracy.toyota_chunks_standard_512_v1_index",
   "endpoint_name": "toyota-rag-search",
   "primary_key": "chunk_id",
   "index_type": "DELTA_SYNC",
   "index_subtype": "HYBRID",
   "delta_sync_index_spec": {
-    "source_table": "mikito_toyota_rag_eval.rag_accuracy.toyota_chunks_standard_512_v1",
+    "source_table": "rag_accuracy_demo.rag_accuracy.toyota_chunks_standard_512_v1",
     "pipeline_type": "TRIGGERED",
     "embedding_source_columns": [
       {

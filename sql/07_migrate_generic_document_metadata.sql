@@ -22,7 +22,7 @@ WITH current_registry AS (
       1,
       300
     ) AS _resolved_title
-  FROM mikito_toyota_rag_eval.rag_accuracy.toyota_document_registry
+  FROM rag_accuracy_demo.rag_accuracy.toyota_document_registry
 ),
 migration_source AS (
   SELECT
@@ -81,7 +81,7 @@ migration_source AS (
   FROM current_registry
 )
 MERGE WITH SCHEMA EVOLUTION
-INTO mikito_toyota_rag_eval.rag_accuracy.toyota_document_registry AS target
+INTO rag_accuracy_demo.rag_accuracy.toyota_document_registry AS target
 USING migration_source AS source
 ON target.project_id = source.project_id
  AND target.document_id = source.document_id
@@ -97,4 +97,4 @@ SELECT
     OR get_json_object(metadata_json, '$.schema_version') IS NULL
   ) AS invalid_metadata_json,
   count_if(get_json_object(metadata_json, '$.schema_version') <> '1.0') AS bad_schema_version
-FROM mikito_toyota_rag_eval.rag_accuracy.toyota_document_registry;
+FROM rag_accuracy_demo.rag_accuracy.toyota_document_registry;

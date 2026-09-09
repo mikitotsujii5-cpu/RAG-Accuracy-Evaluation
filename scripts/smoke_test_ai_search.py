@@ -11,7 +11,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 
-INDEX_NAME = "mikito_toyota_rag_eval.rag_accuracy.toyota_chunks_standard_512_v1_index"
+INDEX_NAME = "rag_accuracy_demo.rag_accuracy.toyota_chunks_standard_512_v1_index"
 ENDPOINT_NAME = "toyota-rag-search"
 PROJECT_ID = "1f113047-82b3-4327-b2b5-7322ecd26ad9"
 COLUMNS = [

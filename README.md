@@ -47,7 +47,7 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 
 ## 現在の構築状態
 
-現行source asset `1.7.0`はPython 344件と、登録済みIndex Profileだけを表示する回帰を含むUI 45件に合格しています。field-eng-eastへ再配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件、asset URLのversion `1.7.0`を確認しました。指定Projectのremote画面はStandard／512／Qwen3の1 Profileだけを表示し、Profile selector、256／1024の可視要素、console warning／errorはいずれも0件です。`/api/health`の直接再確認値はこの記録へ外挿しません。公開用Markdownには実測ID、メール、App URL、Workspace IDを含めません。
+現行ローカルsource asset `1.8.0`はPython 344件と、登録済みIndex Profileだけを表示する回帰を含むUI 65件、合計409件の自動テストに合格しています。field-eng-eastのremote検証済みassetは`1.7.0`で、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件、asset URLのversion `1.7.0`を確認しました。指定Projectのremote画面はStandard／512／Qwen3の1 Profileだけを表示し、Profile selector、256／1024の可視要素、console warning／errorはいずれも0件です。`/api/health`の直接再確認値はこの記録へ外挿しません。公開用Markdownには実測ID、メール、App URL、Workspace IDを含めません。
 
 | 項目 | 状態 | 実測 |
 |---|---|---|
@@ -74,7 +74,7 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 | RAG検索データ作成E2E | `SUCCESS` | 旧動的Index方式でのSemantic／512、source 6行、Index 6行、別Project行0、Index READY。現行UIで利用可能なProfileを示す記録ではない |
 | 汎用RAG migration／再デプロイ／非車両PDF E2E | `SUCCESS` | migration、汎用化source、登録・解析・Variant・チャット・引用・評価を実環境で確認 |
 | Chat多重送信・停止 | `SUCCESS` | 旧asset `1.4.1`のremote履歴。同一request再送後も保存message 2件、停止API `CANCEL_REQUESTED`、terminal `run.cancelled`、履歴 `CANCELLED` |
-| 現行sourceの回帰テスト | `SUCCESS` | asset `1.7.0`、Python 344件、登録済みIndex Profileだけを表示する回帰を含むUI 45件、差分check成功 |
+| 現行sourceの回帰テスト | `SUCCESS` | asset `1.8.0`、Python 344件、登録済みIndex Profileだけを表示する回帰を含むUI 65件、合計409件、差分check成功 |
 | 評価質問の選択 | `SUCCESS` | Project／評価データ版／用途内の登録済み質問を初期全選択。個別選択、すべて選択、選択解除、正解状態・期待回答・正解PDF／ページ、選択件数・最大試行数を表示し、0件では開始不可。API／Jobは選択IDだけを凍結・評価 |
 | PDF viewer | `SUCCESS` | 旧assetのremote content APIでPDF 200、Range 206、ETag 304、private cacheを確認。現行assetは削除前後のPDF 200を確認。ローカル再表示296 ms、Project切替時は保持iframeを破棄 |
 | PDF単体の論理削除 | `SUCCESS` | asset `1.4.4`でProject `<RESOURCE_ID>`のPDF `<RESOURCE_ID>`をDELETE 202。孤児Chat run 2件とassistant messageを`ERROR`へ整合後、影響旧Variant 4件から後継Variant 2件をREADY化。両Indexで削除PDF hit 0、保持PDFだけを検索 |
@@ -429,12 +429,12 @@ Appの説明やuser scopeを更新するときも、7件のresourceを含むfull
 2026-09-09にローカルで次を確認しました。
 
 - `app/.venv/bin/python -m pytest app/tests jobs/tests -q`: Python 344 tests pass
-- `cd app && npm run test:chat-ui`: UI 45 tests pass
-- 自動テスト合計: 389 tests pass
+- `cd app && npm run test:chat-ui`: UI 65 tests pass
+- 自動テスト合計: 409 tests pass
 - JavaScript構文2ファイル、Python compile 51ファイル、JSON 19ファイル: pass
 - 4画面とPhase 1〜5のUI確認: browser console error 0
 
-現行source asset `1.7.0`はローカル回帰に合格し、field-eng-eastへ再配置済みです。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、binding 7件、asset URL version `1.7.0`を確認しました。指定Projectの認証付きremote画面ではStandard／512／Qwen3の1 Profileだけが固定表示され、Profile selectorと256／1024の可視要素は0件、console warning／errorも0件でした。`/api/health`は今回直接再確認していないため、version値を推測していません。
+現行ローカルsource asset `1.8.0`は回帰テストに合格しています。field-eng-eastのremote検証済みassetは`1.7.0`で、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、binding 7件、asset URL version `1.7.0`を確認しました。指定Projectの認証付きremote画面ではStandard／512／Qwen3の1 Profileだけが固定表示され、Profile selectorと256／1024の可視要素は0件、console warning／errorも0件でした。`/api/health`は今回直接再確認していないため、version値を推測していません。
 
 ## デプロイ記録
 

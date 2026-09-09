@@ -7,7 +7,7 @@
 対象Workspaceは`field-eng-east`（ID `<WORKSPACE_ID>`）です。Databricksへサインインし、このAppの利用権限を持つアカウントで開いてください。
 
 > [!NOTE]
-> 現行sourceはasset version `1.7.0`です。登録済みIndex Profileだけを表示する回帰を含むUIテスト45件とPythonテスト344件に合格しました。field-eng-eastへのremote配置後、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、Resource Binding 7件を確認し、指定ProjectでStandard／512／Qwen3の1 Profileだけが表示されることを確認済みです。
+> 現行ローカルsourceはasset version `1.8.0`です。登録済みIndex Profileだけを表示する回帰を含むUIテスト65件とPythonテスト344件、合計409件に合格しました。field-eng-eastのremote検証済みassetは`1.7.0`で、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、Resource Binding 7件を確認し、指定ProjectでStandard／512／Qwen3の1 Profileだけが表示されることを確認済みです。
 
 > [!CAUTION]
 > 付属のトヨタ車種関連PDFはすべて架空の評価データです。内容を実車の操作、整備、救助、購入判断に使わないでください。これらは同梱シナリオであり、アプリは車両以外のPDFにも使えます。
@@ -32,7 +32,7 @@ Projectは、同じ目的で使うPDF、検索Index、会話履歴、評価Datas
 | Project | 登録するPDF | 目的 |
 |---|---|---|
 | 情報セキュリティ規程 | `generic_information_security_policy_demo.pdf` | 任意分野のPDF登録、検索、引用の確認 |
-| Toyota baseline（互換例） | D01〜D08 | 同梱データでPhase 1〜5とチャンク手法を再現 |
+| Toyota baseline（互換例） | D01〜D08 | 同梱データと登録済みIndex ProfileでPhase 1〜5を再現 |
 | Toyota scan parse比較（互換例） | D09 | D05とのDocument Parsing比較 |
 
 D05とD09は同じ内容です。同じ検索Indexへ同時登録すると重複検索になり、評価が歪むため分離します。
@@ -41,7 +41,7 @@ D05とD09は同じ内容です。同じ検索Indexへ同時登録すると重複
 
 Projectを削除するときは、サイドバー下部の「プロジェクトを削除」を押します。OWNERだけが実行でき、確認画面で確定するまで削除されません。データ準備、回答、評価の実行中は、先に完了または停止してください。削除後は通常の画面とAPIから見えなくなりますが、監査・復旧のためPDF、評価結果、共有Table／Indexの実データは管理領域に保持されます。
 
-## 2. サイドバー1「データ準備」
+## 2. サイドバー1「RAG検索データを作成・同期」
 
 ### 2.1 PDFを登録する
 
@@ -94,30 +94,24 @@ Volume上のPDF
 | 状態 | 意味 | 次の操作 |
 |---|---|---|
 | `PARSING` | 解析中 | 完了を待つ |
-| `PARSED` | 解析完了 | RAG検索データを作成できる |
+| `PARSED` | 解析完了 | RAG検索データを作成・同期できる |
 | `READY` | 検索準備まで完了 | チャットと評価で使用できる |
 | `ERROR`／`FAILED` | 処理失敗 | 原因を直した後、PDFカタログの「再解析」を押す。解決しない場合は管理者へrun IDを伝える |
 
-### 2.2 検索する文書のチャンク化・ベクトル化を設定する
+### 2.2 利用できるIndex Profileを確認する
 
-チャンクは、検索するときの文章の単位です。このAppは、実在しない組み合わせを画面に出しません。管理者が事前にDelta TableとAI Search Indexを用意し、Appへ登録した「検索設定」だけを表示します。
+チャンクは、検索するときの文章の単位です。このAppは、実在しない組み合わせを画面に出しません。管理者が事前にDelta TableとAI Search Indexを用意し、AppとLakeflow Jobへ登録したIndex Profileだけを「利用できる検索設定」に表示します。
 
-現行field-eng-eastで利用できる設定は次の1件です。
+Profileが1件の場合は、チャンク方式、チャンクサイズ、Embeddingなどの内容が固定表示され、利用者向けの選択欄は表示されません。複数件の場合だけ「検索設定」が表示され、管理者が登録したProfileの中から選択できます。
 
-- 分割方法: Standard
-- チャンクサイズ: 512 tokens
-- Embedding: Qwen3 Embedding 0.6B
-- 表・図・レイアウト: 保持
-- クリーニング／文書情報追加: 有効
-
-1件だけのため選択欄は表示されず、自動適用されます。管理者が別のDelta Table／AI Search Indexを登録した場合だけ「検索設定」が表示され、登録済みの構成から選べます。256や1024を比較するには、サイズごとのDelta TableとAI Search Indexを先に手動作成し、AppとLakeflow JobのIndex Profile許可リストへ同じ設定を登録する必要があります。
+未登録のチャンク方式、チャンクサイズ、Embeddingは表示されません。登録内容が不完全または重複しているProfileも利用できません。設定が0件の場合や、Profileに固定されたEmbeddingを利用できない場合も、別の値へ自動で切り替えず、管理者にProfileと既存Indexの確認を依頼してください。
 
 検索設定ごとに物理Delta Table／AI Search Indexを分けます。同じ検索設定を使うProjectや論理Variantは物理保存先を共有しますが、行は`project_id`と`variant_id`で分離されます。
 
-### 2.3 RAG検索データを作る
+### 2.3 RAG検索データを作成・同期する
 
 1. 対象PDFの解析が`PARSED`または`READY`であることを確認する。
-2. 「利用できる検索設定」を確認する。1件の場合は操作不要。複数ある場合だけ登録済み設定を選ぶ。
+2. 「利用できる検索設定」を確認する。1件の場合は固定表示の内容を確認する。複数ある場合だけ登録済みProfileを選ぶ。
 3. 「対象PDF」で、この検索データに含める解析済みPDFを選ぶ。
 4. 「RAG検索データを作成・同期」を押す。
 5. 画面右の「RAG検索データの作成状況」が完了するまで待つ。
@@ -125,7 +119,7 @@ Volume上のPDF
 
 画面に出る設定は、既存Indexへ完全一致するものだけです。設定が表示されない場合は、管理者に既存Index Profileの登録を依頼してください。
 
-「RAG検索データを作成」の監視は次のように動きます。
+「RAG検索データを作成・同期」の監視は次のように動きます。
 
 - 実行中はボタンが無効になり、同じ設定のJobを重複投入しません。
 - Projectごとに監視は1つだけです。別ページや別Projectへ移動して戻った場合や、画面を再読込みした場合も、実行中runを復元します。
@@ -133,7 +127,7 @@ Volume上のPDF
 - `QUEUED`でも、先行Job待ち、コンピュート起動中、Job登録の再確認中などを画面に表示します。「処理の詳細を開く」が表示された場合は、リンクから実際のrunも確認できます。
 - Job受付結果が一時的に不明でも、同じrun IDで自動回復します。再度ボタンを押さず、そのまま待ってください。
 
-処理を速めるため、RAG検索データを作るData Preparation JobはPerformance-optimized ServerlessとStandard Environment v5を使います。独立したVariantは最大2件まで並行実行します。AI SearchのHYBRID Index作成に必要な機能を確実に使えるよう、検証済みの`databricks-sdk==0.135.0`をJob Environmentのdependencyとして固定しています。Notebook taskではtask libraryを使いません。
+処理を速めるため、RAG検索データを作成・同期するData Preparation JobはPerformance-optimized ServerlessとStandard Environment v5を使います。独立したVariantは最大2件まで並行実行します。AI SearchのHYBRID Index作成に必要な機能を確実に使えるよう、検証済みの`databricks-sdk==0.135.0`をJob Environmentのdependencyとして固定しています。Notebook taskではtask libraryを使いません。
 
 Performance optimizedは待ち時間を短くする代わりに、Standard performance modeよりDBU使用量が増える場合があります。管理者は速度と`system.billing.usage`の実績を合わせて確認してください。
 
@@ -146,6 +140,8 @@ ServerlessはUnity CatalogとStandard access modeを前提とし、Instance Pool
 ## 3. サイドバー2「PDFカタログ」
 
 このページには、現在のProjectに登録されたPDFだけが表示されます。
+
+カタログの「PDFを開く」と、RAG精度評価の正解欄にある「根拠PDFを開く」は、同じApp共通の全画面ビューアを開きます。どのページから開いても、全ページのスクロール、別タブ表示、ダウンロード、Escで閉じる操作を利用できます。
 
 - 検索欄: タイトル、概要、カテゴリ、タグ、ソースから絞り込む。
 - 状態: Ready、Parsed、Parsing、Errorで絞り込む。
@@ -300,12 +296,12 @@ G01の登録例:
 5. 表示された「最大○試行」が意図した件数か確認する。
 6. 「評価に使うRAG検索データ」を確認する。Projectの使用中データが自動で選ばれるため、通常は操作不要。
    - 利用可能なデータが複数ある場合だけ「検索データを変更」が表示される。
-   - 未作成の場合は「データ準備へ」を押し、先にRAG検索データを作成・同期する。
+   - 未作成の場合は「RAG検索データを作成・同期」へ移動し、先に検索データを作成・同期する。
 7. 回答LLMとJudge LLMを選ぶ。
 8. 「選択した○問でRAG精度を比較」を押す。
 9. 進捗が完了し、Phase比較表とグラフが表示されるまで待つ。
 
-質問が1問、Phaseが5つ、繰り返しが1回なら、画面には「5試行」と表示されます。開始ボタンは、質問、Phase、自動選択された検索データ、回答LLM、採点LLMがすべてそろった場合だけ有効です。検索データがない場合は「先にRAG検索データを作成」、質問が0件の場合は「質問を選択してください」と表示されます。APIも1〜1000件の質問IDだけを受け付け、すべてが現在のProject・評価データ版・用途に属することを再確認します。受付後は選択した質問IDを設定とhashへ固定し、Lakeflow Evaluation Jobはその質問だけを全Phaseで評価します。
+質問が1問、Phaseが5つ、繰り返しが1回なら、画面には「5試行」と表示されます。開始ボタンは、質問、Phase、自動選択された検索データ、回答LLM、採点LLMがすべてそろった場合だけ有効です。検索データがない場合は「RAG検索データを作成・同期」への案内、質問が0件の場合は「質問を選択してください」と表示されます。APIも1〜1000件の質問IDだけを受け付け、すべてが現在のProject・評価データ版・用途に属することを再確認します。受付後は選択した質問IDを設定とhashへ固定し、Lakeflow Evaluation Jobはその質問だけを全Phaseで評価します。
 
 開始ボタンを押すと、Jobの登録完了を待たずに回転表示と進捗カードが現れます。進捗カードでは次を確認できます。
 
@@ -376,7 +372,7 @@ advisorにはRecall／Precision／nDCGだけでなく、Answer Correctness、Gro
 
 1. 新しいProject「情報セキュリティ規程」を作る。
 2. [`generic_information_security_policy_demo.pdf`](output/pdf/generic_information_security_policy_demo.pdf)を登録する。Metadata Filteringまで確認する場合は上記の任意メタデータを入力する。PDFだけの登録も確認する場合は、重複登録を避けるため別Projectで試す。
-3. 「均等に分割 / 512 / Qwen3 Embedding 0.6B」を選び、「RAG検索データを作成」を押す。Qwen3が利用不可の場合は画面の既定候補を使う。
+3. 「RAG検索データを作成・同期」を開き、「利用できる検索設定」に管理者の登録済みProfileだけが表示されていることを確認する。対象PDFを選んで「RAG検索データを作成・同期」を押す。利用できる設定がない場合は別の値へ切り替えず、管理者へProfile登録を依頼する。
 4. RAGチャットで次を質問し、回答とPDFページの引用リンクを確認する。
    - 「CSIRTへの一次報告期限は？」→ 30分以内
    - 「機密情報の標準保管期間は？」→ 7年間
@@ -388,7 +384,7 @@ advisorにはRecall／Precision／nDCGだけでなく、Answer Correctness、Gro
 
 1. baseline用Projectを選ぶ。
 2. D01〜D08がPDFカタログにあり、解析状態が`PARSED`または`READY`であることを確認する。
-3. データ準備で「均等に分割 / 512」と利用可能なベクトル化モデルを選び、「RAG検索データを作成」を押す。
+3. 「RAG検索データを作成・同期」で管理者の登録済みProfileを確認し、対象PDFを選んで「RAG検索データを作成・同期」を押す。
 4. RAGチャットで同じVariantと同じLLMを選ぶ。
 5. Phase 1で「2024年式プリウスのPDA上限速度は何km/hですか。」と質問し、回答と引用を確認する。
 6. Phase 3で同じ質問を行い、2023年式や別車種が検索候補から除かれるか確認する。
@@ -409,7 +405,7 @@ advisorにはRecall／Precision／nDCGだけでなく、Answer Correctness、Gro
 - 旧asset `1.4.1`のトヨタ互換回帰でも期待回答`60`と一致し、Trace `<TRACE_ID>`、引用2件を確認済みです。
 - baseline Projectの使用中検索データは`baseline-standard-512-v1`へ復元済みです。
 - 旧asset `1.4.1`のremote回帰では、同一requestの保存がuser／assistant各1件であること、停止要求が`run.cancelled`／永続状態`CANCELLED`になることを確認済みです。評価履歴再表示、`ERROR` PDF再解析、PDFリンクだけを返すlive citationは現行sourceでも回帰済みです。
-- 現行asset `1.7.0`はfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件を確認しました。指定Projectの認証付きremote画面では、asset URL `1.7.0`、Standard／512／Qwen3の1 Profile、検索設定選択欄の非表示、256／1024の可視要素0件、console warning／error 0件を確認しました。
+- remote検証済みasset `1.7.0`はfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件を確認しました。指定Projectの認証付きremote画面では、asset URL `1.7.0`、Standard／512／Qwen3の1 Profile、検索設定選択欄の非表示、256／1024の可視要素0件、console warning／error 0件を確認しました。
 - asset `1.4.7`で実行済みだったPhase 1・1問・1回runをasset `1.4.8`のremote status／results APIで取得し、`SUCCEEDED`、1／1試行、`elapsed_seconds=774`を確認しました。Lakeflow run totalは777.125秒、指標1件、改善提案1件、Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msです。これはasset `1.4.8`で新規評価を実行した証跡ではありません。
 - Phase横並び、結果画面、経過時間「12分54秒」が3秒後も固定されることは、ローカルSSO代替画面で目視確認済みです。SSO済みremoteブラウザによる手操作、TTFT、残り7 profileは未確認です。
 - 現行deployment `<DEPLOYMENT_ID>`では、Project `<RESOURCE_ID>`に残っていた30分超の孤児Chat run 2件とassistant messageを`ERROR`へ整合した後、document `<RESOURCE_ID>`の削除がHTTP 202で完了しました。影響旧Variant 4件から後継Variant 2件を作り、両方を`READY`まで確認しました。source／AI Searchは削除PDF 0件で、保持document `<RESOURCE_ID>`だけを返します。
@@ -427,7 +423,8 @@ advisorにはRecall／Precision／nDCGだけでなく、Answer Correctness、Gro
 | 右上にメールアドレスが出ない | Databricks Appsから開いているか、`iam.current-user:read` scopeがあるか。token自体は画面やログへ貼らない |
 | PDFアップロードに失敗 | PDF形式、100 MB以下、PDF header、重複ファイルか |
 | Parsingが失敗 | FILE type Preview、対応compute、PDF暗号化・破損、run messageを確認する。原因を直した後、PDFカタログの「再解析」を1回押す |
-| Embedding／LLMを選べない | endpointがREADYか、AppにCAN QUERYがあるか、model catalogが更新済みか |
+| 利用できる検索設定が表示されない | 管理者がDelta Table／AI Search Indexと一致するIndex ProfileをAppとLakeflow Jobへ登録しているか。未登録のチャンク方式、サイズ、Embeddingは表示されない |
+| 回答LLM／Judge LLMを選べない | endpointがREADYか、AppにCAN QUERYがあるか、model catalogが更新済みか |
 | 検索データ作成が0%／`QUEUED`に見える | 画面のqueue説明と「処理の詳細を開く」を確認する。`ENVIRONMENT_STARTING`ならServerless Environmentの準備中、`WAITING_FOR_JOB_CAPACITY`なら先行run待ち。画面を再読込みしても監視は復元されるため、再度ボタンを押さない |
 | チャンク作成後も完了しない | AI Search pipeline statusを確認する。既存Indexの同期はmanaged service側の処理であり、Serverless Jobの起動が速くても別に待ち時間が発生する |
 | VariantがREADYにならない | Prep Job、source TableのCDF、AI Search pipeline status、Embedding dimension |

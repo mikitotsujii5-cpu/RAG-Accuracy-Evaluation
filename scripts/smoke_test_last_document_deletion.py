@@ -26,7 +26,7 @@ from smoke_test_document_deletion import (
 from smoke_test_generic_upload import RefreshingWorkspaceSession, validate_app_base
 
 
-UC_PREFIX = "mikito_toyota_rag_eval.rag_accuracy"
+UC_PREFIX = "rag_accuracy_demo.rag_accuracy"
 PROJECTS_TABLE = f"{UC_PREFIX}.toyota_rag_projects"
 DOCUMENTS_TABLE = f"{UC_PREFIX}.toyota_document_registry"
 VARIANTS_TABLE = f"{UC_PREFIX}.toyota_index_variants"

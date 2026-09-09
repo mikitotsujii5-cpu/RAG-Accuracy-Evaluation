@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from execute_sql_file import execute_statement
 
 
-CATALOG = "mikito_toyota_rag_eval"
+CATALOG = "rag_accuracy_demo"
 SCHEMA = "rag_accuracy"
 VOLUME_ROOT = f"/Volumes/{CATALOG}/{SCHEMA}/documents"
 

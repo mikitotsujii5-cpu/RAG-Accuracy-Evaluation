@@ -7,7 +7,7 @@
 
 WITH current_projects AS (
   SELECT *, to_json(struct(*)) AS _row_json
-  FROM mikito_toyota_rag_eval.rag_accuracy.toyota_rag_projects
+  FROM rag_accuracy_demo.rag_accuracy.toyota_rag_projects
 ), project_source AS (
   SELECT
     project_id, project_name, description, status, active_variant_id,
@@ -22,7 +22,7 @@ WITH current_projects AS (
   FROM current_projects
 )
 MERGE WITH SCHEMA EVOLUTION
-INTO mikito_toyota_rag_eval.rag_accuracy.toyota_rag_projects AS target
+INTO rag_accuracy_demo.rag_accuracy.toyota_rag_projects AS target
 USING project_source AS source
 ON target.project_id=source.project_id
 WHEN MATCHED THEN UPDATE SET *
@@ -30,7 +30,7 @@ WHEN NOT MATCHED THEN INSERT *;
 
 WITH current_documents AS (
   SELECT *, to_json(struct(*)) AS _row_json
-  FROM mikito_toyota_rag_eval.rag_accuracy.toyota_document_registry
+  FROM rag_accuracy_demo.rag_accuracy.toyota_document_registry
 ), document_source AS (
   SELECT
     document_id, project_id, doc_uri, original_filename, title, summary,
@@ -47,7 +47,7 @@ WITH current_documents AS (
   FROM current_documents
 )
 MERGE WITH SCHEMA EVOLUTION
-INTO mikito_toyota_rag_eval.rag_accuracy.toyota_document_registry AS target
+INTO rag_accuracy_demo.rag_accuracy.toyota_document_registry AS target
 USING document_source AS source
 ON target.project_id=source.project_id AND target.document_id=source.document_id
 WHEN MATCHED THEN UPDATE SET *
@@ -55,7 +55,7 @@ WHEN NOT MATCHED THEN INSERT *;
 
 WITH current_variants AS (
   SELECT *, to_json(struct(*)) AS _row_json
-  FROM mikito_toyota_rag_eval.rag_accuracy.toyota_index_variants
+  FROM rag_accuracy_demo.rag_accuracy.toyota_index_variants
 ), variant_source AS (
   SELECT
     variant_id, project_id, source_snapshot_version, parse_schema_version,
@@ -80,7 +80,7 @@ WITH current_variants AS (
   FROM current_variants
 )
 MERGE WITH SCHEMA EVOLUTION
-INTO mikito_toyota_rag_eval.rag_accuracy.toyota_index_variants AS target
+INTO rag_accuracy_demo.rag_accuracy.toyota_index_variants AS target
 USING variant_source AS source
 ON target.project_id=source.project_id AND target.variant_id=source.variant_id
 WHEN MATCHED THEN UPDATE SET *
@@ -89,8 +89,8 @@ WHEN NOT MATCHED THEN INSERT *;
 -- Verification: all pre-existing live records receive an explicit lifecycle.
 SELECT
   (SELECT count_if(lifecycle_status IS NULL)
-   FROM mikito_toyota_rag_eval.rag_accuracy.toyota_document_registry)
+   FROM rag_accuracy_demo.rag_accuracy.toyota_document_registry)
     AS documents_without_lifecycle,
   (SELECT count_if(lifecycle_status IS NULL)
-   FROM mikito_toyota_rag_eval.rag_accuracy.toyota_index_variants)
+   FROM rag_accuracy_demo.rag_accuracy.toyota_index_variants)
     AS variants_without_lifecycle;

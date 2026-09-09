@@ -30,7 +30,7 @@
 - Index Profileに登録されたEmbeddingだけを表示する。現行field-eng-eastではQwen3 Embedding 0.6Bで固定される。
 - 新しい論理Variantは、選択したIndex Profileの共有Delta Table／AI Search Indexへ`project_id`と`variant_id`で分離して保存され、既存の論理Variantを上書きしない。
 - カタログにタイトル、概要、リンクが表示され、認可済みPDFを開ける。
-- 「PDFを開く」をhoverまたはfocusした時点でprefetchする。全画面viewerで全ページをスクロールでき、ページ幅表示、別タブ表示、ダウンロード、Esc終了を確認する。content APIは`ETag`、byte `Range`、private cacheに対応し、同じProject・PDF・pageを閉じて再表示すると読み込み済みiframeを再利用し、Project切替時は破棄する。
+- PDFカタログとRAG精度評価の「PDFを開く」をhoverまたはfocusした時点でprefetchする。どちらのページから開いても同じApp共通の全画面viewerが前面に表示され、全ページのスクロール、ページ幅表示、別タブ表示、ダウンロード、Esc終了が動くことを確認する。content APIは`ETag`、byte `Range`、private cacheに対応し、同じProject・PDF・pageを閉じて再表示すると読み込み済みiframeを再利用し、Project切替時は破棄する。
 - 状態が`ERROR`のPDFだけに「再解析」が表示され、同じ登録ファイルを`FILE`型で再処理する。連打しても再解析要求は1件だけである。
 - PDFカードと表の両方に「削除」があり、OWNER／EDITORだけが確認後に実行できる。処理中はspinnerが表示され、連打で同じrequestを増やさない。
 
@@ -158,8 +158,8 @@ app/.venv/bin/python scripts/smoke_test_last_document_deletion.py \
 
 確認済み項目は`SUCCESS`です。
 
-- 現行source asset `1.7.0`はPython 344件、登録済みIndex Profileだけを表示する回帰を含むUI 45件、差分checkが成功しました。
-- 現行asset `1.7.0`はGitHubの`main/app`からfield-eng-eastへ配置済みです。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件、asset URL version `1.7.0`を確認しました。認証付きremote画面ではStandard／512／Qwen3の1 Profileだけが表示され、Profile selector、256／1024の可視要素、console warning／errorは0件でした。`/api/health`は今回直接再確認していないためversion値を推測していません。実ID、メール、App URL、Workspace IDは公開記録へ含めていません。
+- 現行ローカルsource asset `1.8.0`はPython 344件、登録済みIndex Profileだけを表示する回帰を含むUI 65件、合計409件の自動テストと差分checkが成功しました。
+- remote検証済みasset `1.7.0`はGitHubの`main/app`からfield-eng-eastへ配置済みです。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件、asset URL version `1.7.0`を確認しました。認証付きremote画面ではStandard／512／Qwen3の1 Profileだけが表示され、Profile selector、256／1024の可視要素、console warning／errorは0件でした。`/api/health`は今回直接再確認していないためversion値を推測していません。実ID、メール、App URL、Workspace IDは公開記録へ含めていません。
 - asset `1.4.7`で実行済みだったPhase 1・1問・1回runを、asset `1.4.8`のremote status／results APIで取得しました。状態は`SUCCEEDED`、1／1試行、`elapsed_seconds=774`、Lakeflow run totalは777.125秒、指標1件、改善提案1件、Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msです。asset `1.4.8`で新しい評価runを起動した証跡ではありません。
 - Phase横並び、結果画面、経過時間「12分54秒」が3秒後も固定されることは、ローカルSSO代替画面で目視確認しました。asset `1.4.5`の既存Index、実RAGチャット、Trace、PDFリンク引用は過去のremote履歴として保持します。
 - baseline Projectの使用中Variantを`baseline-standard-512-v1`へ復元し、UPDATE Statement `<STATEMENT_ID>`と検証SELECT `<STATEMENT_ID>`で確認しました。

@@ -1,6 +1,6 @@
 {
   "warehouse_id": "<SQL_WAREHOUSE_ID>",
-  "statement": "SELECT table_name, table_type FROM mikito_toyota_rag_eval.information_schema.tables WHERE table_schema = 'rag_accuracy' ORDER BY table_name",
+  "statement": "SELECT table_name, table_type FROM rag_accuracy_demo.information_schema.tables WHERE table_schema = 'rag_accuracy' ORDER BY table_name",
   "wait_timeout": "50s",
   "on_wait_timeout": "CONTINUE"
 }

@@ -2697,7 +2697,7 @@ GET /api/projects/{project_id}/documents/{document_id}/content
 
 取得APIはProject membershipと`document_id`の所属を再検証してからregistryのVolume URIを解決し、`Content-Type: application/pdf`、`Content-Disposition: inline`、`X-Content-Type-Options: nosniff`、`Cache-Control: private`、`ETag`、`Accept-Ranges: bytes`を設定する。`HEAD`、`If-None-Match`、単一byte `Range`へ対応する。raw `/Volumes/...`、任意の外部URL、`javascript:` URLをリンクとして描画しない。
 
-「PDFを開く」のhover、focus、pointerdown、touchstartでcontent routeをprefetchする。viewerはviewport全体を使用し、header、loading、documentを明示したCSS Grid領域へ配置する。iframeはdocument領域の残り高をすべて使い、全ページの縦スクロール、ページ幅表示、別タブ表示、ダウンロード、Esc終了を提供する。同じProjectで読み込み済みの同じPDF・pageはviewerのiframeを閉じても保持し、再表示時に再読込しない。Project切替、明示reset、権限変更時は保持内容を破棄する。
+「PDFを開く」のhover、focus、pointerdown、touchstartでcontent routeをprefetchする。viewerは特定ページの内側ではなくApp共通階層へ置き、PDFカタログとRAG精度評価のどちらから開いても表示中ページに隠れないようにする。viewerはviewport全体を使用し、header、loading、documentを明示したCSS Grid領域へ配置する。iframeはdocument領域の残り高をすべて使い、全ページの縦スクロール、ページ幅表示、別タブ表示、ダウンロード、Esc終了を提供する。同じProjectで読み込み済みの同じPDF・pageはviewerのiframeを閉じても保持し、再表示時に再読込しない。Project切替、明示reset、権限変更時は保持内容を破棄する。
 
 PDF削除ボタンはカードと表の両方に置き、必ずPDFタイトルを含む確認ダイアログを出す。削除中はspinner、`aria-busy=true`、disabledを設定して再送を防ぐ。`202 Accepted`の後はPDFを画面から即時に外し、最新のPDF、Variant、Project状態を並列に再取得する。最後のPDFなら「PDFがありません。RAG検索データもありません。」と表示し、古いVariant選択肢を残さない。403はOWNER／EDITOR権限、409は実行中処理または別mutationとの競合、その他の失敗はPDFが一覧に残っていることを確認する日本語メッセージとする。
 
@@ -4562,7 +4562,7 @@ databricks fs cp \
 1. 画面タイトルが「RAG精度評価アプリ」で、サイドバーが「データ準備、PDFカタログ、RAGチャット、RAG精度評価」の順になっている。
 2. Projectを作成・切替・OWNER削除でき、文書、Index、会話、評価Dataset、結果がProjectをまたいで混ざらない。右上にはDatabricks Appsのログインメールを表示する。
 3. PDFだけでアップロードでき、任意項目パネルを閉じられる。タイトル未入力時はファイル名、概要未入力時は20〜30字のAI／fallback概要を設定する。通常は登録済みStandard／512／Qwen3 Embedding 0.6B Profile 1件を読み取り専用で表示し、共有source Tableへ論理Variantを書き込んで既存Indexを同期する。未登録の手法・サイズ・Embeddingは表示せず、App／Jobは物理Table／Indexを作成しない。
-4. PDFカタログで各PDFのタイトル、概要、カテゴリ、タグ、文書日付、ソース、状態、Project認可済み文書リンクを確認できる。content APIはprefetch、`ETag`、`Range`、private cacheに対応し、同じPDFの再表示では読み込み済みiframeを再利用する。`ERROR` PDFだけを同じ`FILE`型経路で再解析できる。
+4. PDFカタログで各PDFのタイトル、概要、カテゴリ、タグ、文書日付、ソース、状態、Project認可済み文書リンクを確認できる。カタログとRAG精度評価のどちらの「PDFを開く」からもApp共通viewerを開ける。content APIはprefetch、`ETag`、`Range`、private cacheに対応し、同じPDFの再表示では読み込み済みiframeを再利用する。`ERROR` PDFだけを同じ`FILE`型経路で再解析できる。
 5. OWNER／EDITORがPDF単体を確認付きで論理削除できる。進行中処理との競合は409で拒否し、30分超の孤児Chat runだけはguard付きで`ERROR`へ収束し、同じDELETEは冪等である。削除PDFを含む旧Variantは`SUPERSEDED`となり、同じIndex Profileを使った残存PDFだけの後継論理VariantがREADYになり、既存AI Search Indexの同期が完了する。最後のPDFならProjectは`EMPTY`となる。原本、解析結果、過去の会話／引用／評価は保持し、削除前のPDF引用をProject認可内で開ける。
 6. チャットでVector／Hybrid、Metadata Filtering、Reranking、Query Optimization、利用可能なFMAPI LLMを選べる。
 7. チャット履歴を高速に再表示・本人削除でき、回答を停止でき、すべての事実回答から検証済み`document_id`由来のPDF原文リンクへ移動できる。retrieval SSEと利用者画面へexcerpt／チャンク本文を出さない。
@@ -4602,7 +4602,9 @@ Trial: 1
 
 このsmokeではHybrid SearchのPhase 2が検索3指標を改善した一方、Metadata Filtering以降はRecallが低下し、Query Optimizationを含むPhase 5はlatencyが増えた。改善機能を増やすこと自体を目的にせず、Phase別提案と失敗Traceから次の一変更を選んで再評価する。
 
-現行source asset `1.7.0`をfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件を確認した。認証付きremote画面では、登録済みProfileがStandard／512／Qwen3の1件だけであること、その場合にProfile selectorを隠すこと、未登録の256／1024要素を表示しないこと、browser consoleのwarning／errorが0件であることを確認した。実ID、メール、App URL、Workspace IDは公開記録へ含めない。
+現行ローカルsource asset `1.8.0`は、Python 344件と、登録済みIndex Profileだけを表示する回帰を含むUI 65件、合計409件の自動テストに合格した。
+
+remote検証済みasset `1.7.0`をfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件を確認した。認証付きremote画面では、登録済みProfileがStandard／512／Qwen3の1件だけであること、その場合にProfile selectorを隠すこと、未登録の256／1024要素を表示しないこと、browser consoleのwarning／errorが0件であることを確認した。実ID、メール、App URL、Workspace IDは公開記録へ含めない。
 
 asset `1.6.0`では、評価用検索データの自動選択とPDF全画面viewerを含むUIテスト42件と差分check、field-eng-eastのhealth、resource binding 7件を確認した過去記録がある。Python 344件はasset `1.4.9`の確認記録である。
 

@@ -565,7 +565,7 @@ def main() -> int:
             workspace,
             args.warehouse_id,
             "SELECT lifecycle_status, superseded_by_variant_id, superseded_reason FROM "
-            "mikito_toyota_rag_eval.rag_accuracy.toyota_index_variants "
+            "rag_accuracy_demo.rag_accuracy.toyota_index_variants "
             f"WHERE project_id='{escaped_project}' AND variant_id='{escaped_old_variant}' "
             "LIMIT 1",
         )
@@ -589,7 +589,7 @@ def main() -> int:
             args.warehouse_id,
             "SELECT lifecycle_status, processing_status, deletion_request_id, "
             "CAST(deleted_at AS STRING) FROM "
-            "mikito_toyota_rag_eval.rag_accuracy.toyota_document_registry "
+            "rag_accuracy_demo.rag_accuracy.toyota_document_registry "
             f"WHERE project_id='{escaped_project}' AND document_id='{escaped_deleted}' "
             "LIMIT 1",
         )
@@ -617,7 +617,7 @@ def main() -> int:
             workspace,
             args.warehouse_id,
             "SELECT index_name, source_table FROM "
-            "mikito_toyota_rag_eval.rag_accuracy.toyota_index_variants "
+            "rag_accuracy_demo.rag_accuracy.toyota_index_variants "
             f"WHERE project_id='{escaped_project}' AND variant_id='{escaped_variant}' "
             "AND lifecycle_status='READY' LIMIT 1",
         )

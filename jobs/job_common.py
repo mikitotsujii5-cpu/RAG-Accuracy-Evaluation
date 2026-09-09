@@ -20,7 +20,7 @@ from typing import Any
 from urllib.parse import quote
 
 
-CATALOG = "mikito_toyota_rag_eval"
+CATALOG = "rag_accuracy_demo"
 SCHEMA = "rag_accuracy"
 UC_PREFIX = f"{CATALOG}.{SCHEMA}"
 

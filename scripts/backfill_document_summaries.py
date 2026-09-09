@@ -24,7 +24,7 @@ from repository import (  # noqa: E402
 from settings import Settings  # noqa: E402
 
 
-CATALOG = "mikito_toyota_rag_eval"
+CATALOG = "rag_accuracy_demo"
 SCHEMA = "rag_accuracy"
 DEFAULT_LLM_ENDPOINT = "databricks-gpt-5-6-luna"
 SUMMARY_PROMPT_VERSION = "document-summary-ja-v2-two-pass"
@@ -42,7 +42,7 @@ def settings(warehouse_id: str) -> Settings:
         uc_volume="documents",
         vector_search_endpoint="toyota-rag-search",
         default_index_name=(
-            "mikito_toyota_rag_eval.rag_accuracy."
+            "rag_accuracy_demo.rag_accuracy."
             "toyota_chunks_standard_512_v1_index"
         ),
         default_llm_endpoint=DEFAULT_LLM_ENDPOINT,

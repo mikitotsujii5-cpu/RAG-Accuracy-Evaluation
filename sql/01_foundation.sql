@@ -1,16 +1,16 @@
 -- Run this script in the Databricks workspace selected for the hands-on environment.
 -- This script is intentionally idempotent.
 
-CREATE CATALOG IF NOT EXISTS mikito_toyota_rag_eval
+CREATE CATALOG IF NOT EXISTS rag_accuracy_demo
 COMMENT 'Toyota synthetic PDF RAG accuracy evaluation demo';
 
-CREATE SCHEMA IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy
+CREATE SCHEMA IF NOT EXISTS rag_accuracy_demo.rag_accuracy
 COMMENT 'Project-scoped RAG preparation, chat, and evaluation resources';
 
-CREATE VOLUME IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.documents
+CREATE VOLUME IF NOT EXISTS rag_accuracy_demo.rag_accuracy.documents
 COMMENT 'Synthetic demo PDFs and document parsing artifacts';
 
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_model_catalog (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_rag_model_catalog (
   model_key STRING NOT NULL,
   display_name STRING NOT NULL,
   target_kind STRING NOT NULL,
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_model_
 -- Keep UI defaults separate from endpoint discovery.  Discovery may mark a
 -- preferred endpoint unavailable, while this policy row remains stable and
 -- lets the application choose a deterministic READY fallback.
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_model_defaults (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_rag_model_defaults (
   capability STRING NOT NULL,
   preferred_model_key STRING NOT NULL,
   fallback_policy STRING NOT NULL,
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_model_
   updated_at TIMESTAMP NOT NULL
 ) USING DELTA;
 
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_projects (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_rag_projects (
   project_id STRING NOT NULL,
   project_name STRING NOT NULL,
   description STRING,
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_projec
   updated_at TIMESTAMP NOT NULL
 ) USING DELTA;
 
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_project_members (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_rag_project_members (
   project_id STRING NOT NULL,
   principal STRING NOT NULL,
   role STRING NOT NULL,
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_projec
   added_at TIMESTAMP NOT NULL
 ) USING DELTA;
 
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_document_registry (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_document_registry (
   document_id STRING NOT NULL,
   project_id STRING NOT NULL,
   doc_uri STRING NOT NULL,
@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_document_r
   deleted_at TIMESTAMP
 ) USING DELTA;
 
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_vehicle_master (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_vehicle_master (
   model STRING NOT NULL,
   aliases ARRAY<STRING>,
   valid_model_years ARRAY<INT>,
@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_vehicle_ma
   updated_at TIMESTAMP
 ) USING DELTA;
 
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_index_variants (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_index_variants (
   variant_id STRING NOT NULL,
   project_id STRING NOT NULL,
   source_snapshot_version BIGINT,
@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_index_vari
   created_at TIMESTAMP
 ) USING DELTA;
 
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_chat_sessions (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_rag_chat_sessions (
   session_id STRING NOT NULL,
   project_id STRING NOT NULL,
   title STRING NOT NULL,
@@ -155,7 +155,7 @@ CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_chat_s
   updated_at TIMESTAMP NOT NULL
 ) USING DELTA;
 
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_chat_messages (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_rag_chat_messages (
   message_id STRING NOT NULL,
   project_id STRING NOT NULL,
   session_id STRING NOT NULL,
@@ -170,7 +170,7 @@ CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_chat_m
   created_at TIMESTAMP NOT NULL
 ) USING DELTA;
 
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_chat_runs (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_rag_chat_runs (
   request_id STRING NOT NULL,
   project_id STRING NOT NULL,
   session_id STRING NOT NULL,
@@ -181,7 +181,7 @@ CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_chat_r
   error_message STRING
 ) USING DELTA;
 
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_prep_runs (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_rag_prep_runs (
   prep_run_id STRING NOT NULL,
   project_id STRING NOT NULL,
   run_type STRING NOT NULL,
@@ -202,13 +202,13 @@ CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_prep_r
   error_message STRING
 ) USING DELTA;
 
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_user_preferences (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_rag_user_preferences (
   principal STRING NOT NULL,
   last_project_id STRING,
   updated_at TIMESTAMP NOT NULL
 ) USING DELTA;
 
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_notifications (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_rag_notifications (
   notification_id STRING NOT NULL,
   recipient_principal STRING NOT NULL,
   project_id STRING NOT NULL,
@@ -220,7 +220,7 @@ CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_notifi
   read_at TIMESTAMP
 ) USING DELTA;
 
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_parsed_v2 (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_parsed_v2 (
   project_id STRING NOT NULL,
   document_id STRING NOT NULL,
   doc_uri STRING NOT NULL,
@@ -230,7 +230,7 @@ CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_parsed_v2 
   parsed_at TIMESTAMP
 ) USING DELTA;
 
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_eval_cases (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_rag_eval_cases (
   project_id STRING NOT NULL,
   eval_case_id STRING NOT NULL,
   question STRING NOT NULL,
@@ -250,7 +250,7 @@ CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_eval_c
   created_at TIMESTAMP
 ) USING DELTA;
 
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_eval_results (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_rag_eval_results (
   project_id STRING NOT NULL,
   eval_run_id STRING NOT NULL,
   mlflow_run_id STRING,
@@ -304,7 +304,7 @@ CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_eval_r
   evaluated_at TIMESTAMP
 ) USING DELTA;
 
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_eval_runs (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_rag_eval_runs (
   project_id STRING NOT NULL,
   eval_run_id STRING NOT NULL,
   phase_id STRING NOT NULL,
@@ -330,7 +330,7 @@ CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_eval_r
   error_message STRING
 ) USING DELTA;
 
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_eval_suggestions (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_rag_eval_suggestions (
   suggestion_id STRING NOT NULL,
   project_id STRING NOT NULL,
   eval_run_id STRING NOT NULL,
@@ -346,7 +346,7 @@ CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_rag_eval_s
   accepted_at TIMESTAMP
 ) USING DELTA;
 
-CREATE TABLE IF NOT EXISTS mikito_toyota_rag_eval.rag_accuracy.toyota_chunks_standard_512_v1 (
+CREATE TABLE IF NOT EXISTS rag_accuracy_demo.rag_accuracy.toyota_chunks_standard_512_v1 (
   chunk_id STRING NOT NULL,
   project_id STRING NOT NULL,
   variant_id STRING NOT NULL,

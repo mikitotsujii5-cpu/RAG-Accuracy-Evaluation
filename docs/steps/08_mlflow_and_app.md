@@ -212,7 +212,7 @@ https://<APP_HOST>
 
 ## この環境の実測結果
 
-現行source asset `1.7.0`はPython 344件と、登録済みIndex Profileだけを表示する回帰を含むUI 45件に合格しています。field-eng-eastへ再配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件、asset URL version `1.7.0`を確認しました。remote画面ではStandard／512／Qwen3の1 Profileだけが表示され、Profile selector、256／1024の可視要素、console warning／errorは0件でした。`/api/health`は今回直接再確認していません。
+現行ローカルsource asset `1.8.0`はPython 344件と、登録済みIndex Profileだけを表示する回帰を含むUI 65件、合計409件の自動テストに合格しています。field-eng-eastのremote検証済みassetは`1.7.0`で、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件、asset URL version `1.7.0`を確認しました。remote画面ではStandard／512／Qwen3の1 Profileだけが表示され、Profile selector、256／1024の可視要素、console warning／errorは0件でした。`/api/health`は今回直接再確認していません。
 
 | 項目 | 実測 |
 |---|---|
@@ -223,7 +223,7 @@ https://<APP_HOST>
 | Resources／scope | binding 7件、`iam.access-control:read`、`iam.current-user:read`、`model-serving` |
 | ログインユーザー | `/api/me` HTTP 200、`<DATABRICKS_USER_EMAIL>` |
 | App SP権限 | grant 30文成功。`toyota_index_variants`の`MODIFY`はStatement `<STATEMENT_ID>`、`SELECT`＋`MODIFY`の確認は`<STATEMENT_ID>` |
-| Source test | asset `1.7.0`、Python 344件、登録済みIndex Profileだけを表示する回帰を含むUI 45件、差分check成功 |
+| Source test | asset `1.8.0`、Python 344件、登録済みIndex Profileだけを表示する回帰を含むUI 65件、合計409件、差分check成功 |
 | App起動 | deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`。旧deploymentのnpm失敗履歴は現行Appと分けて記録 |
 | 評価status／results | asset `1.4.7`で実行済みのPhase 1・1問・1回runをasset `1.4.8`のremote APIで取得。`SUCCEEDED`、1／1、774秒、指標1件、改善提案1件 |
 | 評価結果 | Recall／Correctness／Groundedness／Citation各1.0、error rate 0、p50 5,479 ms。Lakeflow run total 777.125秒 |

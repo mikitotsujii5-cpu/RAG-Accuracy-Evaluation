@@ -9,7 +9,7 @@
 --
 -- Databricks ALTER TABLE ADD COLUMNS has no IF NOT EXISTS form.  The equivalent
 -- first-run migration would be:
---   ALTER TABLE mikito_toyota_rag_eval.rag_accuracy.toyota_chunks_standard_512_v1
+--   ALTER TABLE rag_accuracy_demo.rag_accuracy.toyota_chunks_standard_512_v1
 --   ADD COLUMNS (
 --     parent_chunk_to_retrieve STRING,
 --     parent_page_numbers ARRAY<INT>
@@ -18,7 +18,7 @@
 -- repeatable when the columns already exist.
 
 -- Delta Sync indexes require Change Data Feed on the source Delta table.
-ALTER TABLE mikito_toyota_rag_eval.rag_accuracy.toyota_chunks_standard_512_v1
+ALTER TABLE rag_accuracy_demo.rag_accuracy.toyota_chunks_standard_512_v1
 SET TBLPROPERTIES ('delta.enableChangeDataFeed' = 'true');
 
 WITH baseline_documents AS (
@@ -54,7 +54,7 @@ parse_gate AS (
         ) AS BOOLEAN
       )
     END AS ready
-  FROM mikito_toyota_rag_eval.rag_accuracy.toyota_parsed_v2 p
+  FROM rag_accuracy_demo.rag_accuracy.toyota_parsed_v2 p
   JOIN baseline_documents d
     ON d.document_id = p.document_id
   WHERE p.project_id = '1f113047-82b3-4327-b2b5-7322ecd26ad9'
@@ -71,10 +71,10 @@ validated_documents AS (
     r.model_year,
     r.document_type,
     r.vehicle_category
-  FROM mikito_toyota_rag_eval.rag_accuracy.toyota_parsed_v2 p
+  FROM rag_accuracy_demo.rag_accuracy.toyota_parsed_v2 p
   JOIN baseline_documents d
     ON d.document_id = p.document_id
-  JOIN mikito_toyota_rag_eval.rag_accuracy.toyota_document_registry r
+  JOIN rag_accuracy_demo.rag_accuracy.toyota_document_registry r
     ON r.project_id = p.project_id
    AND r.document_id = p.document_id
    AND r.doc_uri = p.doc_uri
@@ -296,14 +296,14 @@ source AS (
     n.parent_chunk_to_retrieve,
     n.parent_page_numbers
   FROM new_chunks n
-  LEFT JOIN mikito_toyota_rag_eval.rag_accuracy.toyota_chunks_standard_512_v1 existing
+  LEFT JOIN rag_accuracy_demo.rag_accuracy.toyota_chunks_standard_512_v1 existing
     ON existing.chunk_id = n.chunk_id
-  LEFT JOIN mikito_toyota_rag_eval.rag_accuracy.toyota_document_registry registry
+  LEFT JOIN rag_accuracy_demo.rag_accuracy.toyota_document_registry registry
     ON registry.project_id = n.project_id
    AND registry.document_id = n.document_id
 )
 MERGE WITH SCHEMA EVOLUTION
-INTO mikito_toyota_rag_eval.rag_accuracy.toyota_chunks_standard_512_v1 AS target
+INTO rag_accuracy_demo.rag_accuracy.toyota_chunks_standard_512_v1 AS target
 USING source
 ON target.chunk_id = source.chunk_id
 WHEN MATCHED THEN UPDATE SET *
@@ -324,7 +324,7 @@ SELECT
   count_if(parent_chunk_to_retrieve <> chunk_to_retrieve) AS parent_text_mismatches,
   count_if(parent_page_numbers <> page_numbers) AS parent_page_mismatches,
   max(length(chunk_to_retrieve)) AS max_chunk_characters
-FROM mikito_toyota_rag_eval.rag_accuracy.toyota_chunks_standard_512_v1
+FROM rag_accuracy_demo.rag_accuracy.toyota_chunks_standard_512_v1
 WHERE project_id = '1f113047-82b3-4327-b2b5-7322ecd26ad9'
   AND variant_id = 'baseline-standard-512-v1';
 
@@ -335,7 +335,7 @@ SELECT
   coalesce(sum(row_count - 1), 0) AS duplicate_rows
 FROM (
   SELECT chunk_id, count(*) AS row_count
-  FROM mikito_toyota_rag_eval.rag_accuracy.toyota_chunks_standard_512_v1
+  FROM rag_accuracy_demo.rag_accuracy.toyota_chunks_standard_512_v1
   GROUP BY chunk_id
   HAVING count(*) > 1
 );
@@ -345,7 +345,7 @@ SELECT
   document_id,
   count(*) AS chunk_count,
   array_sort(collect_set(page_number)) AS page_numbers
-FROM mikito_toyota_rag_eval.rag_accuracy.toyota_chunks_standard_512_v1
+FROM rag_accuracy_demo.rag_accuracy.toyota_chunks_standard_512_v1
 WHERE project_id = '1f113047-82b3-4327-b2b5-7322ecd26ad9'
   AND variant_id = 'baseline-standard-512-v1'
 GROUP BY document_id
@@ -353,7 +353,7 @@ ORDER BY document_id;
 
 -- Verification 4: STRING / NOT NULL key plus both parent columns are present.
 SELECT column_name, data_type, is_nullable
-FROM mikito_toyota_rag_eval.information_schema.columns
+FROM rag_accuracy_demo.information_schema.columns
 WHERE table_schema = 'rag_accuracy'
   AND table_name = 'toyota_chunks_standard_512_v1'
   AND column_name IN (
@@ -363,5 +363,5 @@ ORDER BY column_name;
 
 -- Verification 5: expected value is true.
 SHOW TBLPROPERTIES
-  mikito_toyota_rag_eval.rag_accuracy.toyota_chunks_standard_512_v1
+  rag_accuracy_demo.rag_accuracy.toyota_chunks_standard_512_v1
   ('delta.enableChangeDataFeed');

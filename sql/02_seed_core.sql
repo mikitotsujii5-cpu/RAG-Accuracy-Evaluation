@@ -1,6 +1,6 @@
 -- Idempotent baseline Project, model, vehicle, and Variant seed data.
 
-MERGE INTO mikito_toyota_rag_eval.rag_accuracy.toyota_rag_model_catalog AS target
+MERGE INTO rag_accuracy_demo.rag_accuracy.toyota_rag_model_catalog AS target
 USING (
   SELECT * FROM VALUES
     ('emb-qwen3-0-6b', 'Qwen3 Embedding 0.6B', 'FMAPI_ENDPOINT', 'databricks-qwen3-embedding-0-6b', array('embedding'), 'READY', NULL, NULL, NULL, true, true, NULL),
@@ -43,7 +43,7 @@ WHEN NOT MATCHED THEN INSERT (
 -- is multilingual and supports Japanese retrieval.  The
 -- application must use the fallback policy only when this row is not READY,
 -- selectable, and region-available in the model catalog.
-MERGE INTO mikito_toyota_rag_eval.rag_accuracy.toyota_rag_model_defaults AS target
+MERGE INTO rag_accuracy_demo.rag_accuracy.toyota_rag_model_defaults AS target
 USING (
   SELECT
     'embedding' AS capability,
@@ -64,7 +64,7 @@ WHEN NOT MATCHED THEN INSERT (
   source.rationale, current_timestamp()
 );
 
-MERGE INTO mikito_toyota_rag_eval.rag_accuracy.toyota_rag_projects AS target
+MERGE INTO rag_accuracy_demo.rag_accuracy.toyota_rag_projects AS target
 USING (
   SELECT * FROM VALUES
     ('1f113047-82b3-4327-b2b5-7322ecd26ad9', 'Toyota RAG Baseline', 'D01-D08を固定コーパスとしてPhase 1-5を比較するプロジェクト', 'ACTIVE', 'baseline-standard-512-v1', 'v1.0.0', 'llm-gpt-5-6-luna', 'llm-gpt-5-6-luna', 'llm-gpt-5-6-terra', 'llm-gpt-5-6-terra'),
@@ -99,7 +99,7 @@ WHEN NOT MATCHED THEN INSERT (
   current_user(), current_timestamp(), current_timestamp()
 );
 
-MERGE INTO mikito_toyota_rag_eval.rag_accuracy.toyota_rag_project_members AS target
+MERGE INTO rag_accuracy_demo.rag_accuracy.toyota_rag_project_members AS target
 USING (
   SELECT project_id, current_user() AS principal, 'OWNER' AS role
   FROM VALUES
@@ -119,7 +119,7 @@ WHEN NOT MATCHED THEN INSERT (
   current_user(), current_timestamp()
 );
 
-MERGE INTO mikito_toyota_rag_eval.rag_accuracy.toyota_vehicle_master AS target
+MERGE INTO rag_accuracy_demo.rag_accuracy.toyota_vehicle_master AS target
 USING (
   SELECT * FROM VALUES
     ('Prius', array('プリウス', 'PRIUS'), array(2023, 2024), 'passenger_car', true),
@@ -141,7 +141,7 @@ WHEN NOT MATCHED THEN INSERT (
   source.vehicle_category, source.active, current_timestamp()
 );
 
-MERGE INTO mikito_toyota_rag_eval.rag_accuracy.toyota_index_variants AS target
+MERGE INTO rag_accuracy_demo.rag_accuracy.toyota_index_variants AS target
 USING (
   SELECT
     'baseline-standard-512-v1' AS variant_id,
@@ -163,8 +163,8 @@ USING (
     '{"page_aligned":true,"max_target_tokens":512,"note":"Demo pages are below the target size"}' AS chunker_config_json,
     true AS cleaning_enabled,
     true AS semantic_metadata_enabled,
-    'mikito_toyota_rag_eval.rag_accuracy.toyota_chunks_standard_512_v1' AS source_table,
-    'mikito_toyota_rag_eval.rag_accuracy.toyota_chunks_standard_512_v1_index' AS index_name,
+    'rag_accuracy_demo.rag_accuracy.toyota_chunks_standard_512_v1' AS source_table,
+    'rag_accuracy_demo.rag_accuracy.toyota_chunks_standard_512_v1_index' AS index_name,
     'emb-qwen3-0-6b' AS embedding_model_key,
     'databricks-qwen3-embedding-0-6b' AS embedding_endpoint,
     'databricks-qwen3-embedding-0-6b' AS query_embedding_endpoint,
@@ -226,8 +226,8 @@ SELECT
   catalog.display_name AS resolved_default_display_name,
   catalog.target_name AS resolved_default_endpoint,
   catalog.model_key = defaults.preferred_model_key AS preferred_is_available
-FROM mikito_toyota_rag_eval.rag_accuracy.toyota_rag_model_catalog catalog
-CROSS JOIN mikito_toyota_rag_eval.rag_accuracy.toyota_rag_model_defaults defaults
+FROM rag_accuracy_demo.rag_accuracy.toyota_rag_model_catalog catalog
+CROSS JOIN rag_accuracy_demo.rag_accuracy.toyota_rag_model_defaults defaults
 WHERE defaults.capability = 'embedding'
   AND catalog.target_kind = 'FMAPI_ENDPOINT'
   AND catalog.endpoint_state = 'READY'

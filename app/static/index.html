@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="DatabricksでPDFを検索するRAGを作り、検索精度・回答品質・応答時間を比べるアプリ">
   <title>RAG精度評価アプリ</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=1.7.0">
+  <link rel="stylesheet" href="/assets/styles.css?v=1.8.0">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f3e58'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='Arial' font-weight='700' font-size='18' fill='%23a8e6cf'%3ER%3C/text%3E%3C/svg%3E">
 </head>
 <body>
   <a class="skip-link" href="#main-content">本文へ移動</a>
   <div id="app-shell" class="app-shell">
     <header class="topbar">
-      <button id="sidebar-toggle" class="icon-button mobile-only" type="button" aria-label="メニューを開閉" aria-expanded="false">☰</button>
+      <button id="sidebar-toggle" class="icon-button mobile-only" type="button" aria-label="メニューを開閉" aria-controls="sidebar" aria-expanded="false">☰</button>
       <a class="brand" href="/" aria-label="RAG精度評価アプリ ホーム">
         <span class="brand-mark" aria-hidden="true">R</span>
         <span>
@@ -30,7 +30,7 @@
       </div>
       <div class="topbar-actions">
         <button id="refresh-button" class="icon-button" type="button" aria-label="表示を更新" title="表示を更新">↻</button>
-        <button id="theme-button" class="icon-button" type="button" aria-label="配色を切り替え" title="配色を切り替え">◐</button>
+        <button id="theme-button" class="icon-button" type="button" aria-label="暗い配色に切り替え" aria-pressed="false" title="暗い配色に切り替え">◐</button>
         <span id="current-user" class="user-chip" title="Databricks Appsのログインユーザー">
           <span id="current-user-avatar" class="user-avatar" aria-hidden="true">…</span>
           <span class="user-copy"><small>ログイン中</small><strong id="current-user-email">確認中…</strong></span>
@@ -137,7 +137,7 @@
                 </details>
                 <div class="action-row">
                   <p class="inline-help"><span class="help-dot">?</span> 必須項目はPDFだけです。登録後に内容を自動解析します。</p>
-                  <button id="upload-button" class="primary-button" type="submit">アップロードして解析</button>
+                  <button id="upload-button" class="primary-button" type="submit" disabled>アップロードして解析</button>
                 </div>
               </form>
             </article>
@@ -162,44 +162,15 @@
                 </div>
                 <p id="preparation-profile-help">管理者が用意したDelta Table／AI Search Indexを確認しています。</p>
               </div>
-              <div id="index-profile-internal-chunk-controls" hidden aria-hidden="true">
-              <fieldset class="control-group">
-                <legend>文章の長さ（トークン） <span class="tooltip" data-tooltip="RAGが一度に検索する文章量の目安です。">?</span></legend>
-                <div class="segmented" id="chunk-size-options">
-                  <label><input type="radio" name="chunk-size" value="256"><span>256<small>細かく検索</small></span></label>
-                  <label><input type="radio" name="chunk-size" value="512" checked><span>512<small>標準</small></span></label>
-                  <label><input type="radio" name="chunk-size" value="1024"><span>1024<small>前後を広く保持</small></span></label>
-                </div>
-              </fieldset>
-              <fieldset class="control-group">
-                <legend>分割方法</legend>
-                <div class="method-cards" id="chunk-method-options">
-                  <label class="method-card selected"><input type="radio" name="chunk-method" value="STANDARD" checked><span><strong>均等に分割</strong><small>ほぼ同じ長さ（Standard）</small></span></label>
-                  <label class="method-card"><input type="radio" name="chunk-method" value="SEMANTIC"><span><strong>意味ごとに分割</strong><small>見出しや文の切れ目（Semantic）</small></span></label>
-                  <label class="method-card"><input type="radio" name="chunk-method" value="PARENT_CHILD"><span><strong>親子で分割</strong><small>短く検索して前後も使う（Parent-child）</small></span></label>
-                </div>
-              </fieldset>
-              </div>
               <fieldset class="control-group build-document-picker">
                 <legend>対象PDF <span id="build-document-count" class="subtle">0件</span></legend>
                 <div class="selection-actions">
-                  <button id="select-all-build-documents" class="text-button" type="button">解析済みを選択</button>
-                  <button id="clear-build-documents" class="text-button" type="button">選択解除</button>
+                  <button id="select-all-build-documents" class="text-button" type="button" disabled>解析済みを選択</button>
+                  <button id="clear-build-documents" class="text-button" type="button" disabled>選択解除</button>
                 </div>
                 <div id="build-document-list" class="build-document-list" aria-live="polite"><p class="empty-inline">解析済みPDFはまだありません。</p></div>
                 <small class="subtle">1回につき最大100件。101件以上ある場合は、作成するPDFを選んでください。</small>
               </fieldset>
-              <div id="index-profile-internal-model-controls" hidden aria-hidden="true">
-              <label class="field-label">ベクトル化モデル <span class="tooltip" data-tooltip="このDatabricks環境で使えるEmbeddingモデルを表示します。日本語対応のQwen3 Embedding 0.6Bを優先します。">?</span>
-                <select id="embedding-model"><option value="">モデル一覧を読み込み中…</option></select>
-              </label>
-              <div id="embedding-model-detail" class="model-detail muted-panel">選ぶと、ベクトルの次元数と利用状態を表示します。</div>
-              <div class="toggle-grid">
-                <label class="toggle-row"><span><strong>不要な文字を除去</strong><small>ヘッダー、フッター、ページ番号を除く</small></span><input id="cleaning-toggle" type="checkbox" role="switch" checked></label>
-                <label class="toggle-row"><span><strong>概要・見出しを追加</strong><small>文書情報を検索用テキストに追加</small></span><input id="semantic-toggle" type="checkbox" role="switch" checked></label>
-                <label class="toggle-row"><span><strong>表・図・レイアウトを保持</strong><small>解析した表・図・配置を検索に反映</small></span><input id="layout-toggle" type="checkbox" role="switch" checked></label>
-              </div>
-              </div>
               <details class="index-technical-details">
                 <summary>技術情報（保存先のAI Search Index）</summary>
                 <div id="index-profile-match" class="index-profile-match unavailable" aria-live="polite" aria-atomic="true">
@@ -252,10 +223,10 @@
           <a data-console-link="ai_parse_document" title="SQL EditorでDocument Parsingを確認">ai_parse_document</a>
         </div>
         <div class="catalog-toolbar card">
-          <label class="search-field"><span aria-hidden="true">⌕</span><input id="catalog-search" type="search" placeholder="タイトル・概要・タグで検索"></label>
+          <label class="search-field"><span aria-hidden="true">⌕</span><span class="sr-only">PDFを検索</span><input id="catalog-search" type="search" aria-label="PDFを検索" placeholder="タイトル・概要・タグで検索"></label>
           <label>状態<select id="catalog-status-filter"><option value="">すべて</option><option value="READY">利用可能</option><option value="PARSED">解析済み</option><option value="PARSING">解析中</option><option value="ERROR">エラー</option></select></label>
           <span id="catalog-count" class="subtle">0件</span>
-          <div class="view-switch" aria-label="表示形式"><button class="active" type="button" data-catalog-view="cards" aria-label="カード表示">▦</button><button type="button" data-catalog-view="table" aria-label="表表示">☷</button></div>
+          <div class="view-switch" role="group" aria-label="表示形式"><button class="active" type="button" data-catalog-view="cards" aria-label="カード表示" aria-pressed="true">▦</button><button type="button" data-catalog-view="table" aria-label="表表示" aria-pressed="false">☷</button></div>
         </div>
         <div id="catalog-grid" class="catalog-grid"></div>
         <div id="catalog-table-wrap" class="card table-wrap hidden">
@@ -264,19 +235,6 @@
             <tbody id="catalog-table-body"></tbody>
           </table>
         </div>
-        <div id="pdf-viewer" class="viewer-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="viewer-title" aria-describedby="viewer-help">
-          <div class="viewer-header">
-            <div class="viewer-heading"><p class="eyebrow">PDF原文</p><h2 id="viewer-title">文書</h2><p id="viewer-help">下へスクロールすると全ページを確認できます。</p></div>
-            <div class="viewer-actions">
-              <a id="viewer-open-new" class="secondary-button" href="#" target="_blank" rel="noopener">別タブで開く ↗</a>
-              <a id="viewer-download" class="secondary-button" href="#" download>ダウンロード</a>
-              <button id="viewer-close" class="icon-button" type="button" aria-label="PDFプレビューを閉じる" title="閉じる（Esc）">×</button>
-            </div>
-          </div>
-          <div id="viewer-loading" class="viewer-loading" role="status"><span class="spinner" aria-hidden="true"></span>PDFを読み込んでいます…</div>
-          <iframe id="viewer-frame" title="PDFプレビュー"></iframe>
-        </div>
-        <button id="viewer-scrim" class="scrim hidden" type="button" aria-label="PDFプレビューを閉じる"></button>
       </section>
 
       <section id="page-chat" class="page chat-page" data-page-panel="chat">
@@ -304,7 +262,7 @@
               </div>
               <span class="history-scope">このプロジェクト</span>
             </div>
-            <button id="new-chat-button" class="primary-button new-chat-button full-width" type="button"><span aria-hidden="true">＋</span> 新しい会話</button>
+            <button id="new-chat-button" class="primary-button new-chat-button full-width" type="button" disabled><span aria-hidden="true">＋</span> 新しい会話</button>
             <label class="search-field small session-search-field">
               <span aria-hidden="true">⌕</span>
               <span class="sr-only">会話履歴を検索</span>
@@ -320,12 +278,16 @@
                 <span><strong>RAGアシスタント</strong><small>PDFを検索して回答</small></span>
               </div>
               <div class="chat-pane-actions">
-                <span class="assistant-availability"><span aria-hidden="true"></span> 利用可能</span>
+                <span id="chat-readiness" class="assistant-availability" role="status"><span aria-hidden="true"></span><span>確認中</span></span>
                 <button id="chat-details-toggle" class="secondary-button chat-details-toggle" type="button" aria-expanded="false" aria-controls="chat-details">
                   <span aria-hidden="true">⚙</span><span>RAG設定</span><span id="chat-details-count" class="detail-count">0</span>
                 </button>
               </div>
             </header>
+            <div id="chat-not-ready" class="chat-not-ready hidden" role="status">
+              <span>RAG検索データを準備すると質問できます。</span>
+              <button class="text-button" type="button" data-navigate="data-preparation">データ準備へ</button>
+            </div>
             <div id="chat-messages" class="chat-messages" role="log" aria-label="会話内容" aria-live="polite" aria-relevant="additions">
               <div class="chat-empty"><span class="chat-empty-kicker">根拠のある回答をすばやく確認</span><h2>RAGチャットを開始</h2><p>PDFについて質問すると、回答と参照ページを一緒に表示します。</p><p class="suggestion-title">質問例</p><div class="suggestion-chips"><button type="button">この資料の要点を3つ教えて</button><button type="button">重要な結論と根拠ページを教えて</button><button type="button">手順を実行順に整理して</button><button type="button">注意事項・禁止事項を一覧にして</button><button type="button">対象者と適用範囲を教えて</button><button type="button">数値・期限・条件を表にまとめて</button><button type="button">専門用語を初心者向けに説明して</button><button type="button">旧版との変更点を比較して</button><button type="button">判断に必要な不足情報を教えて</button></div></div>
             </div>
@@ -340,11 +302,15 @@
               <div class="composer-actions">
                 <span id="chat-input-help" class="composer-help"><kbd>Enter</kbd> 送信 <span aria-hidden="true">·</span> <kbd>Shift</kbd>＋<kbd>Enter</kbd> 改行</span>
                 <button id="stop-button" class="danger-button stop-button hidden" type="button" aria-label="回答の生成を停止"><span class="stop-icon" aria-hidden="true"></span><span>停止</span></button>
-                <button id="send-button" class="primary-button send-button" type="submit"><span>送信</span><span aria-hidden="true">↑</span></button>
+                <button id="send-button" class="primary-button send-button" type="submit" disabled><span>送信</span><span aria-hidden="true">↑</span></button>
               </div>
             </form>
           </article>
-          <aside id="chat-details" class="card evidence-pane" aria-label="RAG設定と検索結果" hidden>
+          <aside id="chat-details" class="card evidence-pane" aria-label="RAG設定と検索結果" tabindex="-1" hidden>
+            <div class="chat-details-mobile-header">
+              <strong>RAG設定と参照PDF</strong>
+              <button id="chat-details-close" class="icon-button" type="button" aria-label="RAG設定を閉じる">×</button>
+            </div>
             <div class="tabs" role="tablist" aria-label="チャットの詳細">
               <button id="chat-settings-tab" class="active" type="button" role="tab" aria-selected="true" aria-controls="chat-settings" data-chat-tab="settings">RAG設定</button>
               <button id="chat-evidence-tab" type="button" role="tab" aria-selected="false" aria-controls="chat-evidence" tabindex="-1" data-chat-tab="evidence">参照PDF <span id="evidence-count">0</span></button>
@@ -352,7 +318,8 @@
             <div id="chat-settings" class="tab-panel active" role="tabpanel" aria-labelledby="chat-settings-tab">
               <div class="settings-section">
                 <p class="settings-section-title">検索フロー</p>
-                <label>RAGモード<select id="rag-mode"><option value="DETERMINISTIC">比較モード（条件を固定）</option><option value="AGENTIC" disabled>Agentモード（現在は利用不可）</option></select></label>
+                <input id="rag-mode" type="hidden" value="DETERMINISTIC">
+                <div class="fixed-setting"><span>実行方式</span><strong>比較モード（条件を固定）</strong></div>
                 <label>Phase（検索設定）<select id="chat-phase"><option value="phase_01">Phase 1 — Vector</option><option value="phase_02">Phase 2 — Hybrid</option><option value="phase_03">Phase 3 — + 条件絞り込み</option><option value="phase_04" selected>Phase 4 — + 並べ替え</option><option value="phase_05">Phase 5 — + 質問最適化</option><option value="custom">カスタム</option></select></label>
                 <div class="phase-summary" id="phase-summary"></div>
                 <fieldset id="custom-settings" disabled>
@@ -379,6 +346,7 @@
               <div id="citation-list" class="citation-list"></div>
             </div>
           </aside>
+          <button id="chat-details-scrim" class="chat-details-scrim hidden" type="button" aria-label="RAG設定を閉じる"></button>
         </div>
       </section>
 
@@ -453,7 +421,7 @@
             <div id="evaluation-selection-summary" class="evaluation-selection-summary"><strong>0問</strong><span>評価する質問を選択してください</span></div>
           </div>
           <div class="evaluation-config-grid">
-            <label>繰り返し回数<input id="trial-count" type="number" min="1" max="10" value="1"></label>
+            <label>繰り返し回数<input id="trial-count" type="number" min="1" max="10" step="1" value="1" aria-describedby="trial-count-help"><small id="trial-count-help" class="field-help">1〜10の整数</small></label>
             <label>回答用LLM<select id="evaluation-model"><option value="">読み込み中…</option></select></label>
             <label>採点用LLM<select id="judge-model"><option value="">読み込み中…</option></select></label>
           </div>
@@ -509,6 +477,7 @@
         </article>
 
         <section class="evaluation-results" aria-label="RAG精度評価の結果">
+          <p id="metric-summary-scope" class="metric-summary-scope">評価完了後、選択したPhaseの集計を表示します。</p>
           <div class="evaluation-metric-groups">
             <section class="metric-group" aria-labelledby="retrieval-metrics-title">
               <div><p class="eyebrow">検索品質</p><h2 id="retrieval-metrics-title">必要な根拠を見つけたか</h2></div>
@@ -558,6 +527,20 @@
         </article>
       </section>
     </main>
+
+    <div id="pdf-viewer" class="viewer-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="viewer-title" aria-describedby="viewer-help">
+      <div class="viewer-header">
+        <div class="viewer-heading"><p class="eyebrow">PDF原文</p><h2 id="viewer-title">文書</h2><p id="viewer-help">下へスクロールすると全ページを確認できます。</p></div>
+        <div class="viewer-actions">
+          <a id="viewer-open-new" class="secondary-button" href="#" target="_blank" rel="noopener">別タブで開く ↗</a>
+          <a id="viewer-download" class="secondary-button" href="#" download>ダウンロード</a>
+          <button id="viewer-close" class="icon-button" type="button" aria-label="PDFプレビューを閉じる" title="閉じる（Esc）">×</button>
+        </div>
+      </div>
+      <div id="viewer-loading" class="viewer-loading" role="status"><span class="spinner" aria-hidden="true"></span>PDFを読み込んでいます…</div>
+      <iframe id="viewer-frame" title="PDFプレビュー"></iframe>
+    </div>
+    <button id="viewer-scrim" class="scrim hidden" type="button" aria-label="PDFプレビューを閉じる"></button>
   </div>
 
   <div id="project-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="project-modal-title">
@@ -567,6 +550,7 @@
       <p>同じ目的で使うPDF、会話、評価結果を1つにまとめます。</p>
       <label>プロジェクト名<input id="project-name-input" required maxlength="100" placeholder="例：社内規程 RAG評価"></label>
       <label>説明（任意）<textarea id="project-description-input" rows="3" maxlength="1000" placeholder="例：社内規程を使った検索・回答精度を比較"></textarea></label>
+      <p id="project-modal-error" class="inline-error hidden" role="alert"></p>
       <div class="action-row end"><button id="project-modal-cancel" class="secondary-button" type="button">キャンセル</button><button class="primary-button" type="submit">プロジェクトを作成</button></div>
     </form>
   </div>
@@ -580,6 +564,6 @@
     </div>
   </div>
 
-  <script src="/assets/app.js?v=1.7.0" defer></script>
+  <script src="/assets/app.js?v=1.8.0" defer></script>
 </body>
 </html>

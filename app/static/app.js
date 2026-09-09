@@ -11,10 +11,12 @@ const state = {
   confirmation: null,
   page: "data-preparation",
   documents: [],
+  documentsStatus: "idle",
   buildDocumentIds: new Set(),
   buildEligibleIds: new Set(),
   buildSelectionInitialized: false,
   variants: [],
+  variantsStatus: "idle",
   indexProfiles: [],
   indexProfilesStatus: "idle",
   selectedIndexProfile: null,
@@ -22,11 +24,17 @@ const state = {
   embeddingModels: [],
   chatModels: [],
   judgeModels: [],
+  modelsStatus: "idle",
   evaluationDatasets: [],
   evaluationCases: [],
+  evaluationCasesStatus: "idle",
+  evaluationCaseOperation: 0,
+  evaluationCaseController: null,
   evaluationCaseSelections: new Map(),
   evaluationRuns: [],
+  evaluationRunsStatus: "idle",
   sessions: [],
+  sessionsStatus: "idle",
   sessionListOperation: 0,
   sessionId: null,
   sessionOperation: 0,
@@ -68,6 +76,7 @@ const state = {
   evaluationPollFailures: 0,
   catalogView: "cards",
   pdfPrefetches: new Set(),
+  focusOrigins: new Map(),
 };
 
 const PHASES = {
@@ -116,6 +125,8 @@ const MAX_BUILD_DOCUMENTS = 100;
 const SESSION_CACHE_TTL_MS = 60_000;
 const SESSION_PREFETCH_LIMIT = 3;
 const NEW_SESSION_DRAFT_KEY = "__new_session__";
+const API_REQUEST_TIMEOUT_MS = 45000;
+const API_UPLOAD_TIMEOUT_MS = 120000;
 let metadataRowCounter = 0;
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -128,6 +139,7 @@ async function initialize() {
   restoreTheme();
   restoreChatPreferences();
   readRoute();
+  renderRouteShell();
   updatePhaseSummary();
   await Promise.allSettled([checkHealth(), loadCurrentUser(), loadConsoleLinks()]);
   await loadProjects();
@@ -174,17 +186,6 @@ function installEventHandlers() {
     if (removeButton) removeButton.closest(".custom-metadata-row")?.remove();
   });
   resetCustomMetadataRows();
-  $$('input[name="chunk-method"]').forEach((radio) => radio.addEventListener("change", () => {
-    updateMethodCards();
-    updateIndexProfileSelection();
-  }));
-  $$('input[name="chunk-size"]').forEach((radio) => radio.addEventListener("change", updateIndexProfileSelection));
-  [$("#cleaning-toggle"), $("#semantic-toggle"), $("#layout-toggle")]
-    .forEach((input) => input.addEventListener("change", updateIndexProfileSelection));
-  $("#embedding-model").addEventListener("change", () => {
-    showModelDetail("embedding");
-    updateIndexProfileSelection();
-  });
   $("#index-profile-select").addEventListener("change", (event) => {
     state.selectedPreparationProfileKey = event.target.value || null;
     renderPreparationProfiles();
@@ -193,12 +194,12 @@ function installEventHandlers() {
   $("#select-all-build-documents").addEventListener("click", () => {
     state.buildDocumentIds = new Set(eligibleBuildDocuments().slice(0, MAX_BUILD_DOCUMENTS).map((doc) => doc.document_id));
     state.buildSelectionInitialized = true;
-    renderBuildDocumentOptions();
+    setPreparationControls();
   });
   $("#clear-build-documents").addEventListener("click", () => {
     state.buildDocumentIds.clear();
     state.buildSelectionInitialized = true;
-    renderBuildDocumentOptions();
+    setPreparationControls();
   });
   $("#build-document-list").addEventListener("change", (event) => {
     const checkbox = event.target.closest('input[data-build-document-id]');
@@ -211,7 +212,7 @@ function installEventHandlers() {
     }
     if (checkbox.checked) state.buildDocumentIds.add(documentId);
     else state.buildDocumentIds.delete(documentId);
-    renderBuildDocumentOptions();
+    setPreparationControls();
   });
   $("#refresh-variants").addEventListener("click", () => loadVariants());
 
@@ -231,13 +232,14 @@ function installEventHandlers() {
   $("#new-chat-button").addEventListener("click", () => createSession());
   $("#session-search").addEventListener("input", renderSessions);
   $("#chat-phase").addEventListener("change", updatePhaseSummary);
-  $("#chat-variant").addEventListener("change", updateRuntimeIndexDetails);
-  $("#chat-model").addEventListener("change", () => showModelDetail("chat"));
+  $("#chat-variant").addEventListener("change", () => { updateRuntimeIndexDetails(); updateChatUi(); });
+  $("#chat-model").addEventListener("change", () => { showModelDetail("chat"); updateChatUi(); });
   $("#chat-form").addEventListener("submit", sendChatMessage);
   const chatInput = $("#chat-input");
   chatInput.addEventListener("input", () => {
     saveChatDraft();
     resizeChatInput();
+    updateChatUi();
   });
   chatInput.addEventListener("compositionstart", () => {
     state.chatInputComposing = true;
@@ -267,8 +269,10 @@ function installEventHandlers() {
   });
   $("#stop-button").addEventListener("click", stopChat);
   $("#chat-details-toggle").addEventListener("click", () => {
-    setChatDetailsOpen(!state.chatDetailsOpen, { persist: true });
+    setChatDetailsOpen(!state.chatDetailsOpen, { persist: true, focusPanel: true });
   });
+  $("#chat-details-close").addEventListener("click", () => setChatDetailsOpen(false, { persist: true, restoreFocus: true }));
+  $("#chat-details-scrim").addEventListener("click", () => setChatDetailsOpen(false, { persist: true, restoreFocus: true }));
   $$(".suggestion-chips button").forEach(bindSuggestionButton);
   $$('[data-chat-tab]').forEach((button) => {
     button.addEventListener("click", () => setChatTab(button.dataset.chatTab));
@@ -317,28 +321,72 @@ function installEventHandlers() {
   });
   window.addEventListener("resize", () => {
     if (state.lastMetrics?.length) drawPhaseChart(state.lastMetrics);
+    if (state.chatDetailsOpen) setChatDetailsOpen(true);
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && state.confirmation) closeConfirmation(false);
-    else if (event.key === "Escape" && !$("#pdf-viewer").classList.contains("hidden")) closeViewer();
+    if (event.key === "Tab" && trapOverlayFocus(event)) return;
+    if (event.key !== "Escape") return;
+    if (state.confirmation) closeConfirmation(false);
+    else if (!$("#project-modal").classList.contains("hidden")) closeProjectModal();
+    else if (!$("#pdf-viewer").classList.contains("hidden")) closeViewer();
+    else if (state.chatDetailsOpen && isCompactChatLayout()) setChatDetailsOpen(false, { persist: true, restoreFocus: true });
+    else if ($("#sidebar").classList.contains("open")) closeSidebar(true);
   });
 }
 
-async function api(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
-    headers: { ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...(options.headers || {}) },
+function combineAbortSignals(signals) {
+  const activeSignals = signals.filter(Boolean);
+  if (!activeSignals.length) return { signal: undefined, cleanup() {} };
+  if (activeSignals.length === 1) return { signal: activeSignals[0], cleanup() {} };
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  activeSignals.forEach((signal) => {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", abort, { once: true });
   });
-  const type = response.headers.get("content-type") || "";
-  const payload = type.includes("application/json") ? await response.json() : null;
-  if (!response.ok) {
-    const error = new Error(payload?.error?.message || `処理に失敗しました（HTTP ${response.status}）`);
-    error.code = payload?.error?.code;
-    error.details = payload?.error;
-    error.status = response.status;
+  return {
+    signal: controller.signal,
+    cleanup() { activeSignals.forEach((signal) => signal.removeEventListener("abort", abort)); },
+  };
+}
+
+async function api(path, options = {}) {
+  const { timeoutMs = API_REQUEST_TIMEOUT_MS, signal: callerSignal, ...fetchOptions } = options;
+  const timeoutController = new AbortController();
+  let timedOut = false;
+  const timeout = Number(timeoutMs) > 0
+    ? setTimeout(() => { timedOut = true; timeoutController.abort(); }, Number(timeoutMs))
+    : null;
+  const combined = combineAbortSignals([callerSignal, timeoutController.signal]);
+  try {
+    const response = await fetch(path, {
+      ...fetchOptions,
+      signal: combined.signal,
+      headers: { ...(fetchOptions.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...(fetchOptions.headers || {}) },
+    });
+    const type = response.headers.get("content-type") || "";
+    const payload = type.includes("application/json") ? await response.json() : null;
+    if (!response.ok) {
+      const error = new Error(payload?.error?.message || `処理に失敗しました（HTTP ${response.status}）`);
+      error.code = payload?.error?.code;
+      error.details = payload?.error;
+      error.status = response.status;
+      throw error;
+    }
+    return payload;
+  } catch (error) {
+    if (timedOut && error?.name === "AbortError") {
+      const timeoutError = new Error("応答に時間がかかっています。処理状況を確認してから、もう一度お試しください。");
+      timeoutError.name = "TimeoutError";
+      timeoutError.code = "REQUEST_TIMEOUT";
+      timeoutError.details = { retryable: true };
+      throw timeoutError;
+    }
     throw error;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    combined.cleanup();
   }
-  return payload;
 }
 
 async function checkHealth() {
@@ -475,6 +523,9 @@ function updateProjectChrome(project) {
     ? "プロジェクトを選択してください"
     : canDeleteProject ? `「${project.name}」を削除` : "OWNERだけがプロジェクトを削除できます";
   showOnboarding(!project);
+  setPreparationControls();
+  updateChatUi();
+  updateEvaluationSelectionUi();
 }
 
 function currentProjectScope() {
@@ -500,6 +551,9 @@ async function loadProjectData(scope = currentProjectScope()) {
 
 async function loadModels(scope = currentProjectScope()) {
   if (!isCurrentProjectScope(scope)) return;
+  state.modelsStatus = "loading";
+  updateChatUi();
+  updateEvaluationSelectionUi();
   const requests = ["embedding", "chat", "judge"].map((capability) => api(`/api/model-options?capability=${capability}`));
   try {
     const [embedding, chat, judge] = await Promise.all(requests);
@@ -507,23 +561,27 @@ async function loadModels(scope = currentProjectScope()) {
     state.embeddingModels = embedding.items || [];
     state.chatModels = chat.items || [];
     state.judgeModels = judge.items || [];
-    populateModelSelect($("#embedding-model"), state.embeddingModels, { preferEmbeddingDefault: true });
+    state.modelsStatus = "ready";
     populateModelSelect($("#chat-model"), state.chatModels);
     populateModelSelect($("#evaluation-model"), state.chatModels);
     populateModelSelect($("#judge-model"), state.judgeModels);
     renderPreparationProfiles();
-    showModelDetail("embedding");
     showModelDetail("chat");
     updateIndexProfileSelection();
+    updateChatUi();
+    updateEvaluationSelectionUi();
   } catch (error) {
     if (!isCurrentProjectScope(scope)) return;
     state.embeddingModels = [];
     state.chatModels = [];
     state.judgeModels = [];
-    [$("#embedding-model"), $("#chat-model"), $("#evaluation-model"), $("#judge-model")]
+    state.modelsStatus = "error";
+    [$("#chat-model"), $("#evaluation-model"), $("#judge-model")]
       .forEach((select) => { select.replaceChildren(new Option("モデル一覧を取得できません", "")); });
     renderPreparationProfiles();
     updateIndexProfileSelection();
+    updateChatUi();
+    updateEvaluationSelectionUi();
     showError(error, false);
   }
 }
@@ -549,29 +607,19 @@ async function loadIndexProfiles(scope = currentProjectScope()) {
   }
 }
 
-function populateModelSelect(select, models, { preferEmbeddingDefault = false } = {}) {
+function populateModelSelect(select, models) {
   select.replaceChildren();
   const selectable = models.filter((model) => model.selectable);
   if (!models.length) { select.add(new Option("利用可能なモデルがありません", "")); return; }
   models.forEach((model) => {
-    const labels = [];
-    if (preferEmbeddingDefault && (model.is_default || model.is_recommended)) labels.push("推奨");
-    if (preferEmbeddingDefault && isQwenEmbedding06B(model)) labels.push("日本語対応");
     const option = new Option(
-      `${model.display_name}${labels.length ? ` — ${labels.join("・")}` : ""}${model.selectable ? "" : ` — ${model.unavailable_reason || "選択不可"}`}`,
+      `${model.display_name}${model.selectable ? "" : ` — ${model.unavailable_reason || "選択不可"}`}`,
       model.model_key,
     );
     option.disabled = !model.selectable;
     select.add(option);
   });
-  if (selectable.length) {
-    const preferred = preferEmbeddingDefault
-      ? selectable.find(isQwenEmbedding06B)
-        || selectable.find((model) => model.is_default)
-        || selectable.find((model) => model.is_recommended)
-      : null;
-    select.value = (preferred || selectable[0]).model_key;
-  }
+  if (selectable.length) select.value = selectable[0].model_key;
 }
 
 function isQwenEmbedding06B(model) {
@@ -580,9 +628,10 @@ function isQwenEmbedding06B(model) {
 }
 
 function showModelDetail(kind) {
-  const select = kind === "embedding" ? $("#embedding-model") : $("#chat-model");
-  const target = kind === "embedding" ? $("#embedding-model-detail") : $("#chat-model-detail");
-  const models = kind === "embedding" ? state.embeddingModels : state.chatModels;
+  if (kind !== "chat") return;
+  const select = $("#chat-model");
+  const target = $("#chat-model-detail");
+  const models = state.chatModels;
   const model = models.find((item) => item.model_key === select.value);
   if (!model) { target.textContent = "利用できるモデルを選択してください。"; return; }
   const details = [];
@@ -636,30 +685,65 @@ function normalizeIndexProfile(raw) {
   };
 }
 
-function applyPreparationProfile(profile) {
-  if (!profile) return;
-  const method = $$('input[name="chunk-method"]').find((input) => input.value === profile.chunk_method);
-  const size = $$('input[name="chunk-size"]').find((input) => Number(input.value) === profile.chunk_size_tokens);
-  if (method) method.checked = true;
-  if (size) size.checked = true;
-  $("#cleaning-toggle").checked = Boolean(profile.cleaning_enabled);
-  $("#semantic-toggle").checked = Boolean(profile.semantic_metadata_enabled);
-  $("#layout-toggle").checked = profile.content_profile === "LAYOUT_PRESERVING";
-  const embedding = $("#embedding-model");
-  if ([...embedding.options].some((option) => option.value === profile.embedding_model_key)) {
-    embedding.value = profile.embedding_model_key;
+function validPreparationProfile(profile) {
+  if (!profile?.enabled) return false;
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(profile.profile_key || "")) return false;
+  if (!profile.index_name || !profile.source_table) return false;
+  if (!["STANDARD", "SEMANTIC", "PARENT_CHILD"].includes(profile.chunk_method)) return false;
+  if (!Number.isInteger(profile.chunk_size_tokens) || profile.chunk_size_tokens <= 0) return false;
+  if (!["TEXT_ONLY", "LAYOUT_PRESERVING"].includes(profile.content_profile)) return false;
+  if (typeof profile.cleaning_enabled !== "boolean" || typeof profile.semantic_metadata_enabled !== "boolean") return false;
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(profile.embedding_model_key || "")) return false;
+  if (profile.chunk_method === "PARENT_CHILD") {
+    return Number.isInteger(profile.parent_chunk_size_tokens)
+      && profile.parent_chunk_size_tokens > profile.chunk_size_tokens;
   }
-  updateMethodCards();
-  showModelDetail("embedding");
+  return profile.parent_chunk_size_tokens === null;
+}
+
+function availablePreparationProfiles() {
+  const candidates = state.indexProfiles.filter(validPreparationProfile);
+  const keyCounts = candidates.reduce((counts, profile) => {
+    counts.set(profile.profile_key, (counts.get(profile.profile_key) || 0) + 1);
+    return counts;
+  }, new Map());
+  return candidates.filter((profile) => keyCounts.get(profile.profile_key) === 1);
+}
+
+function selectedPreparationProfile() {
+  if (state.indexProfilesStatus !== "ready" || !state.selectedPreparationProfileKey) return null;
+  return availablePreparationProfiles().find(
+    (profile) => profile.profile_key === state.selectedPreparationProfileKey,
+  ) || null;
+}
+
+function preparationConfiguration(profile = selectedPreparationProfile()) {
+  if (!validPreparationProfile(profile)) return null;
+  return {
+    chunk_method: profile.chunk_method,
+    chunk_size_tokens: profile.chunk_size_tokens,
+    parent_chunk_size_tokens: profile.parent_chunk_size_tokens,
+    content_profile: profile.content_profile,
+    cleaning_enabled: profile.cleaning_enabled,
+    semantic_metadata_enabled: profile.semantic_metadata_enabled,
+    embedding_model_key: profile.embedding_model_key,
+  };
+}
+
+function embeddingProfileLabel(profile) {
+  const model = state.embeddingModels.find((item) => item.model_key === profile.embedding_model_key);
+  if (model?.display_name) return model.display_name;
+  return isQwenEmbedding06B({ model_key: profile.embedding_model_key })
+    ? "Qwen3 Embedding 0.6B"
+    : profile.embedding_model_key;
 }
 
 function preparationProfileOptionLabel(profile) {
   const method = formatChunkMethod(profile.chunk_method);
-  const model = state.embeddingModels.find((item) => item.model_key === profile.embedding_model_key);
   const content = profile.content_profile === "LAYOUT_PRESERVING" ? "レイアウト保持" : "テキストのみ";
   const cleaning = profile.cleaning_enabled ? "クリーニングあり" : "クリーニングなし";
   const metadata = profile.semantic_metadata_enabled ? "文書情報あり" : "文書情報なし";
-  return `${method} / ${profile.chunk_size_tokens} / ${model?.display_name || profile.embedding_model_key} / ${content} / ${cleaning} / ${metadata}`;
+  return `${method} / ${profile.chunk_size_tokens} / ${embeddingProfileLabel(profile)} / ${content} / ${cleaning} / ${metadata}`;
 }
 
 function renderPreparationProfiles() {
@@ -675,7 +759,7 @@ function renderPreparationProfiles() {
   if (!card || !select || !selectorField || !name || !count || !method || !size || !embedding || !help) return;
 
   card.classList.remove("loading", "ready", "unavailable");
-  const profiles = state.indexProfiles.filter((profile) => profile.enabled && profile.index_name);
+  const profiles = availablePreparationProfiles();
   if (state.indexProfilesStatus === "loading" || state.indexProfilesStatus === "idle") {
     card.classList.add("loading");
     select.replaceChildren(new Option("読み込み中…", ""));
@@ -687,6 +771,7 @@ function renderPreparationProfiles() {
     size.textContent = "—";
     embedding.textContent = "—";
     help.textContent = "管理者が用意したDelta Table／AI Search Indexを確認しています。";
+    state.selectedPreparationProfileKey = null;
     state.selectedIndexProfile = null;
     updateIndexProfileSelection();
     return;
@@ -702,6 +787,7 @@ function renderPreparationProfiles() {
     size.textContent = "—";
     embedding.textContent = "—";
     help.textContent = "画面右上の「表示を更新」で再読み込みしてください。";
+    state.selectedPreparationProfileKey = null;
     state.selectedIndexProfile = null;
     updateIndexProfileSelection();
     return;
@@ -710,13 +796,17 @@ function renderPreparationProfiles() {
     card.classList.add("unavailable");
     select.replaceChildren(new Option("利用できる設定がありません", ""));
     selectorField.classList.add("hidden");
-    name.textContent = "利用できる検索設定がありません";
+    const invalid = state.indexProfiles.some((profile) => profile?.enabled);
+    name.textContent = invalid ? "検索設定の登録内容を確認してください" : "利用できる検索設定がありません";
     count.className = "status-pill error";
-    count.textContent = "未設定";
+    count.textContent = invalid ? "設定エラー" : "未設定";
     method.textContent = "—";
     size.textContent = "—";
     embedding.textContent = "—";
-    help.textContent = "管理者にDelta TableとAI Search Indexの設定を依頼してください。";
+    help.textContent = invalid
+      ? "登録済みProfileの必須項目が不足または重複しています。管理者に確認を依頼してください。"
+      : "管理者にDelta TableとAI Search Indexの設定を依頼してください。";
+    state.selectedPreparationProfileKey = null;
     state.selectedIndexProfile = null;
     updateIndexProfileSelection();
     return;
@@ -734,94 +824,11 @@ function renderPreparationProfiles() {
   count.textContent = profiles.length === 1 ? "この環境の設定" : `${profiles.length}件から選択`;
   method.textContent = formatChunkMethod(profile.chunk_method);
   size.textContent = `${profile.chunk_size_tokens} tokens`;
-  const model = state.embeddingModels.find((item) => item.model_key === profile.embedding_model_key);
-  embedding.textContent = model?.display_name || profile.embedding_model_key;
+  embedding.textContent = embeddingProfileLabel(profile);
   help.textContent = profiles.length === 1
     ? "このAppに登録済みの1つの設定を使用します。未登録のサイズは表示しません。"
     : "このAppに登録済みのDelta Table／AI Search Indexだけを表示します。";
-  applyPreparationProfile(profile);
   updateIndexProfileSelection();
-}
-
-function currentPreparationConfiguration() {
-  const method = $('input[name="chunk-method"]:checked')?.value || "";
-  const size = Number($('input[name="chunk-size"]:checked')?.value || 0);
-  return {
-    chunk_method: method,
-    chunk_size_tokens: size,
-    parent_chunk_size_tokens: method === "PARENT_CHILD" ? Math.min(size * 4, 4096) : null,
-    content_profile: $("#layout-toggle")?.checked ? "LAYOUT_PRESERVING" : "TEXT_ONLY",
-    cleaning_enabled: Boolean($("#cleaning-toggle")?.checked),
-    semantic_metadata_enabled: Boolean($("#semantic-toggle")?.checked),
-    embedding_model_key: $("#embedding-model")?.value || "",
-  };
-}
-
-function indexProfileMatchesConfiguration(profile, configuration) {
-  return Boolean(
-    profile?.enabled
-    && profile.index_name
-    && profile.chunk_method === configuration.chunk_method
-    && profile.chunk_size_tokens === configuration.chunk_size_tokens
-    && profile.parent_chunk_size_tokens === configuration.parent_chunk_size_tokens
-    && profile.content_profile === configuration.content_profile
-    && profile.cleaning_enabled === configuration.cleaning_enabled
-    && profile.semantic_metadata_enabled === configuration.semantic_metadata_enabled
-    && profile.embedding_model_key === configuration.embedding_model_key
-  );
-}
-
-function matchingIndexProfiles(configuration = currentPreparationConfiguration()) {
-  if (!configuration.embedding_model_key) return [];
-  return state.indexProfiles.filter((profile) => indexProfileMatchesConfiguration(profile, configuration));
-}
-
-function selectedIndexProfileForCurrentSettings() {
-  const matches = matchingIndexProfiles();
-  return matches.length === 1 ? matches[0] : null;
-}
-
-function indexProfileMatchesConfigurationExceptEmbedding(profile, configuration) {
-  return Boolean(
-    profile?.enabled
-    && profile.index_name
-    && profile.chunk_method === configuration.chunk_method
-    && profile.chunk_size_tokens === configuration.chunk_size_tokens
-    && profile.parent_chunk_size_tokens === configuration.parent_chunk_size_tokens
-    && profile.content_profile === configuration.content_profile
-    && profile.cleaning_enabled === configuration.cleaning_enabled
-    && profile.semantic_metadata_enabled === configuration.semantic_metadata_enabled
-  );
-}
-
-function selectCompatibleEmbeddingModel() {
-  const select = $("#embedding-model");
-  if (!select || state.indexProfilesStatus !== "ready" || !state.embeddingModels.length) return false;
-
-  const configuration = currentPreparationConfiguration();
-  const currentMatches = matchingIndexProfiles(configuration);
-  if (currentMatches.length) return false;
-
-  const compatibleProfiles = state.indexProfiles.filter(
-    (profile) => indexProfileMatchesConfigurationExceptEmbedding(profile, configuration),
-  );
-  const matchesPerModel = compatibleProfiles.reduce((counts, profile) => {
-    counts.set(profile.embedding_model_key, (counts.get(profile.embedding_model_key) || 0) + 1);
-    return counts;
-  }, new Map());
-  const candidates = state.embeddingModels.filter((model) => (
-    model.selectable && matchesPerModel.get(model.model_key) === 1
-  ));
-  if (!candidates.length) return false;
-
-  const preferred = candidates.find(isQwenEmbedding06B)
-    || candidates.find((model) => model.is_default)
-    || candidates.find((model) => model.is_recommended)
-    || candidates[0];
-  if (!preferred || select.value === preferred.model_key) return false;
-  select.value = preferred.model_key;
-  showModelDetail("embedding");
-  return true;
 }
 
 function updateIndexProfileSelection() {
@@ -830,13 +837,12 @@ function updateIndexProfileSelection() {
   const message = $("#index-profile-message");
   if (!panel || !indexName || !message) return;
 
-  const matches = matchingIndexProfiles();
-  const profile = matches.length === 1 ? matches[0] : null;
+  const profile = selectedPreparationProfile();
   state.selectedIndexProfile = profile;
   panel.classList.toggle("available", Boolean(profile));
   panel.classList.toggle("unavailable", !profile && state.indexProfilesStatus !== "loading");
 
-  if (state.indexProfilesStatus === "loading") {
+  if (["loading", "idle"].includes(state.indexProfilesStatus)) {
     indexName.textContent = "確認中…";
     message.textContent = "事前登録済みのIndexを確認しています。";
   } else if (state.indexProfilesStatus === "error") {
@@ -847,9 +853,9 @@ function updateIndexProfileSelection() {
     message.textContent = `${profile.display_name} に完全一致しました。既存Indexへデータを書き込み、同期します。`;
   } else {
     indexName.textContent = "未登録";
-    message.textContent = matches.length > 1
-      ? "一致するIndex設定が複数あります。管理者に登録内容の確認を依頼してください。"
-      : "この設定は管理者によるIndex準備が必要です";
+    message.textContent = state.indexProfiles.length
+      ? "登録済みProfileの内容が不正または重複しています。管理者に確認を依頼してください。"
+      : "このAppに利用可能なIndex Profileが登録されていません。";
   }
   setPreparationControls();
 }
@@ -897,17 +903,27 @@ function updateRuntimeIndexDetails() {
 }
 
 function openProjectModal() {
+  rememberFocusOrigin("project");
+  $("#project-modal-error").classList.add("hidden");
+  $("#project-modal-error").textContent = "";
   $("#project-modal").classList.remove("hidden");
+  updateOverlayInert();
   setTimeout(() => $("#project-name-input").focus(), 0);
 }
-function closeProjectModal() { $("#project-modal").classList.add("hidden"); }
+function closeProjectModal() {
+  $("#project-modal").classList.add("hidden");
+  updateOverlayInert();
+  restoreFocusOrigin("project");
+}
 
 function requestConfirmation({ title, message, confirmLabel = "削除する" }) {
   if (state.confirmation) return Promise.resolve(false);
+  rememberFocusOrigin("confirmation");
   $("#confirm-modal-title").textContent = title;
   $("#confirm-modal-message").textContent = message;
   $("#confirm-modal-accept").textContent = confirmLabel;
   $("#confirm-modal").classList.remove("hidden");
+  updateOverlayInert();
   return new Promise((resolve) => {
     state.confirmation = { resolve };
     setTimeout(() => $("#confirm-modal-cancel").focus(), 0);
@@ -919,6 +935,8 @@ function closeConfirmation(accepted = false) {
   if (!confirmation) return;
   state.confirmation = null;
   $("#confirm-modal").classList.add("hidden");
+  updateOverlayInert();
+  restoreFocusOrigin("confirmation");
   confirmation.resolve(Boolean(accepted));
 }
 
@@ -983,8 +1001,79 @@ async function createProject(event) {
     formElement.reset();
     toast("プロジェクトを作成しました。");
     await loadProjects(project.project_id);
-  } catch (error) { showError(error); }
+  } catch (error) {
+    const inlineError = $("#project-modal-error");
+    inlineError.textContent = error?.message || "プロジェクトを作成できませんでした。";
+    inlineError.classList.remove("hidden");
+    showError(error);
+  }
   finally { setBusy(submit, false, "プロジェクトを作成"); }
+}
+
+function rememberFocusOrigin(name) {
+  const active = document.activeElement;
+  if (active && typeof active.focus === "function" && active !== document.body) {
+    state.focusOrigins.set(name, active);
+  }
+}
+
+function restoreFocusOrigin(name) {
+  const origin = state.focusOrigins.get(name);
+  state.focusOrigins.delete(name);
+  if (origin?.isConnected && typeof origin.focus === "function") {
+    setTimeout(() => origin.focus(), 0);
+  }
+}
+
+function visibleOverlay() {
+  if (!$("#confirm-modal").classList.contains("hidden")) return $("#confirm-modal");
+  if (!$("#project-modal").classList.contains("hidden")) return $("#project-modal");
+  if (!$("#pdf-viewer").classList.contains("hidden")) return $("#pdf-viewer");
+  if (state.chatDetailsOpen && isCompactChatLayout()) return $("#chat-details");
+  return null;
+}
+
+function trapOverlayFocus(event) {
+  const overlay = visibleOverlay();
+  if (!overlay) return false;
+  const focusable = $$('a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])', overlay)
+    .filter((element) => !element.hidden && !element.closest("[hidden]") && !element.classList.contains("hidden"));
+  if (!focusable.length) return false;
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (event.shiftKey && (document.activeElement === first || !overlay.contains(document.activeElement))) {
+    event.preventDefault();
+    last.focus();
+    return true;
+  }
+  if (!event.shiftKey && (document.activeElement === last || !overlay.contains(document.activeElement))) {
+    event.preventDefault();
+    first.focus();
+    return true;
+  }
+  return false;
+}
+
+function updateOverlayInert() {
+  const appShell = $(".app-shell");
+  const blockingModal = !$("#project-modal").classList.contains("hidden")
+    || !$("#confirm-modal").classList.contains("hidden");
+  if (appShell) appShell.inert = blockingModal;
+  const viewerOpen = !$("#pdf-viewer").classList.contains("hidden");
+  const compactChatOpen = state.chatDetailsOpen && isCompactChatLayout() && !blockingModal && !viewerOpen;
+  [$(".topbar"), $("#sidebar")].forEach((element) => {
+    if (element) element.inert = !blockingModal && (viewerOpen || compactChatOpen);
+  });
+  const main = $("main");
+  if (main) main.inert = !blockingModal && viewerOpen;
+  [
+    $("#page-chat > .page-heading"),
+    $("#page-chat > .feature-strip"),
+    $("#page-chat .conversation-pane"),
+    $("#page-chat .chat-pane"),
+  ].forEach((element) => {
+    if (element) element.inert = compactChatOpen;
+  });
 }
 
 function routeStateFromLocation() {
@@ -1005,6 +1094,18 @@ function readRoute() {
   state.page = route.page;
   state.routeDocumentId = route.routeDocumentId;
   return route;
+}
+
+function renderRouteShell() {
+  $$("[data-page-panel]").forEach((panel) => {
+    panel.classList.toggle("active", panel.dataset.pagePanel === state.page);
+  });
+  $$(".nav-item").forEach((button) => {
+    const selected = button.dataset.page === state.page;
+    button.classList.toggle("active", selected);
+    if (selected) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
 }
 
 function projectRoute(projectId, page, documentId = null) {
@@ -1032,8 +1133,7 @@ async function navigate(page) {
 
 async function showCurrentPage(scope = currentProjectScope()) {
   if (!isCurrentProjectScope(scope)) return;
-  $$("[data-page-panel]").forEach((panel) => panel.classList.toggle("active", panel.dataset.pagePanel === state.page));
-  $$(".nav-item").forEach((button) => button.classList.toggle("active", button.dataset.page === state.page));
+  renderRouteShell();
   if (state.page === "catalog") {
     renderCatalog();
     if (state.routeDocumentId) openViewer(state.routeDocumentId, Number(new URLSearchParams(location.search).get("page")) || 1);
@@ -1051,19 +1151,31 @@ function showOnboarding(show) {
 
 function resetProjectBoundState() {
   state.documents = [];
+  state.documentsStatus = state.projectId ? "loading" : "idle";
   state.buildDocumentIds = new Set();
   state.buildEligibleIds = new Set();
   state.buildSelectionInitialized = false;
   state.variants = [];
+  state.variantsStatus = state.projectId ? "loading" : "idle";
   state.indexProfiles = [];
   state.indexProfilesStatus = "idle";
   state.selectedIndexProfile = null;
   state.selectedPreparationProfileKey = null;
+  state.embeddingModels = [];
+  state.chatModels = [];
+  state.judgeModels = [];
+  state.modelsStatus = state.projectId ? "loading" : "idle";
   state.sessions = [];
+  state.sessionsStatus = state.projectId ? "loading" : "idle";
   state.evaluationDatasets = [];
   state.evaluationCases = [];
+  state.evaluationCasesStatus = state.projectId ? "loading" : "idle";
+  state.evaluationCaseOperation += 1;
+  state.evaluationCaseController?.abort();
+  state.evaluationCaseController = null;
   state.evaluationCaseSelections = new Map();
   state.evaluationRuns = [];
+  state.evaluationRunsStatus = state.projectId ? "loading" : "idle";
   state.sessionId = null;
   state.sessionOperation += 1;
   state.sessionListOperation += 1;
@@ -1099,6 +1211,9 @@ function resetProjectBoundState() {
   $("#evaluation-case-form").reset();
   $("#evaluation-case-editor").open = false;
   setSelectedFile(null);
+  [$("#chat-model"), $("#evaluation-model"), $("#judge-model")].forEach((select) => {
+    select.replaceChildren(new Option(state.projectId ? "モデル一覧を読み込み中…" : "プロジェクトを選択", ""));
+  });
   $("#catalog-search").value = "";
   $("#catalog-status-filter").value = "";
   renderCatalog();
@@ -1112,7 +1227,6 @@ function resetProjectBoundState() {
   populateEvaluationDatasets();
   renderEvaluationCases();
   renderEvaluationRuns();
-  updateMethodCards();
   updateIndexProfileSelection();
   setPreparationControls();
   $("#refresh-button").disabled = false;
@@ -1182,6 +1296,7 @@ function resetEvaluationUi() {
 
 function setSelectedFile(file) {
   $("#selected-file").textContent = file ? `${file.name} — ${formatBytes(file.size)}` : "まだ選択されていません";
+  setPreparationControls();
 }
 
 function addCustomMetadataRow(key = "", value = "", focus = false) {
@@ -1312,7 +1427,11 @@ async function uploadDocument(event) {
   }
   setPrepProgress("upload", 18, "PDFを保管領域へ保存しています…");
   try {
-    const result = await api(`/api/projects/${originProjectId}/documents`, { method: "POST", body: form });
+    const result = await api(`/api/projects/${originProjectId}/documents`, {
+      method: "POST",
+      body: form,
+      timeoutMs: API_UPLOAD_TIMEOUT_MS,
+    });
     storePreparationRun(originProjectId, result.parse_run_id);
     if (!isCurrentPreparationOperation(operation)) return;
     toast("PDFを登録し、解析を開始しました。");
@@ -1347,6 +1466,9 @@ async function uploadDocument(event) {
 async function retryDocumentParse(documentId, button) {
   const scope = currentProjectScope();
   if (!isCurrentProjectScope(scope)) return;
+  if (!currentProjectCanEditDocuments()) {
+    return showError(new Error("PDFを再解析できるのはOWNERまたはEDITORです。"));
+  }
   const restore = state.preparationRestore;
   if (restore) await restore;
   if (!isCurrentProjectScope(scope)) return;
@@ -1456,22 +1578,40 @@ function hasActivePreparationRun(projectId = state.projectId) {
 function setPreparationControls() {
   const projectId = state.projectId;
   const request = activePreparationRequest(projectId);
-  const active = hasActivePreparationRun(projectId);
-  const selectedProfile = selectedIndexProfileForCurrentSettings();
+  const active = hasActivePreparationRun(projectId) || state.documentDeletions.size > 0;
+  const selectedProfile = selectedPreparationProfile();
+  const selectedDocumentCount = [...state.buildDocumentIds]
+    .filter((documentId) => state.buildEligibleIds.has(documentId)).length;
+  const canEdit = currentProjectCanEditDocuments();
   const buildButton = $("#build-button");
   if (buildButton) {
-    buildButton.disabled = active || !selectedProfile;
+    buildButton.disabled = active || !selectedProfile || selectedDocumentCount === 0 || !canEdit;
     buildButton.textContent = request?.kind === "BUILD_VARIANT"
       ? "作成・同期処理を開始中…"
       : active ? "RAG検索データを作成・同期中…" : BUILD_BUTTON_LABEL;
-    buildButton.title = selectedProfile
-      ? `既存Index「${selectedProfile.index_name}」へ検索データを作成して同期します`
-      : "この設定は管理者によるIndex準備が必要です";
+    buildButton.title = !canEdit
+      ? "RAG検索データを作成できるのはOWNERまたはEDITORです"
+      : !selectedProfile
+        ? "この設定は管理者によるIndex準備が必要です"
+        : selectedDocumentCount === 0
+          ? "作成対象の解析済みPDFを選択してください"
+          : `既存Index「${selectedProfile.index_name}」へ検索データを作成して同期します`;
   }
   const uploadButton = $("#upload-button");
   if (uploadButton) {
-    uploadButton.disabled = active;
+    const hasFile = Boolean($("#pdf-input")?.files?.[0]);
+    uploadButton.disabled = active || !hasFile || !canEdit;
     uploadButton.textContent = request?.kind === "UPLOAD" ? "アップロード中…" : "アップロードして解析";
+    uploadButton.title = !canEdit
+      ? "PDFを追加できるのはOWNERまたはEDITORです"
+      : !hasFile ? "PDFを選択してください" : "PDFを保存して解析を開始します";
+  }
+  const input = $("#pdf-input");
+  if (input) input.disabled = active || !canEdit;
+  const dropZone = $("#drop-zone");
+  if (dropZone) {
+    dropZone.setAttribute("aria-disabled", String(active || !canEdit));
+    dropZone.tabIndex = active || !canEdit ? -1 : 0;
   }
   renderBuildDocumentOptions();
 }
@@ -1749,6 +1889,9 @@ function setPrepProgress(step, percentage, message, jobHref = null) {
 async function buildVariant() {
   const originScope = currentProjectScope();
   if (!isCurrentProjectScope(originScope)) return openProjectModal();
+  if (!currentProjectCanEditDocuments()) {
+    return showError(new Error("RAG検索データを作成できるのはOWNERまたはEDITORです。"));
+  }
   const originProjectId = originScope.projectId;
   const restore = state.preparationRestore;
   if (restore) await restore;
@@ -1761,13 +1904,11 @@ async function buildVariant() {
   const documentIds = [...state.buildDocumentIds].filter((documentId) => eligibleIds.has(documentId));
   if (!documentIds.length) return showError(new Error("先に解析済みのPDFを用意してください。"));
   if (documentIds.length > MAX_BUILD_DOCUMENTS) return showError(new Error("1回に選べるPDFは100件までです。"));
-  const embedding = $("#embedding-model").value;
-  if (!embedding) return showError(new Error("ベクトル化モデルを選択してください。"));
-  const configuration = currentPreparationConfiguration();
-  const indexProfile = selectedIndexProfileForCurrentSettings();
-  if (!indexProfile) {
+  const indexProfile = selectedPreparationProfile();
+  const configuration = preparationConfiguration(indexProfile);
+  if (!indexProfile || !configuration) {
     updateIndexProfileSelection();
-    return showError(new Error("この設定は管理者によるIndex準備が必要です。"));
+    return showError(new Error("利用可能なIndex Profileがありません。管理者に登録内容の確認を依頼してください。"));
   }
   const payload = {
     run_type: "BUILD_VARIANT",
@@ -1812,27 +1953,30 @@ async function buildVariant() {
   }
 }
 
-function updateMethodCards() {
-  $$(".method-card").forEach((card) => card.classList.toggle("selected", card.querySelector("input").checked));
-}
-
 async function loadDocuments(scope = currentProjectScope()) {
   if (!isCurrentProjectScope(scope)) return;
+  state.documentsStatus = "loading";
+  renderCatalog();
+  renderBuildDocumentOptions();
   try {
     const result = await api(`/api/projects/${scope.projectId}/documents`);
     if (!isCurrentProjectScope(scope)) return;
     state.documents = result.items || [];
+    state.documentsStatus = "ready";
     syncBuildDocumentSelection();
     renderBuildDocumentOptions();
     renderEvaluationCaseDocumentOptions();
     renderCatalog();
+    setPreparationControls();
   } catch (error) {
     if (!isCurrentProjectScope(scope)) return;
     state.documents = [];
+    state.documentsStatus = "error";
     syncBuildDocumentSelection();
     renderBuildDocumentOptions();
     renderEvaluationCaseDocumentOptions();
     renderCatalog();
+    setPreparationControls();
     showError(error, false);
   }
 }
@@ -1867,8 +2011,24 @@ function renderBuildDocumentOptions() {
   const count = $("#build-document-count");
   if (!container || !count) return;
   const eligible = eligibleBuildDocuments();
+  const active = hasActivePreparationRun() || state.documentDeletions.size > 0;
+  const canEdit = currentProjectCanEditDocuments();
+  const selectAll = $("#select-all-build-documents");
+  const clear = $("#clear-build-documents");
   count.textContent = `${state.buildDocumentIds.size} / ${eligible.length}件`;
   container.replaceChildren();
+  if (selectAll) selectAll.disabled = active || !canEdit || !eligible.length || state.buildDocumentIds.size >= Math.min(eligible.length, MAX_BUILD_DOCUMENTS);
+  if (clear) clear.disabled = active || !canEdit || state.buildDocumentIds.size === 0;
+  if (state.documentsStatus === "loading" && !state.documents.length) {
+    count.textContent = "読込中…";
+    container.append(loadingNode("解析済みPDFを確認しています…"));
+    return;
+  }
+  if (state.documentsStatus === "error" && !state.documents.length) {
+    count.textContent = "読込エラー";
+    container.append(retryNode("PDF一覧を取得できませんでした。", () => loadDocuments()));
+    return;
+  }
   if (!eligible.length) {
     container.append(emptyNode("解析済みPDFはまだありません。"));
     return;
@@ -1879,7 +2039,7 @@ function renderBuildDocumentOptions() {
     input.type = "checkbox";
     input.dataset.buildDocumentId = doc.document_id;
     input.checked = state.buildDocumentIds.has(doc.document_id);
-    input.disabled = hasActivePreparationRun() || (!input.checked && state.buildDocumentIds.size >= MAX_BUILD_DOCUMENTS);
+    input.disabled = active || !canEdit || (!input.checked && state.buildDocumentIds.size >= MAX_BUILD_DOCUMENTS);
     label.append(input, node("span", "", doc.title || doc.original_filename || "PDF"), node("small", "", formatStatus(doc.processing_status)));
     container.append(label);
   });
@@ -1900,6 +2060,8 @@ async function refreshCurrentProjectSummary(scope = currentProjectScope()) {
 
 async function loadEvaluationData(scope = currentProjectScope()) {
   if (!isCurrentProjectScope(scope)) return;
+  state.evaluationCasesStatus = "loading";
+  renderEvaluationCases();
   try {
     const result = await api(`/api/projects/${scope.projectId}/evaluation-datasets`);
     if (!isCurrentProjectScope(scope)) return;
@@ -1910,6 +2072,7 @@ async function loadEvaluationData(scope = currentProjectScope()) {
     if (!isCurrentProjectScope(scope)) return;
     state.evaluationDatasets = [];
     state.evaluationCases = [];
+    state.evaluationCasesStatus = "error";
     populateEvaluationDatasets();
     renderEvaluationCases();
     showError(error, false);
@@ -1918,12 +2081,15 @@ async function loadEvaluationData(scope = currentProjectScope()) {
 
 async function loadEvaluationRuns(scope = currentProjectScope()) {
   if (!isCurrentProjectScope(scope)) return;
+  state.evaluationRunsStatus = "loading";
+  renderEvaluationRuns();
   const refresh = $("#refresh-evaluation-runs");
   if (refresh) refresh.disabled = true;
   try {
     const result = await api(`/api/projects/${scope.projectId}/evaluation-runs`);
     if (!isCurrentProjectScope(scope)) return;
     state.evaluationRuns = result.items || [];
+    state.evaluationRunsStatus = "ready";
     renderEvaluationRuns();
     const active = state.evaluationRuns.find((run) => EVALUATION_ACTIVE_STATUSES.has(String(run.status || "").toUpperCase()));
     if (active && !state.evaluationRunId && !state.evaluationSubmitting && !state.evaluationPoll && !state.evaluationController) {
@@ -1932,6 +2098,7 @@ async function loadEvaluationRuns(scope = currentProjectScope()) {
   } catch (error) {
     if (!isCurrentProjectScope(scope)) return;
     state.evaluationRuns = [];
+    state.evaluationRunsStatus = "error";
     renderEvaluationRuns();
     showError(error, false);
   } finally {
@@ -1943,6 +2110,14 @@ function renderEvaluationRuns() {
   const container = $("#evaluation-run-list");
   if (!container) return;
   container.replaceChildren();
+  if (state.evaluationRunsStatus === "loading" && !state.evaluationRuns.length) {
+    container.append(loadingNode("評価履歴を読み込んでいます…"));
+    return;
+  }
+  if (state.evaluationRunsStatus === "error" && !state.evaluationRuns.length) {
+    container.append(retryNode("評価履歴を取得できませんでした。", () => loadEvaluationRuns()));
+    return;
+  }
   if (!state.evaluationRuns.length) {
     container.append(emptyNode("評価履歴はまだありません。"));
     return;
@@ -2074,24 +2249,45 @@ function syncEvaluationDatasetSplit() {
 
 async function loadEvaluationCases(scope = currentProjectScope()) {
   if (!isCurrentProjectScope(scope)) return;
+  const operation = ++state.evaluationCaseOperation;
+  state.evaluationCaseController?.abort();
+  state.evaluationCaseController = null;
   const version = $("#dataset-version").value;
   const split = $("#dataset-split").value;
   if (!version) {
     state.evaluationCases = [];
+    state.evaluationCasesStatus = "ready";
     renderEvaluationCases();
     return;
   }
+  const controller = new AbortController();
+  state.evaluationCaseController = controller;
+  state.evaluationCasesStatus = "loading";
+  renderEvaluationCases();
   try {
-    const result = await api(`/api/projects/${scope.projectId}/evaluation-cases?dataset_version=${encodeURIComponent(version)}&dataset_split=${encodeURIComponent(split)}`);
-    if (!isCurrentProjectScope(scope)) return;
+    const result = await api(
+      `/api/projects/${scope.projectId}/evaluation-cases?dataset_version=${encodeURIComponent(version)}&dataset_split=${encodeURIComponent(split)}`,
+      { signal: controller.signal },
+    );
+    if (
+      !isCurrentProjectScope(scope)
+      || operation !== state.evaluationCaseOperation
+      || $("#dataset-version").value !== version
+      || $("#dataset-split").value !== split
+    ) return;
     state.evaluationCases = result.items || [];
+    state.evaluationCasesStatus = "ready";
     reconcileEvaluationCaseSelection();
     renderEvaluationCases();
   } catch (error) {
-    if (!isCurrentProjectScope(scope)) return;
+    if (error?.name === "AbortError") return;
+    if (!isCurrentProjectScope(scope) || operation !== state.evaluationCaseOperation) return;
     state.evaluationCases = [];
+    state.evaluationCasesStatus = "error";
     renderEvaluationCases();
     showError(error, false);
+  } finally {
+    if (state.evaluationCaseController === controller) state.evaluationCaseController = null;
   }
 }
 
@@ -2170,8 +2366,24 @@ function renderEvaluationCases() {
   const container = $("#evaluation-case-list");
   const count = $("#evaluation-case-count");
   if (!container || !count) return;
-  reconcileEvaluationCaseSelection();
+  container.setAttribute("aria-busy", String(state.evaluationCasesStatus === "loading"));
   container.replaceChildren();
+  if (state.evaluationCasesStatus === "loading") {
+    count.textContent = "質問を読込中…";
+    container.append(loadingNode("正解付きの質問を読み込んでいます…"));
+    updateEvaluationSelectionUi();
+    return;
+  }
+  if (state.evaluationCasesStatus === "error") {
+    count.textContent = "読込エラー";
+    container.append(retryNode("評価質問を取得できませんでした。", () => loadEvaluationCases()));
+    updateEvaluationSelectionUi();
+    return;
+  }
+  // Do not initialize a dataset's selection from stale cases while its request
+  // is loading. The successful response is the first authoritative case list,
+  // so a newly visited version/split starts with all fetched questions selected.
+  reconcileEvaluationCaseSelection();
   if (!state.evaluationCases.length) {
     container.append(emptyNode("この版・用途の評価質問はまだありません。"));
     updateEvaluationSelectionUi();
@@ -2230,12 +2442,16 @@ function updateEvaluationSelectionUi() {
   const selectedCount = selectedItems.length;
   const answerReady = selectedItems.filter((item) => Boolean(item.expected_answer)).length;
   const phases = $$('input[name="eval-phase"]:checked').length;
-  const trials = Math.max(1, Number($("#trial-count")?.value) || 1);
+  const trialInput = $("#trial-count");
+  const numericTrials = Number(trialInput?.value);
+  const validTrials = Number.isInteger(numericTrials) && numericTrials >= 1 && numericTrials <= 10;
+  const trials = validTrials ? numericTrials : 0;
   const running = $("#page-evaluation").dataset.running === "true";
+  const loadingCases = state.evaluationCasesStatus === "loading";
   const count = $("#evaluation-case-count");
-  if (count) count.textContent = `${total}件中${selectedCount}件を選択`;
-  $("#select-all-evaluation-cases").disabled = running || !total || selectedCount === total;
-  $("#clear-evaluation-cases").disabled = running || !selectedCount;
+  if (count && !loadingCases) count.textContent = `${total}件中${selectedCount}件を選択`;
+  $("#select-all-evaluation-cases").disabled = running || loadingCases || !total || selectedCount === total;
+  $("#clear-evaluation-cases").disabled = running || loadingCases || !selectedCount;
   $$("[data-evaluation-case-row]").forEach((row) => {
     row.classList.toggle("selected", selectedIds.has(row.dataset.evaluationCaseRow));
   });
@@ -2244,7 +2460,9 @@ function updateEvaluationSelectionUi() {
     summary.replaceChildren(
       node("strong", "", `${selectedCount}問`),
       node("span", "", selectedCount
-        ? `${phases} Phase × ${trials}回（最大${selectedCount * phases * trials}試行）`
+        ? validTrials
+          ? `${phases} Phase × ${trials}回（最大${selectedCount * phases * trials}試行）`
+          : "繰り返し回数を1〜10の整数で入力してください"
         : "評価する質問を選択してください"),
     );
   }
@@ -2254,6 +2472,12 @@ function updateEvaluationSelectionUi() {
     : "質問を1件以上選択してください。選択した質問だけがPhase比較に使われます。";
   const start = $("#start-evaluation");
   const expectedTrials = selectedCount * phases * trials;
+  const trialHelp = $("#trial-count-help");
+  if (trialInput) trialInput.setAttribute("aria-invalid", String(!validTrials));
+  if (trialHelp) {
+    trialHelp.textContent = validTrials ? "1〜10の整数" : "1〜10の整数を入力してください";
+    trialHelp.classList.toggle("error", !validTrials);
+  }
   const estimate = $("#evaluation-run-estimate");
   if (estimate) {
     estimate.replaceChildren();
@@ -2269,9 +2493,11 @@ function updateEvaluationSelectionUi() {
   if (start && !running) {
     const variantReady = Boolean($("#evaluation-variant").value);
     const configurationReady = Boolean(phases && variantReady && $("#evaluation-model").value && $("#judge-model").value);
-    start.disabled = selectedCount === 0 || !configurationReady;
+    start.disabled = loadingCases || selectedCount === 0 || !configurationReady || !validTrials || !currentProjectCanEditDocuments();
     start.textContent = !variantReady
       ? "先にRAG検索データを作成"
+      : !currentProjectCanEditDocuments()
+        ? "評価を実行する権限がありません"
       : selectedCount
         ? `選択した${selectedCount}問でRAG精度を比較`
         : "質問を選択してください";
@@ -2291,6 +2517,12 @@ async function createEvaluationCase(event) {
   event.preventDefault();
   const scope = currentProjectScope();
   if (!isCurrentProjectScope(scope)) return openProjectModal();
+  if ($("#page-evaluation").dataset.running === "true") {
+    return showError(new Error("実行中の評価を完了または停止してから、評価質問を追加してください。"));
+  }
+  if (!currentProjectCanEditDocuments()) {
+    return showError(new Error("評価質問を追加できるのはOWNERまたはEDITORです。"));
+  }
   const formElement = event.currentTarget;
   const button = $("#add-evaluation-case");
   setBusy(button, true, "追加中…");
@@ -2338,15 +2570,19 @@ async function createEvaluationCase(event) {
 
 async function loadVariants(scope = currentProjectScope()) {
   if (!isCurrentProjectScope(scope)) return;
+  state.variantsStatus = "loading";
+  renderVariants();
   try {
     const result = await api(`/api/projects/${scope.projectId}/variants`);
     if (!isCurrentProjectScope(scope)) return;
     state.variants = result.items || [];
+    state.variantsStatus = "ready";
     renderVariants();
     populateVariantSelects();
   } catch (error) {
     if (!isCurrentProjectScope(scope)) return;
     state.variants = [];
+    state.variantsStatus = "error";
     renderVariants();
     populateVariantSelects();
     showError(error, false);
@@ -2356,6 +2592,12 @@ async function loadVariants(scope = currentProjectScope()) {
 function renderVariants() {
   const container = $("#variant-list");
   container.replaceChildren();
+  if (state.variantsStatus === "loading" && !state.variants.length) {
+    return container.append(loadingNode("RAG検索データを読み込んでいます…"));
+  }
+  if (state.variantsStatus === "error" && !state.variants.length) {
+    return container.append(retryNode("RAG検索データを取得できませんでした。", () => loadVariants()));
+  }
   if (!state.variants.length) {
     return container.append(emptyNode(
       state.documents.length
@@ -2391,6 +2633,8 @@ function populateVariantSelects() {
     else select.value = readyVariants[0].variant_id;
   });
   updateRuntimeIndexDetails();
+  updateChatUi();
+  updateEvaluationSelectionUi();
 }
 
 function parseDocumentCustomMetadata(doc) {
@@ -2539,10 +2783,13 @@ function createDocumentDeleteButton(doc) {
   button.setAttribute("aria-label", `PDF「${title}」を削除`);
   const operation = state.documentDeletions.get(doc.document_id);
   const canEdit = currentProjectCanEditDocuments();
-  button.disabled = Boolean(operation) || !canEdit;
-  button.title = canEdit
-    ? `「${title}」を検索対象から削除`
-    : "PDFを削除できるのはOWNERまたはEDITORです";
+  const blockedByOperation = projectHasActiveOperation() && !operation;
+  button.disabled = Boolean(operation) || !canEdit || blockedByOperation;
+  button.title = !canEdit
+    ? "PDFを削除できるのはOWNERまたはEDITORです"
+    : blockedByOperation
+      ? "実行中の処理を完了または停止してから削除してください"
+      : `「${title}」を検索対象から削除`;
   if (operation) {
     button.classList.add("is-busy");
     button.setAttribute("aria-busy", "true");
@@ -2647,6 +2894,10 @@ async function deleteDocument(documentId) {
     showDocumentDeletionError({ status: 403 }, title);
     return;
   }
+  if (projectHasActiveOperation()) {
+    showError(new Error("実行中のデータ準備・回答・評価を完了または停止してから、PDFを削除してください。"));
+    return;
+  }
 
   const confirmed = await requestConfirmation({
     title: `PDF「${title}」を削除しますか？`,
@@ -2654,9 +2905,14 @@ async function deleteDocument(documentId) {
     confirmLabel: "PDFを削除",
   });
   if (!confirmed || !isCurrentProjectScope(scope) || state.documentDeletions.has(documentId)) return;
+  if (projectHasActiveOperation()) {
+    showError(new Error("別の処理が開始されたため削除を中止しました。処理完了後にもう一度お試しください。"));
+    return;
+  }
 
   const operation = { ...scope, documentId, token: Symbol("DELETE_DOCUMENT") };
   state.documentDeletions.set(documentId, operation);
+  setPreparationControls();
   renderCatalog();
   try {
     const payload = await requestDocumentDeletion(scope.projectId, documentId);
@@ -2690,7 +2946,10 @@ async function deleteDocument(documentId) {
     if (isCurrentProjectScope(scope)) showDocumentDeletionError(error, title);
   } finally {
     if (state.documentDeletions.get(documentId) === operation) state.documentDeletions.delete(documentId);
-    if (isCurrentProjectScope(scope)) renderCatalog();
+    if (isCurrentProjectScope(scope)) {
+      setPreparationControls();
+      renderCatalog();
+    }
   }
 }
 
@@ -2701,11 +2960,54 @@ function renderCatalog() {
   const documents = filteredDocuments();
   $("#catalog-count").textContent = `${documents.length}件`;
   grid.replaceChildren(); body.replaceChildren();
+  if (state.documentsStatus === "loading" && !state.documents.length) {
+    grid.append(loadingNode("PDFを読み込んでいます…"));
+    body.append(rowWithMessage("PDFを読み込んでいます…", 6));
+    setCatalogView(state.catalogView);
+    return;
+  }
+  if (state.documentsStatus === "error" && !state.documents.length) {
+    grid.append(retryNode("PDF一覧を取得できませんでした。", () => loadDocuments()));
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 6;
+    cell.append(retryNode("PDF一覧を取得できませんでした。", () => loadDocuments()));
+    row.append(cell);
+    body.append(row);
+    setCatalogView(state.catalogView);
+    return;
+  }
   if (!documents.length) {
     const emptyMessage = state.documents.length
       ? "条件に一致するPDFがありません。検索条件を変更してください。"
       : "PDFがありません。RAG検索データもありません。データ準備からPDFを追加してください。";
-    grid.append(emptyNode(emptyMessage));
+    const hasFilters = Boolean(state.documents.length && (
+      $("#catalog-search").value || $("#catalog-status-filter").value
+    ));
+    const clearFilters = () => {
+      $("#catalog-search").value = "";
+      $("#catalog-status-filter").value = "";
+      renderCatalog();
+      $("#catalog-search").focus();
+    };
+    const emptyState = node("div", "state-feedback catalog-empty-state");
+    emptyState.setAttribute("role", "status");
+    emptyState.append(node("span", "", emptyMessage));
+    if (hasFilters) {
+      const clear = node("button", "text-button", "検索条件をクリア");
+      clear.type = "button";
+      clear.addEventListener("click", clearFilters);
+      emptyState.append(clear);
+    }
+    grid.append(emptyState);
+    const row = rowWithMessage(emptyMessage, 6);
+    if (hasFilters) {
+      const clear = node("button", "text-button", "検索条件をクリア");
+      clear.type = "button";
+      clear.addEventListener("click", clearFilters);
+      row.firstElementChild.append(document.createElement("br"), clear);
+    }
+    body.append(row);
   }
   documents.forEach((doc) => {
     const card = node("article", "card document-card");
@@ -2727,6 +3029,8 @@ function renderCatalog() {
     if (String(doc.processing_status || "").toUpperCase() === "ERROR") {
       const retry = node("button", "danger-text-button", "再解析"); retry.type = "button";
       retry.dataset.retryDocument = doc.document_id;
+      retry.disabled = !currentProjectCanEditDocuments() || projectHasActiveOperation();
+      retry.title = retry.disabled ? "実行中の処理を完了し、編集権限を確認してください" : "PDFを再解析";
       retry.addEventListener("click", () => retryDocumentParse(doc.document_id, retry));
       actions.append(retry);
     }
@@ -2742,6 +3046,8 @@ function renderCatalog() {
     if (String(doc.processing_status || "").toUpperCase() === "ERROR") {
       const retry = node("button", "danger-text-button", "再解析"); retry.type = "button";
       retry.dataset.retryDocument = doc.document_id;
+      retry.disabled = !currentProjectCanEditDocuments() || projectHasActiveOperation();
+      retry.title = retry.disabled ? "実行中の処理を完了し、編集権限を確認してください" : "PDFを再解析";
       retry.addEventListener("click", () => retryDocumentParse(doc.document_id, retry));
       linkCell.append(retry);
     }
@@ -2778,16 +3084,21 @@ function bindPdfOpenControl(control, documentId, page = 1) {
 }
 
 function setCatalogView(view) {
-  state.catalogView = view;
-  $("#catalog-grid").classList.toggle("hidden", view !== "cards");
-  $("#catalog-table-wrap").classList.toggle("hidden", view !== "table");
-  $$('[data-catalog-view]').forEach((button) => button.classList.toggle("active", button.dataset.catalogView === view));
+  state.catalogView = view === "table" ? "table" : "cards";
+  $("#catalog-grid").classList.toggle("hidden", state.catalogView !== "cards");
+  $("#catalog-table-wrap").classList.toggle("hidden", state.catalogView !== "table");
+  $$('[data-catalog-view]').forEach((button) => {
+    const selected = button.dataset.catalogView === state.catalogView;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
 }
 
 function openViewer(documentId, page = 1) {
   if (!state.projectId) return;
   const documentData = state.documents.find((doc) => doc.document_id === documentId);
   if (!documentData) return;
+  rememberFocusOrigin("viewer");
   $("#pdf-viewer").dataset.documentId = documentId;
   $("#viewer-title").textContent = documentData.title || "PDF";
   warmPdf(documentId);
@@ -2805,13 +3116,16 @@ function openViewer(documentId, page = 1) {
   $("#pdf-viewer").classList.remove("hidden");
   $("#viewer-scrim").classList.remove("hidden");
   document.body.classList.add("pdf-viewer-open");
+  updateOverlayInert();
   $("#viewer-close").focus();
 }
 function closeViewer({ reset = false } = {}) {
+  const wasOpen = !$("#pdf-viewer").classList.contains("hidden");
   $("#pdf-viewer").classList.add("hidden");
   $("#viewer-scrim").classList.add("hidden");
   $("#viewer-loading").classList.add("hidden");
   document.body.classList.remove("pdf-viewer-open");
+  updateOverlayInert();
   if (reset) {
     const frame = $("#viewer-frame");
     frame.src = "about:blank";
@@ -2819,10 +3133,13 @@ function closeViewer({ reset = false } = {}) {
     delete frame.dataset.loadedHref;
     delete $("#pdf-viewer").dataset.documentId;
   }
+  if (wasOpen) restoreFocusOrigin("viewer");
 }
 
 async function loadSessions(scope = currentProjectScope()) {
   if (!isCurrentProjectScope(scope)) return;
+  state.sessionsStatus = "loading";
+  renderSessions();
   const operation = ++state.sessionListOperation;
   state.sessionListController?.abort();
   const controller = new AbortController();
@@ -2831,6 +3148,7 @@ async function loadSessions(scope = currentProjectScope()) {
     const result = await api(`/api/projects/${scope.projectId}/chat/sessions`, { signal: controller.signal });
     if (operation !== state.sessionListOperation || !isCurrentProjectScope(scope)) return;
     state.sessions = result.items || [];
+    state.sessionsStatus = "ready";
     renderSessions();
     scheduleSessionPrefetch(scope);
   } catch (error) {
@@ -2838,6 +3156,7 @@ async function loadSessions(scope = currentProjectScope()) {
     // A transient list refresh must not erase the selected conversation or the
     // answer that is already visible.  Keep the last good cache and retry on
     // the next refresh.
+    state.sessionsStatus = "error";
     renderSessions();
     showError(error, false);
   } finally {
@@ -2905,6 +3224,7 @@ function restoreChatDraft(sessionId = state.sessionId) {
   if (!input) return;
   input.value = state.sessionDrafts.get(draftKey(sessionId)) || "";
   resizeChatInput();
+  updateChatUi();
 }
 
 function resizeChatInput() {
@@ -2955,7 +3275,17 @@ function renderSessions() {
   const container = $("#session-list"); container.replaceChildren();
   const query = $("#session-search").value.trim().toLowerCase();
   const sessions = state.sessions.filter((item) => !query || String(item.title || "").toLowerCase().includes(query));
-  if (!sessions.length) return container.append(emptyNode("会話履歴はまだありません。"));
+  if (state.sessionsStatus === "loading" && !state.sessions.length) return container.append(loadingNode("会話履歴を読み込んでいます…"));
+  if (state.sessionsStatus === "error" && !state.sessions.length) return container.append(retryNode("会話履歴を取得できませんでした。", () => loadSessions()));
+  if (!sessions.length) {
+    if (query && state.sessions.length) {
+      return container.append(retryNode("一致する会話がありません。", () => {
+        $("#session-search").value = "";
+        renderSessions();
+      }, "検索をクリア"));
+    }
+    return container.append(emptyNode("会話履歴はまだありません。"));
+  }
   sessions.forEach((session) => {
     const selected = session.session_id === state.sessionId;
     const run = activeChatRun(session.session_id);
@@ -3249,6 +3579,7 @@ function bindSuggestionButton(button) {
     $("#chat-input").value = button.textContent;
     saveChatDraft();
     resizeChatInput();
+    updateChatUi();
     $("#chat-input").focus();
   });
 }
@@ -3301,6 +3632,12 @@ async function sendChatMessage(event) {
   const message = $("#chat-input").value.trim();
   const scope = currentProjectScope();
   if (!message || state.chatSubmission || activeChatRun() || !isCurrentProjectScope(scope)) return;
+  const readiness = chatReadiness();
+  if (!readiness.ready) {
+    showError(new Error(readiness.help));
+    updateChatUi();
+    return;
+  }
 
   // Acquire the lock before the first await.  This closes the race where five
   // Enter events all waited for the same new-session request and then each
@@ -3685,7 +4022,29 @@ async function stopChat() {
   finishChatRun(context);
   toast("回答を停止しました。");
   try {
-    await cancelTask;
+    const result = await cancelTask;
+    const serverStatus = String(result?.status || "").toUpperCase();
+    if (["COMPLETED", "ERROR"].includes(serverStatus)) {
+      // Completion and cancellation can cross on the server.  The durable
+      // status is authoritative, so replace the optimistic cancelled message
+      // with the saved conversation when completion wins that race.
+      const session = await api(
+        `/api/projects/${context.projectId}/chat/sessions/${context.sessionId}`,
+        { cache: "no-store" },
+      );
+      if (isCurrentProjectScope(context)) {
+        const reconciled = rememberSession(session);
+        if (state.sessionId === context.sessionId) {
+          renderMessages(reconciled.messages || []);
+          renderSessionEvidence(context.sessionId);
+        }
+        renderSessions();
+        updateChatUi();
+        toast(serverStatus === "COMPLETED"
+          ? "停止前に回答が完了したため、最新の回答を表示しました。"
+          : "回答処理が終了したため、最新の状態を表示しました。");
+      }
+    }
   } catch (error) {
     // A very early abort can close the stream before the server persists the
     // run.  The local request is already stopped, so a resulting 404 is not a
@@ -3698,6 +4057,35 @@ async function stopChat() {
     }
     if (isCurrentProjectScope(context)) updateChatUi();
   }
+}
+
+function chatReadiness() {
+  if (!state.projectId) {
+    return { ready: false, status: "プロジェクト未選択", help: "プロジェクトを選択してください。" };
+  }
+  if (state.variantsStatus === "loading" || state.modelsStatus === "loading") {
+    return { ready: false, loading: true, status: "準備状況を確認中", help: "RAG検索データと回答モデルを確認しています。" };
+  }
+  if (state.variantsStatus === "error") {
+    return { ready: false, status: "検索データを確認できません", help: "右上の「表示を更新」でRAG検索データを再読み込みしてください。" };
+  }
+  if (state.modelsStatus === "error") {
+    return { ready: false, status: "回答モデルを確認できません", help: "管理者にFMAPIの回答モデル設定を確認してください。" };
+  }
+  const variantId = $("#chat-variant")?.value || "";
+  const modelKey = $("#chat-model")?.value || "";
+  const variantReady = state.variants.some((variant) => (
+    variant.variant_id === variantId
+    && String(variant.status || "READY").toUpperCase() === "READY"
+  ));
+  const modelReady = state.chatModels.some((model) => model.model_key === modelKey && model.selectable);
+  if (!variantReady) {
+    return { ready: false, status: "検索データ未準備", help: "データ準備でRAG検索データを作成・同期してください。" };
+  }
+  if (!modelReady) {
+    return { ready: false, status: "回答モデル未設定", help: "RAG設定で利用可能な回答モデルを選択してください。" };
+  }
+  return { ready: true, status: "質問できます", help: "PDFを検索して根拠リンク付きで回答します。" };
 }
 
 function updateChatUi() {
@@ -3713,6 +4101,20 @@ function updateChatUi() {
   );
   const creatingCurrent = Boolean(state.sessionCreation && !state.sessionId);
   const busy = Boolean(run || submittingCurrent || loadingCurrent || creatingCurrent);
+  const readiness = chatReadiness();
+  const readinessNode = $("#chat-readiness");
+  if (readinessNode) {
+    readinessNode.classList.toggle("is-unavailable", !readiness.ready && !readiness.loading);
+    readinessNode.classList.toggle("is-loading", Boolean(readiness.loading));
+    const copy = readinessNode.querySelector("span:last-child");
+    if (copy) copy.textContent = readiness.status;
+  }
+  const notReady = $("#chat-not-ready");
+  if (notReady) {
+    notReady.classList.toggle("hidden", readiness.ready || Boolean(run));
+    const copy = notReady.querySelector(":scope > span");
+    if (copy) copy.textContent = readiness.help;
+  }
   const status = $("#stream-status");
   status.classList.toggle("hidden", !run && !submittingCurrent && !creatingCurrent);
   status.setAttribute("aria-live", "polite");
@@ -3730,9 +4132,13 @@ function updateChatUi() {
   );
   const send = $("#send-button");
   send.classList.toggle("hidden", Boolean(run));
-  send.disabled = busy;
-  $("#chat-input").disabled = busy;
-  $("#new-chat-button").disabled = Boolean(state.sessionCreation || submittingCurrent);
+  const hasMessage = Boolean($("#chat-input").value.trim());
+  send.disabled = busy || !readiness.ready || !hasMessage;
+  send.title = !readiness.ready ? readiness.help : !hasMessage ? "質問を入力してください" : "質問を送信";
+  $("#chat-input").disabled = busy || !readiness.ready;
+  $("#chat-input").placeholder = readiness.ready ? "PDFについて質問してください" : readiness.help;
+  $("#new-chat-button").disabled = Boolean(state.sessionCreation || submittingCurrent || !readiness.ready);
+  $$(".suggestion-chips button").forEach((button) => { button.disabled = busy || !readiness.ready; });
   $(".chat-pane")?.classList.toggle("is-streaming", Boolean(run || submittingCurrent));
   $("#chat-messages").setAttribute("aria-busy", busy ? "true" : "false");
 
@@ -3782,7 +4188,11 @@ function setChatTab(name) {
   evidence.hidden = name !== "evidence";
 }
 
-function setChatDetailsOpen(open, { persist = false } = {}) {
+function isCompactChatLayout() {
+  return Boolean(window.matchMedia?.("(max-width: 1120px)").matches);
+}
+
+function setChatDetailsOpen(open, { persist = false, focusPanel = false, restoreFocus = false } = {}) {
   state.chatDetailsOpen = Boolean(open);
   const layout = $(".chat-layout");
   const panel = $("#chat-details");
@@ -3790,9 +4200,25 @@ function setChatDetailsOpen(open, { persist = false } = {}) {
   if (!layout || !panel || !toggle) return;
   layout.classList.toggle("details-open", state.chatDetailsOpen);
   panel.hidden = !state.chatDetailsOpen;
+  const compactOpen = state.chatDetailsOpen && isCompactChatLayout();
+  $("#chat-details-scrim")?.classList.toggle("hidden", !compactOpen);
   toggle.setAttribute("aria-expanded", String(state.chatDetailsOpen));
   toggle.classList.toggle("active", state.chatDetailsOpen);
+  if (compactOpen) {
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-modal", "true");
+  } else {
+    panel.removeAttribute("role");
+    panel.removeAttribute("aria-modal");
+  }
+  updateOverlayInert();
   if (persist) localStorage.setItem("rag-eval-chat-details", state.chatDetailsOpen ? "open" : "closed");
+  if (state.chatDetailsOpen && focusPanel && isCompactChatLayout()) {
+    rememberFocusOrigin("chat-details");
+    setTimeout(() => $("#chat-details-close")?.focus(), 0);
+  } else if (!state.chatDetailsOpen && restoreFocus) {
+    restoreFocusOrigin("chat-details");
+  }
 }
 
 function syncEvaluationSelects() {
@@ -3806,6 +4232,9 @@ async function startEvaluation() {
   const scope = currentProjectScope();
   if (!isCurrentProjectScope(scope)) return openProjectModal();
   if (isEvaluationRunning()) return;
+  if (!currentProjectCanEditDocuments()) {
+    return showError(new Error("RAG精度評価を実行できるのはOWNERまたはEDITORです。"));
+  }
   const phases = $$('input[name="eval-phase"]:checked').map((input) => input.value);
   const evaluationCaseIds = selectedEvaluationCaseIds();
   const payload = {
@@ -4016,8 +4445,18 @@ function isEvaluationRunning() {
 
 function setEvaluationRunningUi(active, startLabel = "RAG精度を比較") {
   $("#page-evaluation").dataset.running = String(Boolean(active));
-  $$("#page-evaluation .evaluation-config input, #page-evaluation .evaluation-config select, #page-evaluation .phase-selector input, #page-evaluation .evaluation-mutating-control, #page-evaluation .evaluation-case-item input")
+  const canEdit = currentProjectCanEditDocuments();
+  $$("#page-evaluation .evaluation-config input, #page-evaluation .evaluation-config select, #page-evaluation .phase-selector input, #page-evaluation .evaluation-mutating-control, #page-evaluation .evaluation-case-item input, #evaluation-case-form input, #evaluation-case-form select, #evaluation-case-form textarea, #evaluation-case-form button")
     .forEach((control) => { control.disabled = active; });
+  $$("#evaluation-case-form input, #evaluation-case-form select, #evaluation-case-form textarea, #evaluation-case-form button")
+    .forEach((control) => { control.disabled = active || !canEdit; });
+  const caseEditor = $("#evaluation-case-editor");
+  if (caseEditor) {
+    caseEditor.inert = active || !canEdit;
+    caseEditor.classList.toggle("is-disabled", active || !canEdit);
+    caseEditor.title = !canEdit ? "評価質問を追加できるのはOWNERまたはEDITORです" : active ? "評価実行中は変更できません" : "";
+    if (active) caseEditor.open = false;
+  }
   if (active) setEvaluationStartButtonBusy(true, startLabel);
   else updateEvaluationSelectionUi();
   $("#evaluation-progress-card").setAttribute("aria-busy", String(Boolean(active)));
@@ -4451,6 +4890,17 @@ async function loadEvaluationResults(
 function renderMetrics(metrics) {
   state.lastMetrics = metrics;
   const latest = metrics.at(-1) || {};
+  const scope = $("#metric-summary-scope");
+  if (scope) {
+    if (!metrics.length) {
+      scope.textContent = "評価完了後、選択したPhaseの集計を表示します。";
+    } else {
+      const phase = PHASES[latest.phase_id]?.label || latest.phase_id || "最新Phase";
+      scope.textContent = metrics.length === 1
+        ? `主要指標は${phase}の結果です。`
+        : `主要指標は比較した最後の${phase}です。全Phaseは下のグラフと表で確認できます。`;
+    }
+  }
   $("#metric-recall").textContent = percent(latest.recall_at_10);
   $("#metric-correctness").textContent = percent(latest.answer_correctness);
   $("#metric-groundedness").textContent = percent(latest.groundedness);
@@ -4623,7 +5073,11 @@ async function requestEvaluationCancelWithRecovery(context) {
 }
 
 async function refreshPage() {
-  const button = $("#refresh-button"); button.disabled = true;
+  const button = $("#refresh-button");
+  button.disabled = true;
+  button.classList.add("is-spinning");
+  button.setAttribute("aria-busy", "true");
+  button.title = "更新しています";
   const scope = currentProjectScope();
   const generation = state.projectGeneration;
   try {
@@ -4647,6 +5101,9 @@ async function refreshPage() {
     if (!scope || isCurrentProjectScope(scope)) showError(error);
   } finally {
     button.disabled = false;
+    button.classList.remove("is-spinning");
+    button.removeAttribute("aria-busy");
+    button.title = "表示を更新";
   }
 }
 
@@ -4675,11 +5132,40 @@ function stopActiveStreams() {
   state.streamTimer = null;
   stopPreparationMonitor({ resetRun: true });
 }
-function toggleSidebar() { const sidebar = $("#sidebar"); const open = sidebar.classList.toggle("open"); $("#sidebar-toggle").setAttribute("aria-expanded", String(open)); }
-function closeSidebar() { $("#sidebar").classList.remove("open"); $("#sidebar-toggle").setAttribute("aria-expanded", "false"); }
-function restoreTheme() { document.documentElement.dataset.theme = localStorage.getItem("rag-eval-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); }
+function toggleSidebar() {
+  const sidebar = $("#sidebar");
+  const toggle = $("#sidebar-toggle");
+  const open = sidebar.classList.toggle("open");
+  toggle.setAttribute("aria-expanded", String(open));
+  toggle.setAttribute("aria-label", open ? "メニューを閉じる" : "メニューを開く");
+}
+function closeSidebar(restoreFocus = false) {
+  const wasOpen = $("#sidebar").classList.contains("open");
+  $("#sidebar").classList.remove("open");
+  $("#sidebar-toggle").setAttribute("aria-expanded", "false");
+  $("#sidebar-toggle").setAttribute("aria-label", "メニューを開く");
+  if (restoreFocus && wasOpen) $("#sidebar-toggle").focus();
+}
+function updateThemeButton() {
+  const dark = document.documentElement.dataset.theme === "dark";
+  const button = $("#theme-button");
+  if (!button) return;
+  button.setAttribute("aria-pressed", String(dark));
+  button.setAttribute("aria-label", dark ? "明るい配色に切り替え" : "暗い配色に切り替え");
+  button.title = dark ? "明るい配色に切り替え" : "暗い配色に切り替え";
+}
+function restoreTheme() {
+  document.documentElement.dataset.theme = localStorage.getItem("rag-eval-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  updateThemeButton();
+}
 function restoreChatPreferences() { setChatDetailsOpen(localStorage.getItem("rag-eval-chat-details") === "open"); }
-function toggleTheme() { const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = theme; localStorage.setItem("rag-eval-theme", theme); if (state.lastMetrics) drawPhaseChart(state.lastMetrics); }
+function toggleTheme() {
+  const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem("rag-eval-theme", theme);
+  updateThemeButton();
+  if (state.lastMetrics) drawPhaseChart(state.lastMetrics);
+}
 
 function showError(error, prominent = true) {
   const message = error?.message || "処理に失敗しました。";
@@ -4690,6 +5176,24 @@ function toast(message, isError = false) { const item = node("div", `toast${isEr
 function setBusy(button, busy, text) { button.disabled = busy; button.textContent = text; }
 function node(tag, className = "", text = null) { const element = document.createElement(tag); if (className) element.className = className; if (text !== null && text !== undefined) element.textContent = String(text); return element; }
 function emptyNode(text) { return node("p", "empty-inline", text); }
+function loadingNode(text) {
+  const item = node("div", "state-feedback");
+  const spinner = node("span", "spinner");
+  spinner.setAttribute("aria-hidden", "true");
+  item.setAttribute("role", "status");
+  item.append(spinner, node("span", "", text));
+  return item;
+}
+function retryNode(text, retry, label = "再試行") {
+  const item = node("div", "state-feedback error");
+  item.setAttribute("role", "alert");
+  item.append(node("span", "", text));
+  const button = node("button", "text-button", label);
+  button.type = "button";
+  button.addEventListener("click", retry);
+  item.append(button);
+  return item;
+}
 function statusPill(status = "UNKNOWN") { return node("span", `status-pill ${statusClass(status)}`, formatStatus(status)); }
 function statusClass(status) { const value = String(status || "").toUpperCase(); if (["READY", "SUCCEEDED", "PARSED", "ACTIVE"].includes(value)) return "success"; if (["ERROR", "FAILED"].includes(value)) return "error"; if (["PARSING", "RUNNING", "PREPARING", "EVALUATING", "SUBMITTING"].includes(value)) return "info"; if (["PARTIAL", "CANCEL_REQUESTED"].includes(value)) return "warning"; return "muted"; }
 function formatStatus(status) { const value = String(status || "UNKNOWN").toUpperCase(); return ({ READY: "利用可能", SUCCEEDED: "完了", PARSED: "解析済み", ACTIVE: "有効", EMPTY: "未準備", ERROR: "エラー", FAILED: "失敗", NOT_READY: "利用不可", PARSING: "解析中", RUNNING: "実行中", PREPARING: "準備中", EVALUATING: "評価中", SUBMITTING: "受付中", QUEUED: "待機中", CANCEL_REQUESTED: "停止処理中", CANCELED: "停止", PARTIAL: "一部完了", UNKNOWN: "未確認" })[value] || String(status); }

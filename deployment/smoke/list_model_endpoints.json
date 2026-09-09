@@ -1,6 +1,6 @@
 {
   "warehouse_id": "<SQL_WAREHOUSE_ID>",
-  "statement": "SELECT c.model_key, c.display_name, c.target_name, c.capabilities, c.selectable, c.endpoint_state, d.preferred_model_key = c.model_key AS is_preferred FROM mikito_toyota_rag_eval.rag_accuracy.toyota_rag_model_catalog c LEFT JOIN mikito_toyota_rag_eval.rag_accuracy.toyota_rag_model_defaults d ON d.capability = 'embedding' AND array_contains(c.capabilities, 'embedding') WHERE c.target_kind = 'FMAPI_ENDPOINT' AND c.selectable = TRUE AND c.region_available = TRUE ORDER BY is_preferred DESC, c.display_name, c.model_key",
+  "statement": "SELECT c.model_key, c.display_name, c.target_name, c.capabilities, c.selectable, c.endpoint_state, d.preferred_model_key = c.model_key AS is_preferred FROM rag_accuracy_demo.rag_accuracy.toyota_rag_model_catalog c LEFT JOIN rag_accuracy_demo.rag_accuracy.toyota_rag_model_defaults d ON d.capability = 'embedding' AND array_contains(c.capabilities, 'embedding') WHERE c.target_kind = 'FMAPI_ENDPOINT' AND c.selectable = TRUE AND c.region_available = TRUE ORDER BY is_preferred DESC, c.display_name, c.model_key",
   "wait_timeout": "50s",
   "on_wait_timeout": "CONTINUE"
 }
