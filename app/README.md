@@ -33,6 +33,8 @@ CatalogとSchemaは完全修飾されたVolume／Index bindingから安全に判
 
 既存Index専用モードでは、`GET /api/projects/{project_id}/variants`は`RAG_INDEX_PROFILES_JSON`、またはbaseline fallbackのsource Table／Indexと完全一致する行だけを返します。Projectに旧方式のVariantが残っていても一覧全体を失敗させず、その行だけを除外します。チャット／評価でVariantを解決するときは同じ許可リストを再確認し、許可外の物理Indexへはfail-closedで接続しません。
 
+ブラウザは物理Catalog／Table／Indexの完全修飾名を検索データ名、toast、tooltipへ表示しません。利用者にはチャンク方式、サイズ、Embedding Model、作成日時などの比較条件だけを表示します。物理名はサーバー側の許可リストとDatabricksコンソールへの管理者向けリンクにだけ使用します。
+
 AI SearchのIndex GET応答は、全source列を同期するIndexで`columns_to_sync`を省略する場合があります。この省略だけでは失敗にせず、source schemaと検索manifestで必要列を検証します。GET応答に`columns_to_sync`または`columns_to_index`が明示される場合は、必要列との完全一致を要求し、不足列や重複列を許可しません。
 
 ## ローカル起動

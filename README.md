@@ -47,7 +47,7 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 
 ## 現在の構築状態
 
-現行ローカルsource asset `1.8.0`はPython 344件と、登録済みIndex Profileだけを表示する回帰を含むUI 65件、合計409件の自動テストに合格しています。field-eng-eastのremote検証済みassetは`1.7.0`で、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件、asset URLのversion `1.7.0`を確認しました。指定Projectのremote画面はStandard／512／Qwen3の1 Profileだけを表示し、Profile selector、256／1024の可視要素、console warning／errorはいずれも0件です。`/api/health`の直接再確認値はこの記録へ外挿しません。公開用Markdownには実測ID、メール、App URL、Workspace IDを含めません。
+現行source asset `1.8.1`はPython 344件とUI 65件、合計409件の自動テストに合格しています。field-eng-eastへの配置後、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件、health `ok`／`databricks_ready=true`／version `1.8.1`を確認しました。認証付きremote画面では4画面、主要な非破壊操作、PDF Viewer、評価履歴、個人名を含む物理Index名の非表示、console warning／error 0件を確認しています。公開用Markdownには実測ID、メール、App URL、Workspace IDを含めません。
 
 | 項目 | 状態 | 実測 |
 |---|---|---|
@@ -60,9 +60,9 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 | Phase 1〜5 Evaluation Job | `SUCCESS` | Job `<EVALUATION_JOB_ID>`、run `<DATABRICKS_RESOURCE_ID>`、60結果、エラー0、Trace 60、LLM改善提案5 |
 | 未ラベルstarter評価 | `SUCCESS` | eval `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>`。Phase 1×3 trial、error 0、Answer Correctness `NULL`、提案1件 |
 | MLflow Trace | `SUCCESS` | 全60 Traceで`AGENT`配下の`RETRIEVER`／`CHAT_MODEL`／`EVALUATOR`を確認 |
-| Databricks App | `SUCCESS` | GitHub `main/app`のasset `1.7.0`を再配置。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件、asset URL version `1.7.0` |
+| Databricks App | `SUCCESS` | asset `1.8.1`をfield-eng-eastへ配置。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件 |
 | App live read APIs | `SUCCESS` | health HTTP 200、`/api/me`でログインメールを取得、Project別PDF／Variant／評価データ／評価履歴を取得 |
-| デプロイ済みasset | `SUCCESS` | GitHub `main/app`のasset `1.7.0`。remote画面でStandard／512／Qwen3の1 Profileだけを確認。health APIの直接再確認は未実施 |
+| デプロイ済みasset | `SUCCESS` | asset `1.8.1`。health `ok`／`databricks_ready=true`、remote 4画面とconsole warning／error 0件を確認 |
 | Phase 1評価の再表示 | `SUCCESS` | asset `1.4.7`で実行済みの1問×1回runをasset `1.4.8`のremote APIで取得。`SUCCEEDED`、1／1、`elapsed_seconds=774`、指標1件、改善提案1件 |
 | PDF概要監査（直近snapshot） | `SUCCESS` | 20件時点で空欄0件、20〜30字違反0件。`AI_GENERATED=10`、`AI_GENERATED_NORMALIZED=9`、`USER=1`。その後追加された削除E2E用2件へは外挿しない |
 | App SP権限 | `SUCCESS` | 既存権限checkに加え、`toyota_index_variants`の`SELECT`／`MODIFY`を確認 |
@@ -74,7 +74,7 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 | RAG検索データ作成E2E | `SUCCESS` | 旧動的Index方式でのSemantic／512、source 6行、Index 6行、別Project行0、Index READY。現行UIで利用可能なProfileを示す記録ではない |
 | 汎用RAG migration／再デプロイ／非車両PDF E2E | `SUCCESS` | migration、汎用化source、登録・解析・Variant・チャット・引用・評価を実環境で確認 |
 | Chat多重送信・停止 | `SUCCESS` | 旧asset `1.4.1`のremote履歴。同一request再送後も保存message 2件、停止API `CANCEL_REQUESTED`、terminal `run.cancelled`、履歴 `CANCELLED` |
-| 現行sourceの回帰テスト | `SUCCESS` | asset `1.8.0`、Python 344件、登録済みIndex Profileだけを表示する回帰を含むUI 65件、合計409件、差分check成功 |
+| 現行sourceの回帰テスト | `SUCCESS` | asset `1.8.1`、Python 344件、UI 65件、合計409件、差分check成功 |
 | 評価質問の選択 | `SUCCESS` | Project／評価データ版／用途内の登録済み質問を初期全選択。個別選択、すべて選択、選択解除、正解状態・期待回答・正解PDF／ページ、選択件数・最大試行数を表示し、0件では開始不可。API／Jobは選択IDだけを凍結・評価 |
 | PDF viewer | `SUCCESS` | 旧assetのremote content APIでPDF 200、Range 206、ETag 304、private cacheを確認。現行assetは削除前後のPDF 200を確認。ローカル再表示296 ms、Project切替時は保持iframeを破棄 |
 | PDF単体の論理削除 | `SUCCESS` | asset `1.4.4`でProject `<RESOURCE_ID>`のPDF `<RESOURCE_ID>`をDELETE 202。孤児Chat run 2件とassistant messageを`ERROR`へ整合後、影響旧Variant 4件から後継Variant 2件をREADY化。両Indexで削除PDF hit 0、保持PDFだけを検索 |
@@ -91,6 +91,7 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 - Data Preparation Job `<DATA_PREPARATION_JOB_ID>`はPerformance-optimized Serverless、Standard Environment v5、`max_concurrent_runs=2`です。Notebook taskではtask libraryを使わず、Job Environmentのdependencyとして検証済み`databricks-sdk==0.135.0`を固定します。構成識別用tagは`compute_profile=serverless-performance-optimized-v5`です。
 - Performance optimizedは起動時間を優先するため、Standard performance modeよりDBU使用量が増える場合があります。速度だけでなく`system.billing.usage`の実績も継続して比較します。
 - PDF解析の`ai_parse_document`は引き続きX-Large Serverless SQL Warehouseで、`READ_FILES(..., format => 'file')`が返す`FILE`値を入力にします。Serverless Jobsへ移したのは後続のチャンク化、登録済みProfileの既存source Delta Tableへの論理Variant書き込み、AI Search同期依頼です。App／Jobは物理TableやIndexを作成しません。
+- 利用者向け画面はチャンク方式、サイズ、Embedding Modelなどの比較条件だけを表示し、Catalog名、Table名、Indexの完全修飾名を露出しません。管理者向けのDatabricks機能リンクは、権限のある利用者だけが対象コンソールを開けます。
 - production run `<DATABRICKS_RESOURCE_ID>`（task `<DATABRICKS_RESOURCE_ID>`、prep `<RESOURCE_ID>`、Variant `<RESOURCE_ID>`）はSetup 4秒、Job実処理154秒、合計159.146秒、App E2E 182.4秒で、3 chunksとREADY Indexを確認しました。同入力のClassic run `<DATABRICKS_RESOURCE_ID>`は382秒／169秒／552.328秒であり、合計を71.18%短縮しました。
 - 隔離検証では1 PDFのrun `<DATABRICKS_RESOURCE_ID>`が157.875秒、8 PDFのrun `<DATABRICKS_RESOURCE_ID>`が158.368秒で完了しました。後者は8文書、31 chunks、Index READYで、`activate_on_success=false`によりProjectのactive Variantを変更していません。
 - Classic増強構成は障害時に同じJob IDへ戻せるよう、[`deployment/jobs/data_preparation_job_classic_fallback.json`](deployment/jobs/data_preparation_job_classic_fallback.json)へ保持しています。Instance Poolはidle instanceを常時warmにするAzure VM費用が発生するため採用していません。
@@ -434,7 +435,7 @@ Appの説明やuser scopeを更新するときも、7件のresourceを含むfull
 - JavaScript構文2ファイル、Python compile 51ファイル、JSON 19ファイル: pass
 - 4画面とPhase 1〜5のUI確認: browser console error 0
 
-現行ローカルsource asset `1.8.0`は回帰テストに合格しています。field-eng-eastのremote検証済みassetは`1.7.0`で、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、binding 7件、asset URL version `1.7.0`を確認しました。指定Projectの認証付きremote画面ではStandard／512／Qwen3の1 Profileだけが固定表示され、Profile selectorと256／1024の可視要素は0件、console warning／errorも0件でした。`/api/health`は今回直接再確認していないため、version値を推測していません。
+現行source asset `1.8.1`は回帰テストに合格し、field-eng-eastへ配置済みです。deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、binding 7件、health version `1.8.1`／`databricks_ready=true`を確認しました。認証付きremote画面では登録済みStandard／512／Qwen3 Profile、未登録選択肢の非表示、物理Index名の非表示、PDF Viewer、評価履歴、指定Projectの未準備案内、console warning／error 0件を確認しました。
 
 ## デプロイ記録
 
@@ -447,7 +448,7 @@ Appの説明やuser scopeを更新するときも、7件のresourceを含むfull
 | Data preparation Classic増強履歴 | run `<DATABRICKS_RESOURCE_ID>` | 2026-09-08 | D16 Driver／D8 Worker×2、Standard／512／Qwen3、対象論理slice 3 chunks、Index READY。Setup 382秒、実処理169秒、合計552.328秒。fallback JSONとして保持 |
 | Evaluation Job | `<EVALUATION_JOB_ID>`／run `<DATABRICKS_RESOURCE_ID>` | 2026-09-06 | `SUCCESS`、Phase 1〜5／development 60結果・エラー0・Trace 60・提案5件 |
 | Index sync Job | `<INDEX_SYNC_JOB_ID>`／run `<DATABRICKS_RESOURCE_ID>` | 2026-09-06 | `SUCCESS`、triggered sync |
-| Databricks App | 実ID／URLは非掲載 | 2026-09-09 | GitHub `main/app`のasset `1.7.0`、`SUCCEEDED`／`RUNNING`／`ACTIVE`、binding 7件、asset URL version `1.7.0`。Standard／512／Qwen3の1 Profileだけをremote確認。health API直接確認は未実施 |
+| Databricks App | 実ID／URLは非掲載 | 2026-09-09 | asset `1.8.1`、`SUCCEEDED`／`RUNNING`／`ACTIVE`、binding 7件、health `ok`／`databricks_ready=true`。remote 4画面とconsole warning／error 0件を確認 |
 | Phase 1評価の再表示 | 実run IDは非掲載 | 2026-09-09 | asset `1.4.7`で実行済みの1問×1回runをasset `1.4.8`で再表示。1／1、774秒、指標1件、提案1件、error 0 |
 | 選択評価smoke | eval run `<RESOURCE_ID>`／Job `<DATABRICKS_RESOURCE_ID>` | 2026-09-08 | `TERMINATED`／`SUCCESS`。`figure-001`だけ、結果1行、選択外0、error 0。MLflow run `<RESOURCE_ID>` |
 | 孤児Chat run回復付きPDF削除 | Project `<RESOURCE_ID>`／document `<RESOURCE_ID>` | 2026-09-08 | 旧動的Index方式の履歴。DELETE 202、deletion request `<RESOURCE_ID>`。後継prep `<RESOURCE_ID>`／`<RESOURCE_ID>`は両方READY、削除PDF行／hit 0 |

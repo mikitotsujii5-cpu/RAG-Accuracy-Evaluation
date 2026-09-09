@@ -92,6 +92,7 @@ databricks apps deploy <APP_NAME> \
 - 全画面で同じProjectを使い、PDF、Index Variant、会話、評価Dataset、実行状態をProject単位で切り替えます。
 - チャンク方式・サイズ・Embeddingは、管理者が既存Delta Table／AI Search IndexとともにApp／Job両方の許可リストへ登録したIndex Profileだけを表示します。通常構成はStandard／512／Qwen3 Embedding 0.6Bの1件で、未登録の256／1024やSemantic／Parent-childは表示しません。
 - 新しいVariantは選択Profile内の論理Variantです。App／Jobは物理Table／Indexを作らず、Profileの共有source Delta Table／AI Search Indexを再利用して`project_id`＋`variant_id`で行と検索を分離します。
+- 画面にはチャンク方式、サイズ、Embedding Modelなどの比較条件だけを表示し、Catalog名、Table名、Indexの完全修飾名は表示しません。物理リソースは権限付きのDatabricks機能リンクから確認します。
 - 右上のユーザー表示は`GET /api/me`を使います。Databricks Apps ingressの認証済みメールを優先し、必要時だけCurrent User APIへfallbackします。forwarded access tokenはApp状態、log、Trace、Tableへ保存しません。
 - アップロードの任意項目は閉じたパネルにまとめ、PDFだけで送信できます。`ai_parse_document`完了後、FMAPIで20〜30字の概要を生成します。
 - `ERROR`文書だけをカタログから再解析できます。古いactive parse runを閉じ、新しい`PARSE_ONLY` runで同じVolume上のPDFを`FILE`型経路へ再投入します。
@@ -212,18 +213,18 @@ https://<APP_HOST>
 
 ## この環境の実測結果
 
-現行ローカルsource asset `1.8.0`はPython 344件と、登録済みIndex Profileだけを表示する回帰を含むUI 65件、合計409件の自動テストに合格しています。field-eng-eastのremote検証済みassetは`1.7.0`で、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件、asset URL version `1.7.0`を確認しました。remote画面ではStandard／512／Qwen3の1 Profileだけが表示され、Profile selector、256／1024の可視要素、console warning／errorは0件でした。`/api/health`は今回直接再確認していません。
+現行source asset `1.8.1`はPython 344件とUI 65件、合計409件の自動テストに合格しています。field-eng-eastではdeployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件、health `ok`／`databricks_ready=true`を確認しました。remote 4画面、主要な非破壊操作、PDF Viewer、評価履歴、物理Index名の非表示、console warning／error 0件も確認済みです。
 
 | 項目 | 実測 |
 |---|---|
 | App | `<APP_NAME>`、汎用RAGの説明文 |
-| Deployment | GitHub `main/app`のasset `1.7.0`、field-eng-eastで`SUCCEEDED`。実IDは非掲載 |
+| Deployment | asset `1.8.1`、field-eng-eastで`SUCCEEDED`。実IDは非掲載 |
 | App／compute | `RUNNING`／`ACTIVE` |
-| Health | asset URL version `1.7.0`とApp `RUNNING`を確認。`/api/health`の直接再確認は未実施 |
+| Health | version `1.8.1`、`ok`、`databricks_ready=true`、App `RUNNING` |
 | Resources／scope | binding 7件、`iam.access-control:read`、`iam.current-user:read`、`model-serving` |
 | ログインユーザー | `/api/me` HTTP 200、`<DATABRICKS_USER_EMAIL>` |
 | App SP権限 | grant 30文成功。`toyota_index_variants`の`MODIFY`はStatement `<STATEMENT_ID>`、`SELECT`＋`MODIFY`の確認は`<STATEMENT_ID>` |
-| Source test | asset `1.8.0`、Python 344件、登録済みIndex Profileだけを表示する回帰を含むUI 65件、合計409件、差分check成功 |
+| Source test | asset `1.8.1`、Python 344件、UI 65件、合計409件、差分check成功 |
 | App起動 | deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`。旧deploymentのnpm失敗履歴は現行Appと分けて記録 |
 | 評価status／results | asset `1.4.7`で実行済みのPhase 1・1問・1回runをasset `1.4.8`のremote APIで取得。`SUCCEEDED`、1／1、774秒、指標1件、改善提案1件 |
 | 評価結果 | Recall／Correctness／Groundedness／Citation各1.0、error rate 0、p50 5,479 ms。Lakeflow run total 777.125秒 |

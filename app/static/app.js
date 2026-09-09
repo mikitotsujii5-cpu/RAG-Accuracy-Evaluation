@@ -746,6 +746,17 @@ function preparationProfileOptionLabel(profile) {
   return `${method} / ${profile.chunk_size_tokens} / ${embeddingProfileLabel(profile)} / ${content} / ${cleaning} / ${metadata}`;
 }
 
+function preparationProfileDisplayLabel(profile) {
+  return `${formatChunkMethod(profile.chunk_method)} / ${profile.chunk_size_tokens} / ${embeddingProfileLabel(profile)}`;
+}
+
+function variantDisplayLabel(variant) {
+  const parts = [formatChunkMethod(variant.chunk_method)];
+  if (variant.chunk_size) parts.push(`${variant.chunk_size} tokens`);
+  if (variant.created_at) parts.push(formatDate(variant.created_at));
+  return parts.join(" · ");
+}
+
 function renderPreparationProfiles() {
   const card = $("#preparation-profile-card");
   const select = $("#index-profile-select");
@@ -819,7 +830,7 @@ function renderPreparationProfiles() {
   select.value = profile.profile_key;
   selectorField.classList.toggle("hidden", profiles.length === 1);
   card.classList.add("ready");
-  name.textContent = profile.display_name;
+  name.textContent = preparationProfileDisplayLabel(profile);
   count.className = "status-pill success";
   count.textContent = profiles.length === 1 ? "この環境の設定" : `${profiles.length}件から選択`;
   method.textContent = formatChunkMethod(profile.chunk_method);
@@ -849,8 +860,8 @@ function updateIndexProfileSelection() {
     indexName.textContent = "未確認";
     message.textContent = "検索設定を取得できません。画面を更新してください。";
   } else if (profile) {
-    indexName.textContent = profile.index_name;
-    message.textContent = `${profile.display_name} に完全一致しました。既存Indexへデータを書き込み、同期します。`;
+    indexName.textContent = "登録済みAI Search Index";
+    message.textContent = `${preparationProfileDisplayLabel(profile)} を使用します。検索データを書き込み、同期します。`;
   } else {
     indexName.textContent = "未登録";
     message.textContent = state.indexProfiles.length
@@ -860,17 +871,14 @@ function updateIndexProfileSelection() {
   setPreparationControls();
 }
 
-function variantIndexName(variant) {
-  return String(variant?.index_name || variant?.index_fqn || variant?.index_display_name || "").trim();
-}
-
 function updateRuntimeIndexDetails() {
   const chatSelect = $("#chat-variant");
   const chatDetail = $("#chat-index-detail");
   if (chatSelect && chatDetail) {
     const chatVariant = state.variants.find((item) => item.variant_id === chatSelect.value);
-    const chatIndexName = variantIndexName(chatVariant);
-    chatDetail.textContent = chatIndexName ? `使用するIndex: ${chatIndexName}` : "使用するIndexを選択してください。";
+    chatDetail.textContent = chatVariant
+      ? "このProjectのRAG検索データを使用します。"
+      : "使用するRAG検索データを選択してください。";
   }
 
   const select = $("#evaluation-variant");
@@ -896,10 +904,7 @@ function updateRuntimeIndexDetails() {
   }
   const method = formatChunkMethod(variant.chunk_method);
   summary.textContent = `${method}${variant.chunk_size ? ` / ${variant.chunk_size} tokens` : ""}`;
-  const indexName = variantIndexName(variant);
-  detail.textContent = indexName
-    ? `このProjectの使用中データを自動選択 · AI Search: ${indexName}`
-    : "このProjectの使用中データを自動選択しました。";
+  detail.textContent = "このProjectの使用中データを自動選択しました。";
 }
 
 function openProjectModal() {
@@ -1595,7 +1600,7 @@ function setPreparationControls() {
         ? "この設定は管理者によるIndex準備が必要です"
         : selectedDocumentCount === 0
           ? "作成対象の解析済みPDFを選択してください"
-          : `既存Index「${selectedProfile.index_name}」へ検索データを作成して同期します`;
+          : "事前登録済みAI Search Indexへ検索データを作成して同期します";
   }
   const uploadButton = $("#upload-button");
   if (uploadButton) {
@@ -1924,7 +1929,7 @@ async function buildVariant() {
     const run = await api(`/api/projects/${originProjectId}/preparation-runs`, { method: "POST", body: JSON.stringify(payload) });
     storePreparationRun(originProjectId, run.prep_run_id);
     if (!isCurrentPreparationOperation(operation)) return;
-    toast(run.reused ? "実行中の作成・同期を表示します。" : `RAG検索データの作成と既存Index「${indexProfile.index_name}」の同期を開始しました。`);
+    toast(run.reused ? "実行中の作成・同期を表示します。" : "RAG検索データの作成とAI Search Indexの同期を開始しました。");
     pollPreparationRun(run.prep_run_id, {
       projectId: originProjectId,
       initialRun: {
@@ -2609,8 +2614,6 @@ function renderVariants() {
     const item = node("div", "compact-item");
     item.append(node("strong", "", `${formatChunkMethod(variant.chunk_method)}${variant.chunk_size ? ` / ${variant.chunk_size} tokens` : ""}`));
     item.append(node("span", "", `${formatStatus(variant.status || "READY")} · ${formatDate(variant.created_at)}`));
-    const indexName = variantIndexName(variant);
-    if (indexName) item.append(node("span", "compact-index-name", `Index: ${indexName}`));
     container.append(item);
   });
 }
@@ -2625,7 +2628,7 @@ function populateVariantSelects() {
     select.replaceChildren();
     if (!readyVariants.length) { select.add(new Option("利用可能な検索データがありません", "")); return; }
     readyVariants.forEach((variant) => select.add(new Option(
-      `${formatChunkMethod(variant.chunk_method)}${variant.chunk_size ? ` · ${variant.chunk_size}` : ""}${variantIndexName(variant) ? ` · ${variantIndexName(variant)}` : ""}${variant.variant_id === activeVariantId ? " （使用中）" : ""}`,
+      `${variantDisplayLabel(variant)}${variant.variant_id === activeVariantId ? " （使用中）" : ""}`,
       variant.variant_id,
     )));
     if (readyVariants.some((item) => item.variant_id === previous)) select.value = previous;
@@ -2921,7 +2924,7 @@ async function deleteDocument(documentId) {
     removeDocumentFromClientState(documentId, result);
     toast(result.corpusEmpty
       ? "PDFを検索対象から除外しました。RAG検索データはありません。"
-      : `PDFを検索対象から除外しました。${result.indexName ? `既存Index「${result.indexName}」を` : "既存Indexを"}再同期中です。`);
+      : "PDFを検索対象から除外しました。AI Search Indexを再同期中です。");
 
     if (result.prepRunId) {
       pollPreparationRun(result.prepRunId, {

@@ -2671,6 +2671,8 @@ ProjectへPDFを追加し、Document Parsing、チャンク、Embedding、Index 
 
 Embeddingの物理endpoint名はブラウザへ入力させず、選択Profileの `embedding_model_key` を表示してバックエンドがallow-listから解決する。Profileのモデル、endpoint、dimension、Index定義が一致しない場合はfail-closedで停止する。準備完了後は「PDFカタログで確認」と「RAGチャットを開始」のリンクを表示する。
 
+利用者向けのProfile、Variant、toast、tooltipには、Catalog名、source Table名、Indexの完全修飾名を表示しない。比較に必要なチャンク方式、サイズ、Embedding Model、作成日時だけを表示する。物理名はサーバー側のallow-listと、権限付きDatabricksコンソールへ移動する管理者向けリンクにだけ使用する。
+
 ### 19.3 サイドバー2: PDFカタログ
 
 現在のProjectに属する各PDFを、カード表示と表表示で確認できるようにする。
@@ -4602,9 +4604,9 @@ Trial: 1
 
 このsmokeではHybrid SearchのPhase 2が検索3指標を改善した一方、Metadata Filtering以降はRecallが低下し、Query Optimizationを含むPhase 5はlatencyが増えた。改善機能を増やすこと自体を目的にせず、Phase別提案と失敗Traceから次の一変更を選んで再評価する。
 
-現行ローカルsource asset `1.8.0`は、Python 344件と、登録済みIndex Profileだけを表示する回帰を含むUI 65件、合計409件の自動テストに合格した。
+現行source asset `1.8.1`は、Python 344件とUI 65件、合計409件の自動テストに合格した。
 
-remote検証済みasset `1.7.0`をfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件を確認した。認証付きremote画面では、登録済みProfileがStandard／512／Qwen3の1件だけであること、その場合にProfile selectorを隠すこと、未登録の256／1024要素を表示しないこと、browser consoleのwarning／errorが0件であることを確認した。実ID、メール、App URL、Workspace IDは公開記録へ含めない。
+asset `1.8.1`をfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件、health `ok`／`databricks_ready=true`を確認した。認証付きremote画面では4画面、主要な非破壊操作、PDF Viewer、評価履歴、登録済みProfile、物理Index名の非表示、browser consoleのwarning／error 0件を確認した。実ID、メール、App URL、Workspace IDは公開記録へ含めない。
 
 asset `1.6.0`では、評価用検索データの自動選択とPDF全画面viewerを含むUIテスト42件と差分check、field-eng-eastのhealth、resource binding 7件を確認した過去記録がある。Python 344件はasset `1.4.9`の確認記録である。
 

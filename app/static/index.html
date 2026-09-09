@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="DatabricksでPDFを検索するRAGを作り、検索精度・回答品質・応答時間を比べるアプリ">
   <title>RAG精度評価アプリ</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=1.8.0">
+  <link rel="stylesheet" href="/assets/styles.css?v=1.8.1">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f3e58'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='Arial' font-weight='700' font-size='18' fill='%23a8e6cf'%3ER%3C/text%3E%3C/svg%3E">
 </head>
 <body>
@@ -172,9 +172,9 @@
                 <small class="subtle">1回につき最大100件。101件以上ある場合は、作成するPDFを選んでください。</small>
               </fieldset>
               <details class="index-technical-details">
-                <summary>技術情報（保存先のAI Search Index）</summary>
+                <summary>技術情報（利用するAI Search）</summary>
                 <div id="index-profile-match" class="index-profile-match unavailable" aria-live="polite" aria-atomic="true">
-                  <div class="index-profile-heading"><span class="index-profile-icon" aria-hidden="true">◇</span><span>使用するIndex:</span></div>
+                  <div class="index-profile-heading"><span class="index-profile-icon" aria-hidden="true">◇</span><span>検索先:</span></div>
                   <strong id="selected-index-name">確認中…</strong>
                   <p id="index-profile-message">事前登録済みのIndexを確認しています。</p>
                 </div>
@@ -333,7 +333,7 @@
               <div class="settings-section">
                 <p class="settings-section-title">データとモデル</p>
                 <label>検索データ<select id="chat-variant"><option value="">読み込み中…</option></select></label>
-                <div id="chat-index-detail" class="model-detail muted-panel">使用するIndexを選択してください。</div>
+                <div id="chat-index-detail" class="model-detail muted-panel">使用するRAG検索データを選択してください。</div>
                 <label>回答モデル<select id="chat-model"><option value="">読み込み中…</option></select></label>
                 <div id="chat-model-detail" class="model-detail muted-panel">選ぶと、対応機能と利用状態を表示します。</div>
               </div>
@@ -564,6 +564,6 @@
     </div>
   </div>
 
-  <script src="/assets/app.js?v=1.8.0" defer></script>
+  <script src="/assets/app.js?v=1.8.1" defer></script>
 </body>
 </html>

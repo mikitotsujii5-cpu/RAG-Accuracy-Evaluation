@@ -7,7 +7,7 @@
 対象Workspaceは`field-eng-east`（ID `<WORKSPACE_ID>`）です。Databricksへサインインし、このAppの利用権限を持つアカウントで開いてください。
 
 > [!NOTE]
-> 現行ローカルsourceはasset version `1.8.0`です。登録済みIndex Profileだけを表示する回帰を含むUIテスト65件とPythonテスト344件、合計409件に合格しました。field-eng-eastのremote検証済みassetは`1.7.0`で、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、Resource Binding 7件を確認し、指定ProjectでStandard／512／Qwen3の1 Profileだけが表示されることを確認済みです。
+> 現行sourceはasset version `1.8.1`です。UIテスト65件とPythonテスト344件、合計409件に合格しました。field-eng-eastへの配置後、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、Resource Binding 7件、health `ok`／`databricks_ready=true`を確認済みです。
 
 > [!CAUTION]
 > 付属のトヨタ車種関連PDFはすべて架空の評価データです。内容を実車の操作、整備、救助、購入判断に使わないでください。これらは同梱シナリオであり、アプリは車両以外のPDFにも使えます。
@@ -26,6 +26,8 @@ Projectは、同じ目的で使うPDF、検索Index、会話履歴、評価Datas
 別のデータ群を扱うときは、新しいProjectを作ります。PDF、Variant、会話、評価結果を別Projectへ混ぜないでください。
 
 既存Index専用のAppでは、管理者が登録したDelta Table／AI Search Indexの組だけが検索データの選択肢に出ます。過去の許可外VariantがProjectに残っていても画面には表示されません。選択肢が0件の場合は、データを作り直さず、管理者に既存Index設定の確認を依頼してください。
+
+画面にはチャンク方式、サイズ、Embedding Modelなどの比較に必要な条件だけを表示し、Catalog名、Table名、Indexの完全修飾名は表示しません。物理リソースの確認が必要な管理者は、画面上部のDatabricks機能リンクから対象コンソールを開きます。
 
 同梱データの推奨構成は次のとおりです。まず非車両文書で汎用動作を確認し、その後にトヨタ評価シナリオを使ってPhaseを比較できます。
 
@@ -405,7 +407,7 @@ advisorにはRecall／Precision／nDCGだけでなく、Answer Correctness、Gro
 - 旧asset `1.4.1`のトヨタ互換回帰でも期待回答`60`と一致し、Trace `<TRACE_ID>`、引用2件を確認済みです。
 - baseline Projectの使用中検索データは`baseline-standard-512-v1`へ復元済みです。
 - 旧asset `1.4.1`のremote回帰では、同一requestの保存がuser／assistant各1件であること、停止要求が`run.cancelled`／永続状態`CANCELLED`になることを確認済みです。評価履歴再表示、`ERROR` PDF再解析、PDFリンクだけを返すlive citationは現行sourceでも回帰済みです。
-- remote検証済みasset `1.7.0`はfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件を確認しました。指定Projectの認証付きremote画面では、asset URL `1.7.0`、Standard／512／Qwen3の1 Profile、検索設定選択欄の非表示、256／1024の可視要素0件、console warning／error 0件を確認しました。
+- asset `1.8.1`をfield-eng-eastへ配置し、deployment `SUCCEEDED`、App `RUNNING`、compute `ACTIVE`、resource binding 7件、health `ok`／`databricks_ready=true`を確認しました。認証付きremote画面では4画面、主要な非破壊操作、PDF Viewer、評価履歴、物理Index名の非表示、console warning／error 0件を確認しました。
 - asset `1.4.7`で実行済みだったPhase 1・1問・1回runをasset `1.4.8`のremote status／results APIで取得し、`SUCCEEDED`、1／1試行、`elapsed_seconds=774`を確認しました。Lakeflow run totalは777.125秒、指標1件、改善提案1件、Recall／Correctness／Groundedness／Citationは各1.0、error rateは0、p50は5,479 msです。これはasset `1.4.8`で新規評価を実行した証跡ではありません。
 - Phase横並び、結果画面、経過時間「12分54秒」が3秒後も固定されることは、ローカルSSO代替画面で目視確認済みです。SSO済みremoteブラウザによる手操作、TTFT、残り7 profileは未確認です。
 - 現行deployment `<DEPLOYMENT_ID>`では、Project `<RESOURCE_ID>`に残っていた30分超の孤児Chat run 2件とassistant messageを`ERROR`へ整合した後、document `<RESOURCE_ID>`の削除がHTTP 202で完了しました。影響旧Variant 4件から後継Variant 2件を作り、両方を`READY`まで確認しました。source／AI Searchは削除PDF 0件で、保持document `<RESOURCE_ID>`だけを返します。
