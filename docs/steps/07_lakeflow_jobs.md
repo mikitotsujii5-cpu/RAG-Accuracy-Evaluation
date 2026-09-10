@@ -111,7 +111,8 @@ Data Preparationの重複防止と回復契約:
 合格条件:
 
 - 3 Jobが指定IDで存在し、Notebook pathとparameterがdeployment JSONに一致する。
-- Data Preparationは`PERFORMANCE_OPTIMIZED` Serverless、Environment version `5`、`max_concurrent_runs=2`、Environment dependency `databricks-sdk==0.135.0`、tag `compute_profile=serverless-performance-optimized-v5`である。task-levelの`libraries`を持たない。
+- 3 Jobは`PERFORMANCE_OPTIMIZED` Serverless、Environment version `5`、tag `compute_profile=serverless-performance-optimized-v5`である。Data Preparationは`max_concurrent_runs=2`、ほかは`1`とし、task-levelの`libraries`を持たない。
+- EvaluationのEnvironment dependencyは`databricks-sdk==0.135.0`と`databricks-ai-search==0.78`、Data Preparation／Index Syncは`databricks-sdk==0.135.0`である。MLflowの3値はEvaluation Notebook parameterで受け取る。
 - Data PreparationはProject外のdocumentと未登録Profileを拒否し、許可済みの既存source Delta Table／AI Search Indexだけを使う。物理リソースの作成や実行時grantを行わない。
 - 同じ`prep_run_id`を再確認してもJob runが重複せず、NULLの`job_run_id`を自己回復できる。
 - Evaluationは同じProject、Dataset、Variant、モデル、設定hashだけを処理する。
@@ -126,7 +127,7 @@ Data Preparationの重複防止と回復契約:
 ## 失敗時の修正
 
 - `%run ./job_common`が失敗したら4 Notebookの相対配置とimport形式`SOURCE`／`PYTHON`を確認します。
-- Data Preparationでdependency解決が失敗する場合は、Environment versionと`environments[].spec.dependencies`を確認します。Serverless notebook taskの`tasks[].libraries`へ移して回避しません。Evaluation／Index SyncのClassic task libraryとは分けて確認します。
+- Jobのdependency解決が失敗する場合は、Environment versionと`environments[].spec.dependencies`を確認します。Serverless notebook taskの`tasks[].libraries`へ移して回避しません。
 - Job起動は成功して処理が失敗する場合、JobのRun as identityにVolume、Table、AI Search、model endpointの権限があるか確認します。
 - `QUEUED`が長い場合は、Appに表示されるqueue理由とJobリンクを確認します。先行run待ちとServerless compute準備を分けて確認します。
 - チャンク作成が速くなってもIndex同期で待つ場合は、AI Search pipeline statusを確認します。managed service側の同期時間はServerless performance targetでは短縮されません。

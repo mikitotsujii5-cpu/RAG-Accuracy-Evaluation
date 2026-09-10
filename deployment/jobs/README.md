@@ -3,25 +3,22 @@
 These files are request bodies for Databricks CLI `v1.3.0` `jobs create`.
 They contain placeholders for the target Workspace's run-as user and MLflow／
 Warehouse values. Replace every `<...>` value locally before sending a request;
-never commit the rendered payload. Compute differs by Job. The production Data
-Preparation Job is Performance-optimized Serverless; Evaluation and Index Sync
-keep the Classic Job compute declared in their own JSON files.
+never commit the rendered payload. The three production Jobs use
+Performance-optimized Serverless Environment v5 so the same definitions work
+across AWS and Azure workspaces.
 
-| Data Preparation setting | Value |
-|---|---|
-| Compute | Lakeflow Jobs Serverless |
-| Performance target | `PERFORMANCE_OPTIMIZED` |
-| Environment | key `toyota_rag_serverless_v5` / version `5` |
-| Concurrent runs | `max_concurrent_runs=2` |
-| Environment dependency | `databricks-sdk==0.135.0` |
-| Job tag | `compute_profile=serverless-performance-optimized-v5` |
+| Job | Concurrent runs | Environment dependency |
+|---|---:|---|
+| Data Preparation | 2 | `databricks-sdk==0.135.0` |
+| Evaluation | 1 | `databricks-sdk==0.135.0`、`databricks-ai-search==0.78` |
+| Index Sync | 1 | `databricks-sdk==0.135.0` |
 
-Serverless notebook tasks do not support task-level libraries. The pinned SDK
-is therefore declared under the Job Environment `dependencies`, not under
-`tasks[].libraries`. It provides the `IndexSubtype` API used to validate the
-pre-created HYBRID AI Search index. Two concurrent runs allow independent
-logical Variant rebuilds to proceed in parallel. The managed AI Search sync
-stage still runs outside the Job compute.
+Serverless notebook tasks do not support task-level libraries. Dependencies
+are therefore declared under each Job Environment, not under
+`tasks[].libraries`. MLflow path／ID and tracing Warehouse ID are passed to the
+Evaluation notebook as deployment-time notebook parameters. Two concurrent
+Data Preparation runs allow independent logical Variant rebuilds to proceed in
+parallel. The managed AI Search sync stage still runs outside the Job compute.
 
 Performance optimized prioritizes startup latency. Standard performance mode
 uses fewer DBUs and normally tolerates a 4-to-6-minute startup delay. Compare
@@ -133,8 +130,8 @@ in the Databricks App environment. The App passes only `prep_run_id` or
 
 The Evaluation Job additionally requires `MLFLOW_EXPERIMENT_PATH`,
 `MLFLOW_EXPERIMENT_ID`, and `MLFLOW_TRACING_SQL_WAREHOUSE_ID`. Replace those
-placeholders in a local copy of `evaluation_job.json` before creating or
-resetting the Job.
+notebook-parameter placeholders in a local copy of `evaluation_job.json`
+before creating or resetting the Job.
 
 The preparation Job accepts only administrator-provisioned profiles from the
 same `RAG_INDEX_PROFILES_JSON` allow-list used by the App. When that variable is

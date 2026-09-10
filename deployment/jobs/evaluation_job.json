@@ -12,29 +12,16 @@
       "default": ""
     }
   ],
-  "job_clusters": [
+  "performance_target": "PERFORMANCE_OPTIMIZED",
+  "environments": [
     {
-      "job_cluster_key": "toyota_rag_dbr18",
-      "new_cluster": {
-        "spark_version": "18.x-scala2.13",
-        "node_type_id": "Standard_D4s_v5",
-        "driver_node_type_id": "Standard_D4s_v5",
-        "runtime_engine": "STANDARD",
-        "data_security_mode": "USER_ISOLATION",
-        "num_workers": 1,
-        "spark_env_vars": {
-          "MLFLOW_EXPERIMENT_PATH": "<MLFLOW_EXPERIMENT_PATH>",
-          "MLFLOW_EXPERIMENT_ID": "<MLFLOW_EXPERIMENT_ID>",
-          "MLFLOW_TRACING_SQL_WAREHOUSE_ID": "<SQL_WAREHOUSE_ID>"
-        },
-        "azure_attributes": {
-          "availability": "ON_DEMAND_AZURE",
-          "first_on_demand": 1,
-          "spot_bid_max_price": -1
-        },
-        "custom_tags": {
-          "application": "toyota-rag-accuracy-eval"
-        }
+      "environment_key": "toyota_rag_evaluation_serverless_v5",
+      "spec": {
+        "environment_version": "5",
+        "dependencies": [
+          "databricks-sdk==0.135.0",
+          "databricks-ai-search==0.78"
+        ]
       }
     }
   ],
@@ -42,28 +29,19 @@
     {
       "task_key": "evaluate_phases",
       "description": "Hash-verify one evaluation batch and idempotently write all Phase results and suggestions.",
-      "job_cluster_key": "toyota_rag_dbr18",
+      "environment_key": "toyota_rag_evaluation_serverless_v5",
       "timeout_seconds": 14400,
       "max_retries": 1,
       "min_retry_interval_millis": 60000,
       "retry_on_timeout": true,
-      "libraries": [
-        {
-          "pypi": {
-            "package": "databricks-sdk==0.135.0"
-          }
-        },
-        {
-          "pypi": {
-            "package": "databricks-ai-search==0.78"
-          }
-        }
-      ],
       "notebook_task": {
         "notebook_path": "/Workspace/Users/<RUN_AS_USER_EMAIL>/toyota-rag-accuracy-eval/jobs/evaluation_job",
         "source": "WORKSPACE",
         "base_parameters": {
-          "eval_run_id": "{{job.parameters.eval_run_id}}"
+          "eval_run_id": "{{job.parameters.eval_run_id}}",
+          "MLFLOW_EXPERIMENT_PATH": "<MLFLOW_EXPERIMENT_PATH>",
+          "MLFLOW_EXPERIMENT_ID": "<MLFLOW_EXPERIMENT_ID>",
+          "MLFLOW_TRACING_SQL_WAREHOUSE_ID": "<SQL_WAREHOUSE_ID>"
         }
       }
     }
@@ -73,6 +51,6 @@
   },
   "tags": {
     "application": "toyota-rag-accuracy-eval",
-    "environment": "field-eng-east"
+    "compute_profile": "serverless-performance-optimized-v5"
   }
 }

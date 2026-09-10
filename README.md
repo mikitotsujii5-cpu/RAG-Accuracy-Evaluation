@@ -89,6 +89,7 @@ RAG精度評価ではPhase 1〜5を横並びで選び、評価質問、検索デ
 - Lakeflow Jobsの`QUEUED`、先行Job待ち、コンピュート起動中などを区別して表示し、検証済みWorkspaceのJobリンクだけを表示します。
 - Job受付後に応答または`job_run_id`保存だけが失敗しても、同じ`prep_run_id`由来の冪等tokenで自己回復します。権限エラー等では30〜300秒の指数バックオフを使い、3秒ごとの再投入を防ぎます。
 - Data Preparation Job `<DATA_PREPARATION_JOB_ID>`はPerformance-optimized Serverless、Standard Environment v5、`max_concurrent_runs=2`です。Notebook taskではtask libraryを使わず、Job Environmentのdependencyとして検証済み`databricks-sdk==0.135.0`を固定します。構成識別用tagは`compute_profile=serverless-performance-optimized-v5`です。
+- Evaluation／Index Sync JobもPerformance-optimized Serverless Environment v5です。EvaluationはEnvironment dependencyに`databricks-sdk==0.135.0`と`databricks-ai-search==0.78`を置き、MLflowの3値はNotebook parameterで受け取ります。Azure専用VM名へ依存しません。
 - Performance optimizedは起動時間を優先するため、Standard performance modeよりDBU使用量が増える場合があります。速度だけでなく`system.billing.usage`の実績も継続して比較します。
 - PDF解析の`ai_parse_document`は引き続きX-Large Serverless SQL Warehouseで、`READ_FILES(..., format => 'file')`が返す`FILE`値を入力にします。Serverless Jobsへ移したのは後続のチャンク化、登録済みProfileの既存source Delta Tableへの論理Variant書き込み、AI Search同期依頼です。App／Jobは物理TableやIndexを作成しません。
 - 利用者向け画面はチャンク方式、サイズ、Embedding Modelなどの比較条件だけを表示し、Catalog名、Table名、Indexの完全修飾名を露出しません。管理者向けのDatabricks機能リンクは、権限のある利用者だけが対象コンソールを開けます。
@@ -351,7 +352,7 @@ python3 scripts/smoke_test_ai_search.py --profile <DATABRICKS_CLI_PROFILE>
 
 - data preparation、evaluation、index syncの3 Jobが存在する。
 - Data Preparation Jobが`performance_target=PERFORMANCE_OPTIMIZED`、Standard Environment v5、`max_concurrent_runs=2`である。
-- Data Preparation taskの`environment_key`がJob Environmentを参照し、dependencyが`databricks-sdk==0.135.0`、tagが`compute_profile=serverless-performance-optimized-v5`である。taskの`libraries`、`job_cluster_key`、Jobの`job_clusters`を使っていないことも確認する。Evaluation／Index Syncはそれぞれのdeployment JSONに記載したClassic構成と照合する。
+- 3 Jobのtaskが各Serverless Job Environmentを参照し、taskの`libraries`、`job_cluster_key`、Jobの`job_clusters`を使っていないことを確認する。EvaluationのMLflow 3値はNotebook parameterと照合する。
 - [`deployment/jobs/data_preparation_job_classic_fallback.json`](deployment/jobs/data_preparation_job_classic_fallback.json)がD16 Driver／D8 Worker×2の検証済みClassic構成を保持し、障害時もJob ID `<DATA_PREPARATION_JOB_ID>`を変えずにresetできる。
 - run-as user、Notebook path、parameter名がdeployment JSONと一致する。
 - 既存Jobを更新した場合は`jobs reset`を使い、Appが参照するJob IDを変えていない。

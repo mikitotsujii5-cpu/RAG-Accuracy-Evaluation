@@ -7,6 +7,9 @@ bundle:
 variables:
   app_name:
     description: Globally unique Databricks App name in the workspace
+  app_display_name:
+    description: Human-readable App label stored in the Databricks App description
+    default: RAG精度評価アプリ
   git_repository_url:
     description: HTTPS URL of the private GitHub repository
   git_branch:
@@ -40,7 +43,7 @@ resources:
   apps:
     rag_accuracy_evaluation:
       name: ${var.app_name}
-      description: PDFをProject単位で検索・チャットし、Phase 1〜5を比較するRAG精度評価アプリ
+      description: ${var.app_display_name}
       compute_size: MEDIUM
       git_repository:
         provider: gitHub

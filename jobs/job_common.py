@@ -54,14 +54,27 @@ STARTER_QUESTION_TYPE = "starter_sample_unlabeled"
 STARTER_EVAL_CASE_IDS = tuple(
     f"starter-sample-{slot:02d}" for slot in range(1, 4)
 )
+def _deployment_setting(name: str) -> str:
+    """Read a deployment value from an environment variable or Job parameter."""
+
+    value = os.getenv(name, "").strip()
+    if value:
+        return value
+    try:
+        return str(dbutils.widgets.get(name)).strip()  # type: ignore[name-defined]
+    except Exception:
+        return ""
+
+
 # Deployment-specific MLflow values must be configured on the evaluation Job.
-# They intentionally have no source-code defaults: a copied Job must never
-# write traces to a different Workspace resource by accident.
-MLFLOW_EXPERIMENT_PATH = os.getenv("MLFLOW_EXPERIMENT_PATH", "").strip()
-MLFLOW_EXPERIMENT_ID = os.getenv("MLFLOW_EXPERIMENT_ID", "").strip()
-MLFLOW_TRACING_SQL_WAREHOUSE_ID = os.getenv(
-    "MLFLOW_TRACING_SQL_WAREHOUSE_ID", ""
-).strip()
+# Classic compute can provide environment variables. Serverless Jobs provide
+# the same values as notebook parameters. There are intentionally no defaults:
+# a copied Job must never write traces to another Workspace by accident.
+MLFLOW_EXPERIMENT_PATH = _deployment_setting("MLFLOW_EXPERIMENT_PATH")
+MLFLOW_EXPERIMENT_ID = _deployment_setting("MLFLOW_EXPERIMENT_ID")
+MLFLOW_TRACING_SQL_WAREHOUSE_ID = _deployment_setting(
+    "MLFLOW_TRACING_SQL_WAREHOUSE_ID"
+)
 
 BASELINE_DOCUMENT_IDS = frozenset(
     {

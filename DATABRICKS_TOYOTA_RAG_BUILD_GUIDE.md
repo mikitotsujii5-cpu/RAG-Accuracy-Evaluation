@@ -248,6 +248,8 @@ field-eng-eastでは、PDF登録から検索可能になるまでの処理を次
 
 Data Preparation Job `<DATA_PREPARATION_JOB_ID>`は`performance_target=PERFORMANCE_OPTIMIZED`、Standard Environment v5、`max_concurrent_runs=2`とし、PDF削除後などに独立した複数の論理Variantを最大2件まで並行再構築できるようにする。taskには`environment_key=toyota_rag_serverless_v5`を設定する。ServerlessのNotebook taskはtask libraryをサポートしないため、既存Indexの定義検証と同期に使う検証済み`databricks-sdk==0.135.0`はJob Environmentのdependencyとして固定する。JobはこのSDKを使ってもTable／Indexを作成せず、allow-list済みリソースの検証とTriggered syncだけを行う。構成識別用tagは`compute_profile=serverless-performance-optimized-v5`とする。
 
+Evaluation／Index Sync JobもPerformance-optimized Serverless Environment v5を使う。EvaluationはEnvironment dependencyに`databricks-sdk==0.135.0`と`databricks-ai-search==0.78`、Index Syncは`databricks-sdk==0.135.0`を固定する。MLflow Experiment path／IDとTracing Warehouse IDはEvaluation Notebook parameterで渡す。これによりAzure固有のVM SKUへ依存せず、AWS／Azureで同じJob定義を利用できる。
+
 Environment v5はPython 3.12.3とDatabricks Connect 18を使う。Serverless標準メモリは16 GBで、High memory 32 GBはPreviewである。現行NotebookはPDF要素を`collect()`してPython側でチャンクを組み立てるため、1 PDFのsmokeだけでなく想定最大文書数でもメモリを確認する。ServerlessはCPU architectureを固定しないので、追加dependencyはaarch64とx86_64の両方で動くものを使う。AI Search managed serviceのIndex同期はJob外の処理であり、Serverlessの起動が速くても別に待ち時間が発生する。高速化を評価するときはqueue／setup、Job内の実処理、AI Search同期を分けて記録する。
 
 Performance optimizedは起動と処理速度を優先し、Standard performance modeは通常4〜6分の起動待ちを許容する代わりにDBU使用量を抑える。したがって、本番判断ではlatencyだけでなく`system.billing.usage`の実績も比較する。
@@ -4217,6 +4219,7 @@ custom production scorerには追加制約がある。`@scorer` 形式で自己�
 
 - [ ] Data Preparation Job `<DATA_PREPARATION_JOB_ID>`が`PERFORMANCE_OPTIMIZED`、Standard Environment v5、`max_concurrent_runs=2`、Environment dependency `databricks-sdk==0.135.0`、tag `compute_profile=serverless-performance-optimized-v5`であることを確認した。
 - [ ] Data Preparation taskが`environment_key=toyota_rag_serverless_v5`を参照し、taskの`libraries`／`job_cluster_key`とJobの`job_clusters`を使っていないことを確認した。
+- [ ] Evaluation／Index SyncもEnvironment v5を参照し、taskの`libraries`／`job_cluster_key`とJobの`job_clusters`を使っていないことを確認した。
 - [ ] Classic fallback JSONがD16 Driver／D8 Worker×2の検証済み構成を保持し、Job IDを変えずにresetできることを確認した。
 - [ ] `ai_parse_document(FILE)`はX-Large Serverless SQL Warehouse、後続のチャンク化はServerless Job、Index同期はAI Search managed serviceで動くことを確認した。
 - [ ] PDFを `projects/<project_id>/source_pdfs/<document_id>.pdf` へUUID名で保存した。

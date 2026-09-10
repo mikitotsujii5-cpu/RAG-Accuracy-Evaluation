@@ -362,17 +362,47 @@ class DeploymentContractTest(unittest.TestCase):
                 )
                 task = payload["tasks"][0]
                 self.assertIn("/jobs/", task["notebook_task"]["notebook_path"])
+                expected_base_parameters = {
+                    parameter_name: (
+                        "{{job.parameters." + parameter_name + "}}"
+                    )
+                    for parameter_name in parameter_names
+                }
+                if filename == "evaluation_job.json":
+                    expected_base_parameters.update(
+                        {
+                            "MLFLOW_EXPERIMENT_PATH": "<MLFLOW_EXPERIMENT_PATH>",
+                            "MLFLOW_EXPERIMENT_ID": "<MLFLOW_EXPERIMENT_ID>",
+                            "MLFLOW_TRACING_SQL_WAREHOUSE_ID": "<SQL_WAREHOUSE_ID>",
+                        }
+                    )
                 self.assertEqual(
                     task["notebook_task"].get("base_parameters", {}),
-                    {
-                        parameter_name: (
-                            "{{job.parameters." + parameter_name + "}}"
-                        )
-                        for parameter_name in parameter_names
-                    },
+                    expected_base_parameters,
                 )
-                if filename == "data_preparation_job.json":
-                    self.assertEqual(payload["max_concurrent_runs"], 2)
+                if filename != "data_preparation_job_classic_fallback.json":
+                    expected_serverless = {
+                        "data_preparation_job.json": (
+                            "toyota_rag_serverless_v5",
+                            ["databricks-sdk==0.135.0"],
+                        ),
+                        "evaluation_job.json": (
+                            "toyota_rag_evaluation_serverless_v5",
+                            [
+                                "databricks-sdk==0.135.0",
+                                "databricks-ai-search==0.78",
+                            ],
+                        ),
+                        "index_sync_job.json": (
+                            "toyota_rag_index_sync_serverless_v5",
+                            ["databricks-sdk==0.135.0"],
+                        ),
+                    }
+                    environment_key, dependencies = expected_serverless[filename]
+                    self.assertEqual(
+                        payload["max_concurrent_runs"],
+                        2 if filename == "data_preparation_job.json" else 1,
+                    )
                     self.assertEqual(
                         payload["performance_target"], "PERFORMANCE_OPTIMIZED"
                     )
@@ -380,17 +410,15 @@ class DeploymentContractTest(unittest.TestCase):
                         payload["environments"],
                         [
                             {
-                                "environment_key": "toyota_rag_serverless_v5",
+                                "environment_key": environment_key,
                                 "spec": {
                                     "environment_version": "5",
-                                    "dependencies": ["databricks-sdk==0.135.0"],
+                                    "dependencies": dependencies,
                                 },
                             }
                         ],
                     )
-                    self.assertEqual(
-                        task["environment_key"], "toyota_rag_serverless_v5"
-                    )
+                    self.assertEqual(task["environment_key"], environment_key)
                     self.assertEqual(
                         payload["tags"]["compute_profile"],
                         "serverless-performance-optimized-v5",
@@ -407,53 +435,43 @@ class DeploymentContractTest(unittest.TestCase):
                     cluster = payload["job_clusters"][0]["new_cluster"]
                     self.assertEqual(cluster["spark_version"], "18.x-scala2.13")
                     self.assertEqual(cluster["data_security_mode"], "USER_ISOLATION")
-                    if filename == "data_preparation_job_classic_fallback.json":
-                        self.assertEqual(payload["max_concurrent_runs"], 2)
-                        self.assertEqual(cluster["node_type_id"], "Standard_D8s_v5")
-                        self.assertEqual(
-                            cluster["driver_node_type_id"], "Standard_D16s_v5"
-                        )
-                        self.assertEqual(cluster["num_workers"], 2)
-                        self.assertEqual(
-                            task["libraries"][0]["pypi"]["package"],
-                            "databricks-sdk==0.135.0",
-                        )
-                        self.assertEqual(
-                            cluster["custom_tags"]["compute_profile"],
-                            "accelerated-data-preparation",
-                        )
-                    else:
-                        self.assertEqual(payload["max_concurrent_runs"], 1)
-                        self.assertEqual(cluster["node_type_id"], "Standard_D4s_v5")
-                        self.assertEqual(
-                            cluster["driver_node_type_id"], "Standard_D4s_v5"
-                        )
-                        self.assertEqual(cluster["num_workers"], 1)
-                if filename == "evaluation_job.json":
-                    packages = {
-                        item["pypi"]["package"]
-                        for item in payload["tasks"][0]["libraries"]
-                    }
+                    self.assertEqual(payload["max_concurrent_runs"], 2)
+                    self.assertEqual(cluster["node_type_id"], "Standard_D8s_v5")
                     self.assertEqual(
-                        packages,
-                        {"databricks-sdk==0.135.0", "databricks-ai-search==0.78"},
+                        cluster["driver_node_type_id"], "Standard_D16s_v5"
+                    )
+                    self.assertEqual(cluster["num_workers"], 2)
+                    self.assertEqual(
+                        task["libraries"][0]["pypi"]["package"],
+                        "databricks-sdk==0.135.0",
                     )
                     self.assertEqual(
-                        cluster["spark_env_vars"]["MLFLOW_TRACING_SQL_WAREHOUSE_ID"],
+                        cluster["custom_tags"]["compute_profile"],
+                        "accelerated-data-preparation",
+                    )
+                if filename == "evaluation_job.json":
+                    self.assertEqual(
+                        payload["environments"][0]["spec"]["dependencies"],
+                        ["databricks-sdk==0.135.0", "databricks-ai-search==0.78"],
+                    )
+                    self.assertEqual(
+                        task["notebook_task"]["base_parameters"][
+                            "MLFLOW_TRACING_SQL_WAREHOUSE_ID"
+                        ],
                         "<SQL_WAREHOUSE_ID>",
                     )
                     self.assertEqual(
-                        cluster["spark_env_vars"]["MLFLOW_EXPERIMENT_ID"],
+                        task["notebook_task"]["base_parameters"]["MLFLOW_EXPERIMENT_ID"],
                         "<MLFLOW_EXPERIMENT_ID>",
                     )
                     self.assertEqual(
-                        cluster["spark_env_vars"]["MLFLOW_EXPERIMENT_PATH"],
+                        task["notebook_task"]["base_parameters"]["MLFLOW_EXPERIMENT_PATH"],
                         "<MLFLOW_EXPERIMENT_PATH>",
                     )
                 elif filename == "index_sync_job.json":
                     self.assertEqual(
-                        payload["tasks"][0]["libraries"][0]["pypi"]["package"],
-                        "databricks-sdk==0.135.0",
+                        payload["environments"][0]["spec"]["dependencies"],
+                        ["databricks-sdk==0.135.0"],
                     )
 
     def test_data_preparation_pins_sdk_for_existing_index_sync_only(self) -> None:
