@@ -94,13 +94,15 @@ def validate_app_base(app_url: str, workspace_host: str) -> str:
     return f"https://{target.hostname.lower()}" + (":443" if port == 443 else "")
 
 
-def require_uuid4(value: str, option: str) -> str:
+def require_uuid(value: str, option: str, *, expected_version: int) -> str:
     try:
         parsed = uuid.UUID(value)
     except (TypeError, ValueError) as exc:
-        raise RuntimeError(f"{option} must be a canonical UUIDv4") from exc
-    if parsed.version != 4 or str(parsed) != value:
-        raise RuntimeError(f"{option} must be a canonical UUIDv4")
+        raise RuntimeError(
+            f"{option} must be a canonical UUIDv{expected_version}"
+        ) from exc
+    if parsed.version != expected_version or str(parsed) != value:
+        raise RuntimeError(f"{option} must be a canonical UUIDv{expected_version}")
     return str(parsed)
 
 
@@ -173,9 +175,9 @@ def main() -> int:
     args = parse_args()
     if args.timeout_seconds <= 0:
         raise RuntimeError("--timeout-seconds must be positive")
-    project_id = require_uuid4(args.project_id, "--project-id")
-    document_id = require_uuid4(args.document_id, "--document-id")
-    variant_id = require_uuid4(args.variant_id, "--variant-id")
+    project_id = require_uuid(args.project_id, "--project-id", expected_version=4)
+    document_id = require_uuid(args.document_id, "--document-id", expected_version=4)
+    variant_id = require_uuid(args.variant_id, "--variant-id", expected_version=4)
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", args.dataset_version):
         raise RuntimeError("--dataset-version is invalid")
     workspace = WorkspaceClient(profile=args.profile)
@@ -372,7 +374,12 @@ def main() -> int:
         headers={"Idempotency-Key": idempotency_key},
     )
     eval_run_id = run.get("eval_run_id")
-    eval_run_id = require_uuid4(str(eval_run_id), "eval_run_id")
+    # Evaluation IDs are deterministic UUIDv5 values derived from the
+    # Project, requester, and Idempotency-Key. Project/document/Variant IDs
+    # remain randomly generated UUIDv4 values.
+    eval_run_id = require_uuid(
+        str(eval_run_id), "eval_run_id", expected_version=5
+    )
 
     started = time.monotonic()
     deadline = started + args.timeout_seconds

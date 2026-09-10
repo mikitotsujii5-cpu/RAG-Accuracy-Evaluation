@@ -511,6 +511,11 @@ class DeploymentContractTest(unittest.TestCase):
             "ResourceAlreadyExists",
         ):
             self.assertNotIn(creation_type, source)
+        preparation_smoke = (
+            REPO / "scripts" / "smoke_test_preparation.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('/api/index-profiles', preparation_smoke)
+        self.assertIn('"index_profile_key": profile["profile_key"]', preparation_smoke)
 
     def test_app_and_jobs_never_create_delete_or_grant_physical_resources(self) -> None:
         """Deployment runtime may write rows and sync, but never mutate infrastructure."""

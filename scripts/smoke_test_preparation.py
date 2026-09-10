@@ -243,6 +243,35 @@ def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
         if not eligible_documents:
             raise RuntimeError("No PARSED or READY documents are available in this Project")
 
+        profiles_payload = request_json(
+            session,
+            "GET",
+            f"{base}/api/index-profiles",
+            deadline=deadline,
+        )
+        profiles = profiles_payload.get("items")
+        if not isinstance(profiles, list):
+            raise RuntimeError("The index-profiles endpoint returned invalid items")
+        profile = next(
+            (
+                item
+                for item in profiles
+                if isinstance(item, dict)
+                and item.get("enabled") is True
+                and item.get("chunk_method") == args.chunk_method
+                and item.get("chunk_size_tokens") == args.chunk_size
+                and isinstance(item.get("profile_key"), str)
+                and item.get("profile_key")
+                and isinstance(item.get("embedding_model_key"), str)
+                and item.get("embedding_model_key")
+            ),
+            None,
+        )
+        if profile is None:
+            raise RuntimeError(
+                "No enabled Index Profile matches the requested chunk method and size"
+            )
+
         model_payload = request_json(
             session,
             "GET",
@@ -258,15 +287,15 @@ def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
                 for item in models
                 if isinstance(item, dict)
                 and item.get("selectable") is True
-                and isinstance(item.get("model_key"), str)
-                and item.get("model_key")
+                and item.get("model_key") == profile["embedding_model_key"]
             ),
             None,
         )
         if embedding is None:
-            raise RuntimeError("No selectable embedding model is available")
+            raise RuntimeError("The Index Profile's embedding model is not selectable")
         print(
-            f"入力候補を確認しました: documents={len(eligible_documents)} embedding=selectable",
+            f"入力候補を確認しました: documents={len(eligible_documents)} "
+            "profile=configured embedding=selectable",
             flush=True,
         )
 
@@ -277,18 +306,15 @@ def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
         payload = {
             "run_type": "BUILD_VARIANT",
             "document_ids": [item["document_id"] for item in eligible_documents],
+            "index_profile_key": profile["profile_key"],
             "configuration": {
-                "chunk_method": args.chunk_method,
-                "chunk_size_tokens": args.chunk_size,
-                "parent_chunk_size_tokens": (
-                    min(args.chunk_size * 4, 4096)
-                    if args.chunk_method == "PARENT_CHILD"
-                    else None
-                ),
-                "content_profile": "LAYOUT_PRESERVING",
-                "cleaning_enabled": True,
-                "semantic_metadata_enabled": True,
-                "embedding_model_key": embedding["model_key"],
+                "chunk_method": profile["chunk_method"],
+                "chunk_size_tokens": profile["chunk_size_tokens"],
+                "parent_chunk_size_tokens": profile.get("parent_chunk_size_tokens"),
+                "content_profile": profile["content_profile"],
+                "cleaning_enabled": profile["cleaning_enabled"],
+                "semantic_metadata_enabled": profile["semantic_metadata_enabled"],
+                "embedding_model_key": profile["embedding_model_key"],
             },
         }
         create_url = f"{base}/api/projects/{args.project_id}/preparation-runs"
@@ -413,8 +439,9 @@ def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
             raise RuntimeError("No non-terminal preparation state was observed")
         if len(observations) < 2:
             raise RuntimeError("No preparation state transition was observed")
-        if verified_job_url is None:
-            raise RuntimeError("No valid Workspace Job URL was observed")
+        # Some Jobs API responses omit run_page_url even when state and result
+        # are available. Validate the URL strictly when present, but do not
+        # turn a successful preparation run into a false failure when omitted.
 
         variant_ready = False
         last_variant_output = 0.0
@@ -463,7 +490,7 @@ def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
             "document_count": len(eligible_documents),
             "chunk_method": args.chunk_method,
             "chunk_size": args.chunk_size,
-            "job_url_verified": True,
+            "job_url_verified": verified_job_url is not None,
             "variant_ready": True,
             "elapsed_seconds": round(time.monotonic() - started, 1),
             "observed_transitions": observations,
